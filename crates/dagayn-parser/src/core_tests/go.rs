@@ -420,8 +420,12 @@ func run(r *Repo, req *http.Request, p string) {
                     == serde_json::json!({"call": "NewBuilder", "line": 21, "unwrap": false})
             })
     );
-    // A package qualifier is no receiver.
-    assert_eq!(call("Helper", 23).extra, serde_json::json!({}));
+    // A package qualifier (or a variable of the package) names the call's
+    // receiver: it is no plain call.
+    assert_eq!(
+        call("Helper", 23).extra,
+        serde_json::json!({"receiver": "models"})
+    );
 }
 
 #[test]
@@ -505,6 +509,125 @@ func (f *fixture) TestMethod(t *testing.T) {}
     assert!(tested_by("Parse", "FuzzParse"));
     assert!(tested_by("Save", "ExampleStore_Save"));
     assert!(tested_by("store/store_test.go::newFixture", "TestSave"));
+}
+
+#[test]
+fn go_files_declare_their_package_import_path_as_namespace() {
+    let mut root = std::env::temp_dir();
+    root.push(format!("dagayn-go-namespaces-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let files: &[(&str, &str)] = &[
+        ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+        ("main.go", "package main\n\nfunc main() {}\n"),
+        ("zstd/enc.go", "package zstd\n\nfunc encode() {}\n"),
+        (
+            "zstd/enc_test.go",
+            "package zstd\n\nimport \"testing\"\n\nfunc TestEncode(t *testing.T) { encode() }\n",
+        ),
+        (
+            "zstd/x_test.go",
+            "package zstd_test\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) {}\n",
+        ),
+        (
+            "zstd/gen.go",
+            "//go:build ignore\n\npackage main\n\nfunc main() {}\n",
+        ),
+        (
+            "zstd/old.go",
+            "// +build ignore\n\npackage main\n\nfunc main() {}\n",
+        ),
+        ("tools/go.mod", "module example.com/tools\n"),
+        ("tools/cmd/a.go", "package main\n\nfunc main() {}\n"),
+    ];
+    for (path, text) in files {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    let namespaces = |file: &str| {
+        let source = std::fs::read(root.join(file)).unwrap();
+        let mut parser = RustOwnedParser::new();
+        let (nodes, _) = parser.parse_file_in_repo(Some(&root), file, &source);
+        nodes[0].extra.get("namespaces").cloned()
+    };
+    let one = |namespace: &str| Some(serde_json::json!([namespace]));
+    assert_eq!(namespaces("main.go"), one("example.com/m"));
+    assert_eq!(namespaces("zstd/enc.go"), one("example.com/m/zstd"));
+    // A test of the package is in the package; an external test package is
+    // a package of its own.
+    assert_eq!(namespaces("zstd/enc_test.go"), one("example.com/m/zstd"));
+    assert_eq!(namespaces("zstd/x_test.go"), one("example.com/m/zstd_test"));
+    // A file the build ignores belongs to no package.
+    assert_eq!(namespaces("zstd/gen.go"), None);
+    assert_eq!(namespaces("zstd/old.go"), None);
+    // The nearest go.mod decides the module.
+    assert_eq!(namespaces("tools/cmd/a.go"), one("example.com/tools/cmd"));
+    let _ = std::fs::remove_dir_all(root);
+    // Without a repository root, the directory stands in for the module path.
+    let (nodes, _) = parse_go("zstd/enc.go", b"package zstd\n\nfunc encode() {}\n");
+    assert_eq!(nodes[0].extra.get("namespaces").cloned(), one("zstd"));
+}
+
+#[test]
+fn go_calls_through_a_package_or_a_local_function_value_are_no_plain_calls() {
+    let source = br#"package zstd
+
+import (
+	"fmt"
+	h "example.com/m/huff0"
+	"example.com/m/internal/snapref"
+	"gopkg.in/yaml.v3"
+)
+
+var defaults Options // typed: `defaults.Load()` is `Options.Load`
+
+func encode(f func() int) {
+	h.Compress()
+	snapref.Encode()
+	yaml.Marshal()
+	defaults.Load()
+	registry.Load()
+	fmt.Println()
+	f()
+	encode(nil)
+}
+"#;
+    let (_, edges) = parse_go("zstd/enc.go", source);
+    let extra = |target: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == target)
+            .unwrap_or_else(|| panic!("no call {target} in {edges:#?}"))
+            .extra
+            .clone()
+    };
+    assert_eq!(
+        extra("Compress"),
+        serde_json::json!({"receiver": "h", "import_path": "example.com/m/huff0"})
+    );
+    assert_eq!(
+        extra("Encode"),
+        serde_json::json!({"receiver": "snapref", "import_path": "example.com/m/internal/snapref"})
+    );
+    assert_eq!(
+        extra("Marshal"),
+        serde_json::json!({"receiver": "yaml", "import_path": "gopkg.in/yaml.v3"})
+    );
+    // A variable of another file of the package.
+    assert!(
+        edges.iter().any(|edge| edge.target == "Load"
+            && edge.extra == serde_json::json!({"receiver": "registry"}))
+    );
+    // A parameter holding a function is called, not a function of the
+    // package.
+    assert_eq!(extra("f"), serde_json::json!({"callee_local": true}));
+    // A plain call, here to the caller itself, keeps binding in the file.
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.target == "zstd/enc.go::encode"),
+        "{edges:#?}"
+    );
 }
 
 #[test]

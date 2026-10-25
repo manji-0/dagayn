@@ -345,11 +345,17 @@ fn is_plausible_bare_edge(
     // language counts: a Python `GraphStore` wrapper does not declare the Rust
     // struct of the same name, so importing it must not make the struct's
     // methods visible.
+    // A Go method is declared in its type's package, so only a declaration
+    // in the method's own directory is its type's: another package's
+    // `Scratch` says nothing about this `Scratch.prepare`.
+    let go = family == Some("go");
+    let directory = |path: &str| path.rsplit_once('/').map_or("", |(dir, _)| dir).to_string();
     visibility
         .declaring_files(target_qualified)
         .is_some_and(|declaring| {
             declaring.iter().any(|file| {
                 same_language_family(family, language_family(file))
+                    && (!go || directory(file) == directory(target_file))
                     && file_is_visible(source_file, file, import_targets, visibility)
             })
         })
@@ -427,7 +433,8 @@ fn bind_bare_call_targets(
             "SELECT id, source_qualified, target_qualified, file_path, \
                     json_extract(extra, '$.receiver_type'), \
                     json_extract(extra, '$.module_file'), \
-                    COALESCE(json_extract(extra, '$.receiver_unknown'), 0) \
+                    COALESCE(json_extract(extra, '$.receiver_unknown'), 0), \
+                    json_extract(extra, '$.receiver') IS NOT NULL \
              FROM edges \
              WHERE (kind = 'CALLS' \
                     OR (kind = 'REFERENCES' \
@@ -446,6 +453,7 @@ fn bind_bare_call_targets(
                 row.get::<_, Option<String>>(4)?,
                 row.get::<_, Option<String>>(5)?,
                 row.get::<_, i64>(6)? != 0,
+                row.get::<_, bool>(7)?,
             ))
         })?;
         mapped.collect::<std::result::Result<Vec<_>, _>>()?
@@ -459,6 +467,7 @@ fn bind_bare_call_targets(
         receiver_type,
         module_file,
         receiver_unknown,
+        named_receiver,
     ) in edges
     {
         if looks_like_file_target(&target_qualified) {
@@ -466,10 +475,20 @@ fn bind_bare_call_targets(
         }
         let src_file = node_file_from_qualified(&source_qualified, &file_path);
         let rust = language_family(&src_file) == Some("rust");
+        let go = language_family(&src_file) == Some("go");
         // Rust `x.m()` on a receiver of unknown type: the extractor already
         // typed every receiver the syntax gives away, and binding the rest
-        // to whichever `m` is visible is usually wrong (`tx.commit()`).
-        if rust && receiver_unknown {
+        // to whichever `m` is visible is usually wrong (`tx.commit()`). So
+        // in Go, whose package makes every `Write` of it visible (most of
+        // them methods of other types, or a test's fake `Write`).
+        if (rust || go) && receiver_unknown {
+            continue;
+        }
+        // Go `huff0.Compress()` or `cfg.Load()` (`receiver`: a package
+        // qualifier, or a variable or type of the package): its target is
+        // in that package or on that value's type, never the same-named
+        // function the caller's package makes visible.
+        if go && named_receiver {
             continue;
         }
         // JavaScript `x.get(..)` on a receiver of unknown type: the standard
@@ -500,7 +519,9 @@ fn bind_bare_call_targets(
         // A bare Rust call names a function a `use` brought in, i.e. one at
         // the top of its module file, never a method or a function of an
         // inline module such as `mod tests`.
-        if receiver_type.is_none() && rust {
+        // So does a plain Go call (`encode(x)`): a method is only ever
+        // called on a value.
+        if receiver_type.is_none() && (rust || (go && !receiver_unknown)) {
             candidates.retain(|qn| {
                 !qn.split_once("::")
                     .is_some_and(|(_, symbol)| symbol.contains('.'))
@@ -759,7 +780,7 @@ impl GraphStore {
             return Ok(edges);
         }
         let family = language_family(&target.file_path);
-        let edges: Vec<GraphEdge> = edges
+        let mut edges: Vec<GraphEdge> = edges
             .into_iter()
             .filter(|edge| edge.extra.get("external") != Some(&Value::Bool(true)))
             .filter(|edge| {
@@ -767,6 +788,26 @@ impl GraphStore {
                 same_language_family(language_family(&source), family)
             })
             .collect();
+        let import_path = |edge: &GraphEdge| {
+            edge.extra
+                .get("import_path")
+                .and_then(Value::as_str)
+                .map(normalize_namespace)
+        };
+        let mut visibility = None;
+        // A Go call through an import (`huff0.Compress()`) names that
+        // package: it means a function of the target only when the target's
+        // file is in the package the import path names, and then whether
+        // the caller's own package sees the target does not matter.
+        if edges.iter().any(|edge| import_path(edge).is_some()) {
+            let loaded = symbol_visibility(&self.conn)?;
+            let declared = loaded.declared.get(&target.file_path);
+            edges.retain(|edge| {
+                import_path(edge)
+                    .is_none_or(|path| declared.is_some_and(|declared| declared.contains(&path)))
+            });
+            visibility = Some(loaded);
+        }
         if !target.name.is_empty() {
             let counts =
                 self.count_nodes_by_name(&["Function".to_string(), "Class".to_string()], false)?;
@@ -775,17 +816,21 @@ impl GraphStore {
             }
         }
         let import_targets = import_targets_conn(&self.conn)?;
-        let visibility = symbol_visibility(&self.conn)?;
+        let visibility = match visibility {
+            Some(visibility) => visibility,
+            None => symbol_visibility(&self.conn)?,
+        };
         Ok(edges
             .into_iter()
             .filter(|edge| {
-                is_plausible_bare_edge(
-                    &node_file_from_qualified(&edge.source_qualified, &edge.file_path),
-                    &target.file_path,
-                    &import_targets,
-                    &visibility,
-                    &target.qualified_name,
-                )
+                import_path(edge).is_some()
+                    || is_plausible_bare_edge(
+                        &node_file_from_qualified(&edge.source_qualified, &edge.file_path),
+                        &target.file_path,
+                        &import_targets,
+                        &visibility,
+                        &target.qualified_name,
+                    )
             })
             .collect())
     }

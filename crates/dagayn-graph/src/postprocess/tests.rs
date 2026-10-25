@@ -472,6 +472,252 @@ fn resolves_bare_call_via_shared_namespace() {
     let _ = std::fs::remove_file(path);
 }
 
+/// The files of a Go package share its import path as their namespace, so a
+/// plain call binds to a function of another file of the package. A call
+/// through a package qualifier or a value (`huff0.Compress()`, `w.Flush()`)
+/// is no plain call, and a plain call never names a method.
+#[test]
+fn go_plain_calls_bind_within_their_package_only() {
+    let path = temp_db("bare-call-go-package");
+    let mut store = GraphStore::open(&path).expect("open");
+    let calls = |file: &str, caller: &str, list: &[(&str, i64, Value)]| -> Vec<EdgeInput> {
+        list.iter()
+            .map(|(target, line, extra)| EdgeInput {
+                extra: extra.clone(),
+                ..edge("CALLS", &format!("{file}::{caller}"), target, file, *line)
+            })
+            .collect()
+    };
+    let files: Vec<(&str, &str, Vec<NodeInput>, Vec<EdgeInput>)> = vec![
+        (
+            "zstd/enc.go",
+            "example.com/m/zstd",
+            vec![
+                function_node("encode", "zstd/enc.go"),
+                function_node("Compress", "zstd/enc.go"),
+                method_node("Reset", "zstd/enc.go", "Encoder"),
+                method_node("Flush", "zstd/enc.go", "Encoder"),
+                method_node("Close", "zstd/enc.go", "Encoder"),
+                class_node("Scratch", "zstd/enc.go"),
+                method_node("prepare", "zstd/enc.go", "Scratch"),
+            ],
+            vec![],
+        ),
+        (
+            "huff0/h.go",
+            "example.com/m/huff0",
+            vec![
+                function_node("Compress", "huff0/h.go"),
+                function_node("encode", "huff0/h.go"),
+                // Another package's type of the same name.
+                class_node("Scratch", "huff0/h.go"),
+                method_node("prepare", "huff0/h.go", "Scratch"),
+            ],
+            vec![],
+        ),
+        (
+            "zstd/dec.go",
+            "example.com/m/zstd",
+            vec![
+                function_node("run", "zstd/dec.go"),
+                method_node("Close", "zstd/dec.go", "writer"),
+                method_node("Sum", "zstd/dec.go", "digest"),
+            ],
+            calls(
+                "zstd/dec.go",
+                "run",
+                &[
+                    ("encode", 2, json!({})),
+                    ("Reset", 3, json!({})),
+                    (
+                        "Compress",
+                        4,
+                        json!({"receiver": "huff0", "import_path": "example.com/m/huff0"}),
+                    ),
+                    ("Flush", 5, json!({"receiver_unknown": true})),
+                    // A value of unknown type is never bound by name, even
+                    // to the file's own `Close` or the package's only `Sum`.
+                    ("Close", 6, json!({"receiver_unknown": true})),
+                    ("Sum", 7, json!({"receiver_unknown": true})),
+                    // `s *Scratch`: the package's `Scratch`.
+                    ("prepare", 8, json!({"receiver_type": "Scratch"})),
+                ],
+            ),
+        ),
+        (
+            "zstd/x_test.go",
+            "example.com/m/zstd_test",
+            vec![function_node("TestX", "zstd/x_test.go")],
+            calls("zstd/x_test.go", "TestX", &[("encode", 2, json!({}))]),
+        ),
+    ];
+    for (file, namespace, mut nodes, edges) in files {
+        nodes.insert(0, namespaced_file_node(file, namespace));
+        store
+            .store_file_nodes_edges(file, &nodes, &edges, "", 0)
+            .expect("store");
+    }
+    store.resolve_bare_call_targets().unwrap();
+    let mut stmt = store
+        .conn
+        .prepare("SELECT file_path, line, target_qualified FROM edges WHERE kind='CALLS' ORDER BY file_path, line")
+        .unwrap();
+    let targets = stmt
+        .query_map([], |row| <(String, i64, String)>::try_from(row))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        targets,
+        vec![
+            ("zstd/dec.go".to_string(), 2, "zstd/enc.go::encode".to_string()),
+            ("zstd/dec.go".to_string(), 3, "Reset".to_string()),
+            ("zstd/dec.go".to_string(), 4, "Compress".to_string()),
+            ("zstd/dec.go".to_string(), 5, "Flush".to_string()),
+            ("zstd/dec.go".to_string(), 6, "Close".to_string()),
+            ("zstd/dec.go".to_string(), 7, "Sum".to_string()),
+            ("zstd/dec.go".to_string(), 8, "zstd/enc.go::Scratch.prepare".to_string()),
+            // The external test package sees none of the package's names.
+            ("zstd/x_test.go".to_string(), 2, "encode".to_string()),
+        ]
+    );
+    drop(stmt);
+    // `callers_of`'s name fallback: the call through `huff0` is a caller of
+    // huff0's `Compress`, though zstd's files cannot see it, and none of
+    // zstd's own `Compress`, though they can.
+    let callers = |qualified: &str| {
+        let node = store.get_node(qualified).unwrap().expect("node");
+        store
+            .bare_name_edges(&node, "CALLS")
+            .unwrap()
+            .into_iter()
+            .map(|edge| (edge.file_path, edge.line))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(callers("huff0/h.go::Compress"), vec![("zstd/dec.go".to_string(), 4)]);
+    assert_eq!(callers("zstd/enc.go::Compress"), vec![]);
+    let _ = std::fs::remove_file(path);
+}
+
+/// `a := New(t); a.Equal()` in Go: `New` returns `*Assertions`, whose
+/// `Equal` is declared in another file of its package, while another
+/// package has an `Assertions` with an `Equal` too.
+#[test]
+fn go_methods_of_a_returned_type_are_found_in_its_package() {
+    let path = temp_db("returned-go-package-method");
+    let mut store = GraphStore::open(&path).expect("open");
+    let go_class = |name: &str, file: &str| NodeInput {
+        language: "go".to_string(),
+        ..class_node(name, file)
+    };
+    let go_method = |name: &str, file: &str, owner: &str| NodeInput {
+        language: "go".to_string(),
+        ..method_node(name, file, owner)
+    };
+    let files: Vec<(&str, &str, Vec<NodeInput>, Vec<EdgeInput>)> = vec![
+        (
+            "assert/forward_assertions.go",
+            "example.com/t/assert",
+            vec![
+                go_class("Assertions", "assert/forward_assertions.go"),
+                NodeInput {
+                    language: "go".to_string(),
+                    return_type: Some("*Assertions".to_string()),
+                    ..function_node("New", "assert/forward_assertions.go")
+                },
+            ],
+            vec![],
+        ),
+        (
+            "assert/assertion_forward.go",
+            "example.com/t/assert",
+            vec![go_method("Equal", "assert/assertion_forward.go", "Assertions")],
+            vec![],
+        ),
+        (
+            "require/forward_requirements.go",
+            "example.com/t/require",
+            vec![go_class("Assertions", "require/forward_requirements.go")],
+            vec![],
+        ),
+        (
+            "require/require_forward.go",
+            "example.com/t/require",
+            vec![go_method("Equal", "require/require_forward.go", "Assertions")],
+            vec![],
+        ),
+        (
+            "assert/a_test.go",
+            "example.com/t/assert",
+            vec![function_node("TestA", "assert/a_test.go")],
+            vec![
+                edge("CALLS", "assert/a_test.go::TestA", "New", "assert/a_test.go", 2),
+                EdgeInput {
+                    extra: json!({
+                        "receiver_unknown": true,
+                        "receiver_from": {"call": "New", "line": 2, "unwrap": false},
+                    }),
+                    ..edge("CALLS", "assert/a_test.go::TestA", "Equal", "assert/a_test.go", 3)
+                },
+                edge("CALLS", "assert/a_test.go::TestA", "Open", "assert/a_test.go", 4),
+                EdgeInput {
+                    extra: json!({
+                        "receiver_unknown": true,
+                        "receiver_from": {"call": "Open", "line": 4, "unwrap": false},
+                    }),
+                    ..edge("CALLS", "assert/a_test.go::TestA", "Close", "assert/a_test.go", 5)
+                },
+            ],
+        ),
+        // `Open` returns the standard `io.ReadCloser`, not the repository's
+        // only `ReadCloser`, which is another package's.
+        (
+            "assert/open.go",
+            "example.com/t/assert",
+            vec![NodeInput {
+                language: "go".to_string(),
+                return_type: Some("io.ReadCloser".to_string()),
+                ..function_node("Open", "assert/open.go")
+            }],
+            vec![EdgeInput {
+                extra: json!({"stdlib": true, "external": true, "external_package": "io"}),
+                ..edge("IMPORTS_FROM", "assert/open.go", "io", "assert/open.go", 1)
+            }],
+        ),
+        (
+            "zip/reader.go",
+            "example.com/t/zip",
+            vec![
+                go_class("ReadCloser", "zip/reader.go"),
+                go_method("Close", "zip/reader.go", "ReadCloser"),
+            ],
+            vec![],
+        ),
+    ];
+    for (file, namespace, mut nodes, edges) in files {
+        nodes.insert(0, namespaced_file_node(file, namespace));
+        store
+            .store_file_nodes_edges(file, &nodes, &edges, "", 0)
+            .expect("store");
+    }
+    store.resolve_bare_call_targets().unwrap();
+    let target = |line: i64| -> String {
+        store
+            .conn
+            .query_row(
+                "SELECT target_qualified FROM edges WHERE kind='CALLS' AND line = ?",
+                [line],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(target(2), "assert/forward_assertions.go::New");
+    assert_eq!(target(3), "assert/assertion_forward.go::Assertions.Equal");
+    assert_eq!(target(4), "assert/open.go::Open");
+    assert_ne!(target(5), "zip/reader.go::ReadCloser.Close");
+    let _ = std::fs::remove_file(path);
+}
+
 /// A namespace is shared only within one language family: a PHP file and a
 /// C# file that both declare `Shop` cannot name each other's symbols, while
 /// Kotlin and Java in one package can.

@@ -137,6 +137,20 @@ file visible) a single such method is bound at `MEDIUM`. A type with no such
 method in the repository (`Math.Max`) leaves the call unbound rather than
 binding it to an unrelated function of the same name.
 
+A Go file's File node declares its package's import path as its namespace
+(`extra.namespaces`): the `module` path of the nearest `go.mod` and the
+directory below it (`example.com/m/zstd`), with `_test` appended for an
+external test package (`package zstd_test`), and none for a file the build
+ignores (`//go:build ignore`). Without a `go.mod` the directory stands in for
+the path. So the files of one package see each other, and a test file of the
+package sees the package. Only a plain call (`encode(x)`) binds by name
+there, and only to a top-level function or type. A call through a package
+qualifier or a value of the package (`huff0.Compress()`, `cfg.Load()`)
+carries `receiver` (an import's also `import_path`) and is never bound by
+name; one on a value of unknown type (`receiver_unknown`) is not either, as
+in Rust. A method of a typed receiver binds to its type's methods in the
+type's own directory.
+
 Calls into a package (the standard library or a dependency) target the
 package itself with `extra.external`, `external_package`, `external_symbol`,
 and, for the standard library, `stdlib`; receivers are typed through

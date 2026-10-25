@@ -8,7 +8,10 @@ use super::member_calls::{BindingsSnapshot, CallOrigin, MemberCallBindings};
 use super::stdlib::go::{go_default_import_name, is_go_builtin_function, is_go_std_import};
 use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
-use super::util::{direct_child_text, line_count, line_of, node_text, strip_matching_quotes};
+use super::util::{
+    direct_child_text, line_count, line_of, node_text, set_declared_namespaces,
+    strip_matching_quotes,
+};
 use super::{add_tested_by_edges, qualify, resolve_rust_call_targets};
 
 pub(super) fn parse_go_with_parser(
@@ -27,7 +30,8 @@ pub(super) fn parse_go_with_parser(
     {
         let root = tree.root_node();
         let module = repo_root.and_then(|root| go_module_path(root, &file_path));
-        let stdlib = GoStdlibScope::of_file(root, source, module);
+        let namespace = go_package_namespace(root, source, &file_path, module.as_ref());
+        let stdlib = GoStdlibScope::of_file(root, source, module.map(|(path, _)| path));
         let context = GoContext {
             source,
             file_path: &file_path,
@@ -49,6 +53,7 @@ pub(super) fn parse_go_with_parser(
         if !libraries.is_empty() {
             nodes[0].extra["cgo_libraries"] = json!(libraries);
         }
+        set_declared_namespaces(&mut nodes, namespace.into_iter().collect());
         let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
         if test_file {
             add_tested_by_edges(&nodes, &mut edges);
@@ -57,6 +62,74 @@ pub(super) fn parse_go_with_parser(
     }
 
     (nodes, edges)
+}
+
+/// The import path of the package a file belongs to, its namespace: the
+/// module path and the directory below the `go.mod`
+/// (`example.com/m/zstd`), with `_test` for an external test package
+/// (`package zstd_test`), which is a package of its own. Without a module
+/// the directory stands in for the path (the package name at the root). A
+/// file the build ignores (`//go:build ignore`, a generator) belongs to no
+/// package.
+fn go_package_namespace(
+    root: tree_sitter::Node<'_>,
+    source: &[u8],
+    file_path: &str,
+    module: Option<&(String, String)>,
+) -> Option<String> {
+    let mut cursor = root.walk();
+    let mut package = None;
+    for child in root.children(&mut cursor) {
+        match child.kind() {
+            "comment" if go_is_build_ignore(&node_text(child, source)) => return None,
+            "package_clause" => {
+                package = direct_child_text(child, source, &["package_identifier"]);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let package = package?;
+    let directory = file_path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    let mut path = match module {
+        Some((module, module_dir)) => {
+            let below = if module_dir.is_empty() {
+                Some(directory)
+            } else if directory == module_dir {
+                Some("")
+            } else {
+                directory
+                    .strip_prefix(module_dir.as_str())
+                    .and_then(|rest| rest.strip_prefix('/'))
+            };
+            match below? {
+                "" => module.clone(),
+                below => format!("{module}/{below}"),
+            }
+        }
+        None if directory.is_empty() => package.clone(),
+        None => directory.to_string(),
+    };
+    if package.ends_with("_test") {
+        path.push_str("_test");
+    }
+    Some(path)
+}
+
+/// `//go:build ignore` or `// +build ignore` (a constraint no build meets).
+fn go_is_build_ignore(comment: &str) -> bool {
+    comment.lines().any(|line| {
+        let line = line.trim();
+        let constraint = line
+            .strip_prefix("//go:build")
+            .or_else(|| line.strip_prefix("// +build"))
+            .or_else(|| line.strip_prefix("//+build"));
+        constraint.is_some_and(|constraint| {
+            constraint
+                .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '!'))
+                .any(|word| word == "ignore")
+        })
+    })
 }
 
 /// A file `go test` compiles only for testing: `name_test.go`, in the
@@ -573,8 +646,25 @@ fn go_emit_call(
                     extra["receiver_from"] = origin.to_json();
                 }
             }
-            GoReceiver::Known => {}
+            GoReceiver::Known => {
+                // `huff0.Compress()`, `defaults.Load()`: no plain call, so
+                // never a function of the caller's file or package.
+                let receiver = node_text(operand, source);
+                if operand.kind() == "identifier"
+                    && let Some(path) = context.stdlib.packages.get(&receiver)
+                {
+                    extra["import_path"] = json!(path);
+                }
+                extra["receiver"] = json!(receiver);
+            }
         }
+    } else if let Some(callee) = node
+        .child_by_field_name("function")
+        .filter(|function| function.kind() == "identifier")
+        && context.locals.borrow().contains(&node_text(callee, source))
+    {
+        // `f()` on a parameter or variable holding a function.
+        extra["callee_local"] = json!(true);
     }
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::Calls,
@@ -1151,6 +1241,9 @@ fn go_is_local_value(node: tree_sitter::Node<'_>, context: &GoContext<'_>) -> bo
 /// predeclared function of the same name (`func min(...)`, `len := 3`).
 struct GoStdlibScope {
     imports: HashMap<String, String>,
+    /// The names imports of other packages bind (`huff0`, `h` for
+    /// `h "example.com/m/huff0"`) -> import path.
+    packages: HashMap<String, String>,
     declared: HashSet<String>,
     /// The module this file belongs to (`go.mod`'s `module` line): its
     /// packages are never the standard library, even under a name like
@@ -1162,6 +1255,7 @@ impl GoStdlibScope {
     fn of_file(root: tree_sitter::Node<'_>, source: &[u8], module: Option<String>) -> Self {
         let mut scope = Self {
             imports: HashMap::new(),
+            packages: HashMap::new(),
             declared: HashSet::new(),
             module,
         };
@@ -1184,13 +1278,24 @@ impl GoStdlibScope {
             "import_spec" => {
                 let path = node
                     .child_by_field_name("path")
-                    .map(|path| strip_matching_quotes(node_text(path, source).trim()).to_string())
-                    .filter(|path| self.is_std_import(path));
+                    .map(|path| strip_matching_quotes(node_text(path, source).trim()).to_string());
                 // A dot import (`. "fmt"`) binds no name; `_` binds none usable.
                 let name = node
                     .child_by_field_name("name")
                     .map(|name| node_text(name, source));
-                if let Some(path) = path {
+                if let Some(path) = path.as_ref().filter(|path| !self.is_std_import(path)) {
+                    match name.as_deref() {
+                        None => {
+                            let name = go_package_name_guess(path).to_string();
+                            self.packages.insert(name, path.clone());
+                        }
+                        Some("." | "_") => {}
+                        Some(name) => {
+                            self.packages.insert(name.to_string(), path.clone());
+                        }
+                    }
+                }
+                if let Some(path) = path.filter(|path| self.is_std_import(path)) {
                     match name.as_deref() {
                         None => {
                             let name = go_default_import_name(&path).to_string();
@@ -1251,6 +1356,24 @@ impl GoStdlibScope {
                 .then(|| ("builtin", signature.clone(), StdlibEvidence::Likely)),
         }
     }
+}
+
+/// The name an import of a package binds when it gives none: the package's
+/// name, which by convention is the path's last element without a major
+/// version (`v2`), a `gopkg.in` version (`yaml.v3`), or a `go-` prefix or
+/// `-go` suffix (`go-isatty`). A package declaring another name is missed.
+fn go_package_name_guess(path: &str) -> &str {
+    let name = go_default_import_name(path);
+    let name = match name.rsplit_once(".v") {
+        Some((stem, version))
+            if !version.is_empty() && version.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            stem
+        }
+        _ => name,
+    };
+    let name = name.strip_prefix("go-").unwrap_or(name);
+    name.strip_suffix("-go").unwrap_or(name)
 }
 
 /// A callee without whitespace or the arguments and type arguments of the
@@ -1431,17 +1554,19 @@ fn go_last_named_descendant(
 }
 
 /// The module path of the `go.mod` nearest above `file_path` within
-/// `repo_root` (`module example/app` -> `example/app`).
-fn go_module_path(repo_root: &Path, file_path: &str) -> Option<String> {
+/// `repo_root` (`module example/app` -> `example/app`), and that `go.mod`'s
+/// repository-relative directory (`""` at the root).
+fn go_module_path(repo_root: &Path, file_path: &str) -> Option<(String, String)> {
     let mut dir = Path::new(file_path).parent();
     while let Some(current) = dir {
         if let Ok(text) = std::fs::read_to_string(repo_root.join(current).join("go.mod")) {
-            return text.lines().find_map(|line| {
+            let module = text.lines().find_map(|line| {
                 let module = line.trim().strip_prefix("module")?;
                 module
                     .starts_with(char::is_whitespace)
                     .then(|| strip_matching_quotes(module.trim()).to_string())
-            });
+            })?;
+            return Some((module, current.to_string_lossy().replace('\\', "/")));
         }
         dir = current.parent();
     }

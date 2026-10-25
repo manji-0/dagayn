@@ -24,7 +24,33 @@ Removed).
   and compress v1.20.1 805, where both had none. Alone it leaves Go test
   reach where it was (277 of testify's 292 functions that ran are still
   called untested): a test calls code of another file, and those calls stay
-  unresolved until the package is a namespace (below).
+  unresolved until the package is a namespace (the next entry).
+- A Go package is a namespace (go extractor 10): each file declares its
+  package's import path (`_test` for an external test package, none for a
+  `//go:build ignore` file), so a plain call binds to a top-level function
+  or type of another file of the package. A call through a package
+  qualifier or a value of the package (`huff0.Compress()`, `cfg.Load()`)
+  records `receiver` (an import's also `import_path`) and is never bound by
+  name; it had bound to a same-named function of the caller's file, so
+  each of testify's `require.Equal` (`assert.Equal(t, ...)`) called itself
+  (304 such edges in `require`). A call on a value of unknown type is not
+  bound by name either, as in Rust, and a plain call of a parameter
+  (`f()`) records `callee_local`. Three Go rules of the existing
+  return-type pass were too wide once these calls resolved, and are scoped:
+  a typed method is looked up in its type's directory (another package's
+  `Scratch` no longer makes `Scratch.prepare` ambiguous), a qualified
+  return type (`io.ReadCloser`) is the imported package's rather than the
+  repository's only `ReadCloser` (11 `zip.ReadCloser.Close` edges from
+  `flate`, `lzw`, and `zlib` tests), and an unqualified one is a type of
+  the function's own directory. `callers_of`'s name fallback counts a call
+  through an import as a caller only of a function of that package. On
+  compress v1.20.1, unresolved plain calls to a function of the caller's
+  directory fall from 3,058 to 166, and none of the 3,665 newly bound edges
+  leaves the caller's directory; on testify, functions that ran but are
+  called untested fall from 277 to 42 (tested precision 0.992). The plan's
+  bar of under 0.15 production functions with no caller on compress is not
+  met (0.463 to 0.312): the rest are methods on values, calls into other
+  packages, and build-tag variants (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
 
 ### Removed
 
