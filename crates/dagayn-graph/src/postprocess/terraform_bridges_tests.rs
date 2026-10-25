@@ -16,7 +16,7 @@ impl Repo {
         let _ = std::fs::remove_dir_all(&root);
         let db = root.with_extension("db");
         let _ = std::fs::remove_file(&db);
-        let mut store = GraphStore::open(&db).expect("open");
+        let store = GraphStore::open(&db).expect("open");
         store
             .set_metadata("repo_root", root.to_string_lossy().as_ref())
             .unwrap();
