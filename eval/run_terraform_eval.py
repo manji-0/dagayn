@@ -20,10 +20,10 @@ Each emitted edge lands in one outcome:
   so neither precision nor recall counts it);
 
 An expected entry whose target exists and that no edge names is a ``fn``.
-Families ``path_attr``, ``local_exec`` and ``entrypoint`` are what the
-extractor covers (resource and data blocks); ``module_input``,
-``object_source``, ``external_program`` and ``file_call`` are references it
-does not cover and count only toward recall over all families.
+Families ``path_attr``, ``local_exec``, ``entrypoint``, ``module_input``
+(followed through a local module's variables) and ``external_program`` are
+what the extractor covers; ``object_source`` and ``file_call`` are references
+it does not cover and count only toward recall over all families.
 ``module_source`` is scored apart against ``IMPORTS_FROM``: recorded (the raw
 source string is an edge target) and resolved (the target is the module
 directory's node).

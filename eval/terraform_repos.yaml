@@ -20,13 +20,14 @@
 #
 # Families. path_attr (filename / source_dir / source_file /
 # source_directory), local_exec (a path in a local-exec command) and
-# entrypoint (handler / entry_point) in resource and data blocks are what
-# crates/dagayn-parser/src/terraform_bridges.rs extracts. module_input
-# (handler, entry_point, source_path, local_existing_package passed to a
-# module), object_source (source of aws_s3_object /
-# google_storage_bucket_object), external_program (data "external" program)
-# and file_call (file() / filesha256()) are real references it does not
-# cover.
+# entrypoint (handler / entry_point) in resource and data blocks,
+# module_input (handler, entry_point, source_path, local_existing_package
+# passed to a module, followed through a local module's variables) and
+# external_program (data "external" program) are what
+# crates/dagayn-parser/src/terraform_bridges.rs and the graph's
+# terraform_bridges postprocess step extract. object_source (source of
+# aws_s3_object / google_storage_bucket_object) and file_call (file() /
+# filesha256()) are real references they do not cover.
 #
 # Drafted by a scratch scan of the .tf files (string literals in watched
 # attributes, paths normalized against the file's directory, `exists` from
