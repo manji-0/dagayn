@@ -507,24 +507,12 @@ pub(crate) fn nearest_test(
     Some(None)
 }
 
-/// Decorators whose methods the runtime calls on an instance's use.
-const IMPLICIT_DECORATORS: &[&str] = &[
-    "cached_property",
-    "computed_field",
-    "field_serializer",
-    "field_validator",
-    "model_serializer",
-    "model_validator",
-    "property",
-    "root_validator",
-    "validator",
-];
-
 /// A call at a module's top level that runs on import (`TABLE =
 /// _registry()`), resolved by name, not guessed from a method name on a
-/// receiver of unknown type.
+/// receiver of unknown type, or a function passed to one (`Annotated[int,
+/// AfterValidator(check)]`).
 fn runs_on_import(edge: &GraphEdge) -> bool {
-    edge.kind == "CALLS"
+    matches!(edge.kind.as_str(), "CALLS" | "REFERENCES")
         && edge.extra.get("import_time").and_then(Value::as_bool) == Some(true)
         && edge.extra.get("receiver_unknown").is_none()
 }
@@ -535,8 +523,9 @@ fn is_python_module(qn: &str) -> bool {
 }
 
 /// What calls `qn` without naming it: the class whose use runs a dunder
-/// method (`__init__` on construction, `__enter__` in a `with`) or a
-/// property or validator (`@property`, `@field_validator`), the Rust type
+/// method (`__init__` on construction, `__enter__` in a `with`), pydantic's
+/// `model_post_init`, or a property or validator (`@property`,
+/// `@field_validator`), the Rust type
 /// whose trait implementation `qn` is in, or the module whose attribute
 /// lookup runs its `__getattr__` / `__dir__` (PEP 562). `sources` caches
 /// the lines of the Rust files read.
@@ -563,20 +552,7 @@ fn implicit_caller(
                 .map(str::to_string),
         );
     };
-    let dunder = node.name.len() > 4 && node.name.starts_with("__") && node.name.ends_with("__");
-    let decorated = node.extra["decorators"]
-        .as_array()
-        .is_some_and(|decorators| {
-            decorators
-                .iter()
-                .filter_map(Value::as_str)
-                .any(|decorator| {
-                    let last = decorator.rsplit('.').next().unwrap_or(decorator);
-                    IMPLICIT_DECORATORS.contains(&last)
-                        || matches!(last, "setter" | "getter" | "deleter")
-                })
-        });
-    if !dunder && !decorated {
+    if !crate::pydantic::runs_with_its_class(&node.name, &node.extra["decorators"]) {
         return Some(None);
     }
     let class = format!("{}::{parent}", qn.split_once("::")?.0);
