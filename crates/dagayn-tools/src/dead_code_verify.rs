@@ -687,6 +687,7 @@ fn structural_reason(
     node: &GraphNode,
     lines: &[String],
     derived: &HashSet<String>,
+    models: &HashMap<String, HashSet<String>>,
     classes: &HashMap<String, ClassFacts>,
 ) -> Option<&'static str> {
     if lines.is_empty() {
@@ -703,9 +704,15 @@ fn structural_reason(
         .map(|(class, _)| class);
     let is_method = node.kind == "Function" && class_qn.is_some();
     // A method of a class with a base or an interface may override or
-    // implement one, which a caller of the base reaches.
-    if is_method && class_qn.is_some_and(|class| derived.contains(class)) {
-        return Some("overrides_or_implements");
+    // implement one, which a caller of the base reaches. A pydantic model's
+    // bases are known: BaseModel's API and its ancestors' methods.
+    if is_method && let Some(class) = class_qn.filter(|class| derived.contains(*class)) {
+        let overrides = models.get(class).is_none_or(|inherited| {
+            crate::pydantic::overrides_model_api(&node.name) || inherited.contains(&node.name)
+        });
+        if overrides {
+            return Some("overrides_or_implements");
+        }
     }
     if extra.get("ffi_export").is_some_and(|v| !v.is_null()) {
         return Some("ffi_export");
@@ -799,6 +806,7 @@ pub(crate) fn verify(
                 .map(|edge| edge.source_qualified),
         );
     }
+    let models = crate::pydantic::models(store)?;
     let class_names: Vec<String> = candidates
         .iter()
         .filter(|(node, _)| node.parent_name.is_some())
@@ -828,7 +836,7 @@ pub(crate) fn verify(
         let reason = if node.name.is_empty() || !node.name.chars().all(is_identifier_char) {
             Some("name_not_checkable")
         } else {
-            structural_reason(&node, lines, &derived, &classes)
+            structural_reason(&node, lines, &derived, &models, &classes)
         };
         match reason {
             Some(reason) => *out.suppressed.entry(reason).or_default() += 1,

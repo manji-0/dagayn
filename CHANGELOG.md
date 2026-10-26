@@ -64,6 +64,12 @@ Removed).
   0.257, on testify v1.12.1 from 0.330 to 0.296; all 938 new edges agree
   with scip-go (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
 
+### Changed
+
+- The Rust workspace targets 1.99.1 (the tsrs crates, which the TypeScript
+  SCIP indexer will use, need 1.99). One lint new in 1.99,
+  `needless_borrows_for_generic_args`, fired once and is fixed.
+
 ### Removed
 
 - **Breaking:** the `dagayn-vscode` editor extension, its CI jobs (the
@@ -162,6 +168,32 @@ Removed).
 
 ### Fixed
 
+- What pydantic calls is reached from the tests that use a model, and
+  dead_code reports a model's unused methods (python extractor 17). A
+  function passed to a call at a module's top level records `import_time`
+  as the call does, so the validator of `EvenInt = Annotated[int,
+  AfterValidator(check_even)]` is reached by the module's importers. A
+  model's field annotation is a REFERENCES (`relationship_role:
+  field_type`) to each repository class it names, so a class used only as
+  a field type reaches its `__get_pydantic_core_schema__` and validators.
+  `User.model_validate(raw)` (and `model_validate_json`,
+  `model_validate_strings`, `model_construct`, v1's `parse_obj` and
+  `parse_raw`) and `Box[int](..)` call the class, when it is a top-level
+  class of the file or a capitalized name imported from the repository
+  (`handlers[key](x)` calls nothing). `model_post_init` runs with its class
+  like a dunder. dead_code no longer leaves out every method of a direct
+  `BaseModel` / `BaseSettings` subclass, nor every method of a subclass of
+  one as a possible override: a method of a class whose bases resolve to
+  pydantic model bases imported from pydantic is left out only when
+  pydantic calls it (a validator, serializer, property, dunder, `model_*`,
+  or v1's API) or a repository ancestor defines it. On a 22-def pydantic
+  fixture, test reach and dead_code answer 22 as expected (15 before), and
+  review flags 2 untested changes (7 before, 5 of them wrong). On dagayn's
+  own graph the test-reach eval's untested precision rises from 0.839 to
+  0.933, recall goes from 0.656 to 0.642, and tested precision from 0.948
+  to 0.947; `RefactorErrorResponse` and 7 other classes built only through
+  `model_validate` gain their caller. dead_code reports nothing new on
+  dagayn or the full-stack FastAPI template.
 - Calls written in Rust `macro_rules!` bodies are edges (rust extractor
   26). tree-sitter keeps a body as tokens, which no pass read, so
   `crates/dagayn-parser/src/parsers.rs` reached none of the 28

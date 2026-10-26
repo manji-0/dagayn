@@ -2898,7 +2898,10 @@ fn workspace_package_imports_reach_the_package_files() {
 fn a_dependency_only_cfg_test_files_use_is_no_unit_edge() {
     // dagayn: tests crates/dagayn-tools/src/arch_tool.rs::architecture
     let repo = Repo::new("cfg-test-files", false);
-    repo.write("Cargo.toml", "[workspace]\nmembers = [\"kernel\", \"app\", \"tool\"]\n");
+    repo.write(
+        "Cargo.toml",
+        "[workspace]\nmembers = [\"kernel\", \"app\", \"tool\"]\n",
+    );
     repo.write("kernel/Cargo.toml", "[package]\nname = \"kernel\"\n");
     repo.write("kernel/src/lib.rs", "pub fn base() -> i64 {\n    1\n}\n");
     // As dagayn-graph has dagayn-parser: a dev-dependency, which the
@@ -2937,7 +2940,11 @@ fn a_dependency_only_cfg_test_files_use_is_no_unit_edge() {
         .filter_map(|edge| Some((edge["from"].as_str()?, edge["to"].as_str()?)))
         .collect();
     assert!(edges.contains(&("tool", "kernel")), "{edges:?}");
-    assert!(!edges.contains(&("app", "kernel")), "{}", overview["unit_edges"]);
+    assert!(
+        !edges.contains(&("app", "kernel")),
+        "{}",
+        overview["unit_edges"]
+    );
 }
 
 /// docs/plans/STABILITY-FINDING-TARGET.md: the overview names every unit
@@ -3143,6 +3150,90 @@ fn a_test_that_uses_a_class_reaches_the_methods_the_runtime_calls() {
     // Constructing `Box` calls `__init__`; reading `size` calls the
     // property. Nothing calls `grow`.
     assert_eq!(untested, ["models.py::Box.grow"], "{changes}");
+}
+
+#[test]
+fn a_test_that_uses_a_pydantic_model_reaches_what_pydantic_calls() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::nearest_test
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::implicit_caller
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::runs_on_import
+    let repo = Repo::new("pydantic-reach", true);
+    let types = |value: i64| {
+        format!(
+            "from typing import Annotated, Any\n\nfrom pydantic import AfterValidator\n\n\ndef check_even(v: int) -> int:\n    return v + {value}\n\n\nEvenInt = Annotated[int, AfterValidator(check_even)]\n\n\nclass Celsius(float):\n    @classmethod\n    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> Any:\n        return handler(float) if {value} else None\n"
+        )
+    };
+    let models = |value: i64| {
+        format!(
+            "from typing import Any, Generic, TypeVar\n\nfrom pydantic import BaseModel, field_validator\n\nfrom types_ import Celsius, EvenInt\n\nT = TypeVar(\"T\")\n\n\nclass Reading(BaseModel):\n    even: EvenInt\n    temp: Celsius\n\n    def model_post_init(self, context: Any) -> None:\n        self.even += {value}\n\n    def unused(self) -> int:\n        return {value}\n\n\nclass Box(BaseModel, Generic[T]):\n    item: T\n\n    @field_validator(\"item\")\n    @classmethod\n    def check_item(cls, v: Any) -> Any:\n        return v or {value}\n\n\nclass Parsed(BaseModel):\n    raw: str\n\n    @field_validator(\"raw\")\n    @classmethod\n    def strip_raw(cls, v: str) -> str:\n        return v.strip() + str({value})\n"
+        )
+    };
+    repo.write("types_.py", &types(1));
+    repo.write("models.py", &models(1));
+    repo.write(
+        "test_models.py",
+        "from models import Box, Parsed, Reading\n\n\ndef test_models():\n    assert Reading(even=2, temp=1.5).temp == 1.5\n    assert Box[int](item=1).item == 1\n    assert Parsed.model_validate({\"raw\": \" a \"}).raw\n",
+    );
+    commit_all(&repo, "models");
+    repo.build();
+    repo.write("types_.py", &types(2));
+    repo.write("models.py", &models(2));
+    commit_all(&repo, "edit");
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let changes = answer(&context, "review_tool", json!({}));
+    let mut untested: Vec<&str> = changes["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["kind"] == "untested_change")
+        .flat_map(|f| f["targets"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .collect();
+    untested.sort_unstable();
+    // Validating a `Reading` runs the alias's validator, `Celsius`'s core
+    // schema, and `model_post_init`; `Box[int](...)` and
+    // `Parsed.model_validate(...)` run their validators. Nothing calls
+    // `unused`.
+    assert_eq!(untested, ["models.py::Reading.unused"], "{changes}");
+}
+
+#[test]
+fn dead_code_reports_unused_methods_of_pydantic_models() {
+    // dagayn: tests crates/dagayn-tools/src/dead_code.rs::graph_candidates
+    // dagayn: tests crates/dagayn-tools/src/dead_code_verify.rs::verify
+    let repo = Repo::new("pydantic-dead", true);
+    repo.write(
+        "models.py",
+        "from typing import Any\n\nfrom pydantic import BaseModel, field_validator\nfrom vendor import Plugin\n\n\nclass Parent(BaseModel):\n    code: str\n\n    def unused_helper(self) -> str:\n        return self.code\n\n    def shared_name(self) -> str:\n        return self.code\n\n    def model_post_init(self, context: Any) -> None:\n        self.code = self.code.strip()\n\n    def model_dump(self, **kwargs: Any) -> dict:\n        return super().model_dump(**kwargs)\n\n    @field_validator(\"code\")\n    @classmethod\n    def check_code(cls, v: str) -> str:\n        return v\n\n\nclass Child(Parent):\n    def child_unused(self) -> str:\n        return self.code\n\n    def shared_name(self) -> str:\n        return self.code + \"!\"\n\n\nclass Hook(Plugin):\n    def on_load(self) -> None:\n        return None\n\n\ndef make() -> tuple:\n    return Child(code=\"a\"), Hook()\n",
+    );
+    repo.write("main.py", "from models import make\n\nmake()\n");
+    repo.build();
+    let context = repo.context();
+    let dead = answer(&context, "refactor_tool", json!({"mode": "dead_code"}));
+    let mut names: Vec<&str> = dead["dead_code"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|d| d["qualified_name"].as_str())
+        .collect();
+    names.sort_unstable();
+    // pydantic calls `model_post_init`, `model_dump` (an override of
+    // BaseModel's), and the validator; `Child.shared_name` overrides
+    // `Parent.shared_name` (whose name the source scan then finds);
+    // `Hook.on_load` may override `Plugin`'s, which is not pydantic.
+    assert_eq!(
+        names,
+        [
+            "models.py::Child.child_unused",
+            "models.py::Parent.unused_helper",
+        ],
+        "{dead}"
+    );
 }
 
 #[test]

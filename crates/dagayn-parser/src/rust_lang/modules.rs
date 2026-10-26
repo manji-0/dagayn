@@ -70,9 +70,8 @@ static MOD_DECL: LazyLock<Regex> = LazyLock::new(|| {
 static PATH_ATTR: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"#\s*\[\s*path\s*=\s*"([^"]+)"\s*\]"#).expect("path attribute regex")
 });
-static CFG_ATTR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"#\s*\[\s*cfg\s*\(([^\]]*)\)\s*\]").expect("cfg attribute regex")
-});
+static CFG_ATTR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"#\s*\[\s*cfg\s*\(([^\]]*)\)\s*\]").expect("cfg attribute regex"));
 static PACKAGE_NAME: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"(?ms)^\[package\][^\[]*?^\s*name\s*=\s*"([^"]+)""#).expect("package name regex")
 });
@@ -246,8 +245,7 @@ fn gated_by_cfg_test(attrs: &str) -> bool {
 
 fn build_crate_modules(repo_root: &Path, root: &str) -> CrateModules {
     let mut modules = CrateModules::default();
-    let mut pending: Vec<(Vec<String>, String, bool)> =
-        vec![(Vec::new(), root.to_string(), false)];
+    let mut pending: Vec<(Vec<String>, String, bool)> = vec![(Vec::new(), root.to_string(), false)];
     while let Some((path, file, test_only)) = pending.pop() {
         if modules.by_file.contains_key(&file) {
             continue;

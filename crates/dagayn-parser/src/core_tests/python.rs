@@ -1232,3 +1232,195 @@ def run():
         "{edges:?}"
     );
 }
+
+/// The edges of `source` parsed as `path` in a repository holding
+/// `pkg/models.py` (classes `User` and `Box`), as (kind, source, target,
+/// extra).
+fn parse_pydantic(path: &str, source: &[u8]) -> Vec<(String, String, String, Value)> {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!(
+        "dagayn-parser-python-pydantic-{}-{}",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("test")
+    ));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("pkg")).unwrap();
+    std::fs::write(repo_root.join("pkg/__init__.py"), b"").unwrap();
+    std::fs::write(
+        repo_root.join("pkg/models.py"),
+        b"from pydantic import BaseModel\n\n\nclass User(BaseModel):\n    name: str\n\n\nclass Box(BaseModel):\n    item: int\n",
+    )
+    .unwrap();
+    let mut parser = RustOwnedParser::new();
+    let (_, edges) = parser.parse_file_in_repo(Some(&repo_root), path, source);
+    let _ = std::fs::remove_dir_all(&repo_root);
+    edges
+        .into_iter()
+        .map(|edge| {
+            (
+                edge.kind.as_str().to_string(),
+                edge.source,
+                edge.target,
+                edge.extra,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn python_functions_passed_to_a_top_level_call_run_on_import() {
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.emit_argument_references
+    let source = br#"from typing import Annotated
+
+from pydantic import AfterValidator, PlainSerializer
+
+
+def check_even(v):
+    return v
+
+
+def dump(v):
+    return str(v)
+
+
+def later(v):
+    return v
+
+
+EvenInt = Annotated[int, AfterValidator(check_even), PlainSerializer(dump)]
+if EvenInt:
+    register(later)
+
+
+def run():
+    register(later)
+"#;
+    let edges = parse_pydantic("pkg/types.py", source);
+    let references: Vec<(&str, &str, bool)> = edges
+        .iter()
+        .filter(|(kind, ..)| kind == "REFERENCES")
+        .map(|(_, source, target, extra)| {
+            (
+                source.as_str(),
+                target.as_str(),
+                extra["import_time"] == true,
+            )
+        })
+        .collect();
+    // A validator wrapped at the top level runs when a model using the alias
+    // validates; the module's import builds the wrapper. A branch or a
+    // function body runs later, if at all.
+    assert_eq!(
+        references,
+        [
+            ("pkg/types.py", "pkg/types.py::check_even", true),
+            ("pkg/types.py", "pkg/types.py::dump", true),
+            ("pkg/types.py", "pkg/types.py::later", false),
+            ("pkg/types.py::run", "pkg/types.py::later", false),
+        ]
+    );
+}
+
+#[test]
+fn python_model_fields_reference_the_classes_they_are_typed_by() {
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.emit_field_type_references
+    let source = br#"from typing import Annotated, Optional
+
+from pydantic import BaseModel, Field
+
+from .models import Box, User
+
+
+class Celsius(float):
+    pass
+
+
+class Reading(BaseModel):
+    temp: Celsius
+    users: list[User]
+    box: Optional[Box] = None
+    tagged: Annotated[Box | None, Field(default=None)]
+    label: str = ""
+
+
+class Nested(Reading):
+    extra: Celsius
+
+
+class Plain:
+    temp: Celsius
+
+
+def build():
+    value: Celsius = Celsius(1.0)
+    return value
+"#;
+    let edges = parse_pydantic("pkg/readings.py", source);
+    let fields: Vec<(&str, &str)> = edges
+        .iter()
+        .filter(|(kind, .., extra)| {
+            kind == "REFERENCES" && extra["relationship_role"] == "field_type"
+        })
+        .map(|(_, source, target, _)| (source.as_str(), target.as_str()))
+        .collect();
+    // A model's field types are what pydantic validates with; a plain class's
+    // annotations and a local variable's are not run by anything.
+    assert_eq!(
+        fields,
+        [
+            ("pkg/readings.py::Reading", "pkg/readings.py::Celsius"),
+            ("pkg/readings.py::Reading", "pkg/models.py::User"),
+            ("pkg/readings.py::Reading", "pkg/models.py::Box"),
+            ("pkg/readings.py::Reading", "pkg/models.py::Box"),
+            ("pkg/readings.py::Nested", "pkg/readings.py::Celsius"),
+        ]
+    );
+}
+
+#[test]
+fn python_model_validate_and_generic_construction_call_the_class() {
+    // dagayn: tests crates/dagayn-parser/src/python/mod.rs::PythonWalker.emit_call
+    let source = br#"from pydantic import BaseModel
+
+from .models import Box, User
+
+
+class Pair[K](BaseModel):
+    left: K
+
+
+def load(raw, handlers, key, user):
+    a = User.model_validate(raw)
+    b = User.model_validate_json(raw)
+    c = Box.model_construct(item=1)
+    d = Box[int](item=1)
+    e = Pair[str](left="x")
+    f = User.model_json_schema()
+    g = user.model_validate(raw)
+    h = handlers[key](raw)
+    return a, b, c, d, e, f, g, h
+"#;
+    let edges = parse_pydantic("pkg/load.py", source);
+    let calls: Vec<&str> = edges
+        .iter()
+        .filter(|(kind, source, ..)| kind == "CALLS" && source == "pkg/load.py::load")
+        .map(|(_, _, target, _)| target.as_str())
+        .collect();
+    for expected in [
+        "pkg/models.py::User",
+        "pkg/models.py::Box",
+        "pkg/load.py::Pair",
+    ] {
+        assert!(calls.contains(&expected), "{expected} in {calls:?}");
+    }
+    // `model_validate`, `model_validate_json`, and `model_construct` build
+    // `User` / `Box` (twice each); `model_json_schema` builds nothing, an
+    // instance's `model_validate` names no class, and an item of a mapping
+    // is no class.
+    let count = |target: &str| calls.iter().filter(|call| **call == target).count();
+    assert_eq!(count("pkg/models.py::User"), 2, "{calls:?}");
+    assert_eq!(count("pkg/models.py::Box"), 2, "{calls:?}");
+    assert_eq!(count("pkg/load.py::Pair"), 1, "{calls:?}");
+    assert!(!calls.contains(&"handlers"), "{calls:?}");
+    assert!(!calls.contains(&"user"), "{calls:?}");
+}
