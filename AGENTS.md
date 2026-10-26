@@ -102,7 +102,7 @@ vendor grammars do not.
 ## Cursor Cloud specific instructions
 
 This repo ships the `dagayn` CLI/MCP server (Python package with a PyO3 Rust core,
-`dagayn._core`). The Rust toolchain (1.98) is preinstalled; `uv` is installed to
+`dagayn._core`). The Rust toolchain (1.99) is preinstalled; `uv` is installed to
 `~/.local/bin` (already on the default login-shell `PATH`).
 
 Standard lint/test/build/run commands are already documented — see `CONTRIBUTING.md`

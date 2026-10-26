@@ -53,7 +53,7 @@ Tests run in parallel with pytest-xdist (`-n auto --dist loadfile`); pass
 
 ### Rust workspace
 
-Requires a Rust toolchain (1.98+) and a C compiler; the flake provides both.
+Requires a Rust toolchain (1.99+) and a C compiler; the flake provides both.
 `uv sync` is enough for the Python test path (maturin). For
 `cargo test --workspace` or `cargo clippy --workspace --all-targets -- -D warnings`,
 `dagayn-py` must link `libpython`. The flake's shell sets `PYO3_PYTHON` for
