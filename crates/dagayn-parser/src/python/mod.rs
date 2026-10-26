@@ -123,6 +123,7 @@ fn parse_python_module_tree(
         function_depth: 0,
         type_checking_depth: 0,
         deferred_depth: 0,
+        model_classes: HashSet::new(),
         nodes: &mut nodes,
         edges: &mut edges,
     };
@@ -229,6 +230,8 @@ struct PythonWalker<'w, 'a> {
     /// How many branches, loops, `except` handlers, and lambdas enclose
     /// it; a module-level call inside one may not run on import.
     deferred_depth: u32,
+    /// The pydantic models the file declares, by their dotted path.
+    model_classes: HashSet<String>,
     nodes: &'w mut Vec<ParsedNode>,
     edges: &'w mut Vec<ParsedEdge>,
 }
@@ -411,12 +414,15 @@ impl PythonWalker<'_, '_> {
                 self.visit_body(&attempt.finalbody);
             }
             Stmt::Assign(assign) => self.visit_assign(assign),
-            Stmt::AnnAssign(assign) => self.visit_assignment(
-                &assign.target,
-                Some(&assign.annotation),
-                assign.value.as_deref(),
-                assign.range,
-            ),
+            Stmt::AnnAssign(assign) => {
+                self.emit_field_type_references(&assign.annotation);
+                self.visit_assignment(
+                    &assign.target,
+                    Some(&assign.annotation),
+                    assign.value.as_deref(),
+                    assign.range,
+                );
+            }
             // `return wrapped`: a nested function handed to the caller.
             Stmt::Return(ast::StmtReturn {
                 value: Some(value), ..
@@ -579,6 +585,12 @@ impl PythonWalker<'_, '_> {
             line_start,
         ));
         python_emit_bases(line_start, context, &qualified, &bases, self.edges);
+        if bases
+            .iter()
+            .any(|base| self.model_classes.contains(base) || python_is_model_base(base, context))
+        {
+            self.model_classes.insert(class_path.clone());
+        }
         self.push_scope(start);
         self.class_bases.push(bases);
         let outer_class = self.enclosing_class.replace(class_path);
@@ -594,6 +606,37 @@ impl PythonWalker<'_, '_> {
         self.enclosing_class = outer_class;
         self.class_bases.pop();
         self.pop_scope();
+    }
+
+    /// A field of a pydantic model (`temp: Celsius`, `items: list[Item]`)
+    /// references the classes its annotation names, whose validators and
+    /// core schema pydantic runs when it validates the model.
+    fn emit_field_type_references(&mut self, annotation: &Expr) {
+        let context = self.context;
+        let Some(class_path) = &self.enclosing_class else {
+            return;
+        };
+        let class = qualify(&context.file_path, class_path, None);
+        if !self.model_classes.contains(class_path)
+            || self.enclosing_qualified.as_deref() != Some(class.as_str())
+        {
+            return;
+        }
+        let mut names = Vec::new();
+        python_annotation_names(annotation, &mut names);
+        for name in names {
+            let Some(target) = python_class_target(name.id.as_str(), context) else {
+                continue;
+            };
+            self.edges.push(ParsedEdge {
+                kind: crate::core::types::EdgeKind::References,
+                source: class.clone(),
+                target,
+                file_path: context.file_path.clone(),
+                line: context.line(name),
+                extra: json!({"relationship_role": "field_type"}),
+            });
+        }
     }
 
     fn emit_type_alias(&mut self, alias: &ast::StmtTypeAlias) {
@@ -660,6 +703,20 @@ impl PythonWalker<'_, '_> {
     fn emit_call(&mut self, call: &ast::ExprCall) {
         let context = self.context;
         self.emit_argument_references(call);
+        if let Some(class) = python_constructed_class(&call.func, context) {
+            let mut extra = json!({});
+            if self.runs_on_import() {
+                extra["import_time"] = json!(true);
+            }
+            self.edges.push(ParsedEdge {
+                kind: crate::core::types::EdgeKind::Calls,
+                source: self.caller(),
+                target: class,
+                file_path: context.file_path.clone(),
+                line: context.line(call),
+                extra,
+            });
+        }
         let Some(call_name) = python_call_name(&call.func) else {
             return;
         };
@@ -706,9 +763,7 @@ impl PythonWalker<'_, '_> {
         {
             extra["module_file"] = json!(file);
         }
-        // A call at the module's top level, outside any branch, loop, or
-        // lambda, runs whenever the module is imported.
-        if self.enclosing_qualified.is_none() && self.deferred_depth == 0 {
+        if self.runs_on_import() {
             extra["import_time"] = json!(true);
         }
         let line = context.line(call);
@@ -833,8 +888,11 @@ impl PythonWalker<'_, '_> {
     /// `Thread(target=self._loop)`): references to them. A function nested
     /// in the enclosing one and a method of the enclosing class are kept
     /// only if the file defines them ([`python_keep_checked_references`]).
+    /// Passed to a call that runs on import (`Annotated[int,
+    /// AfterValidator(check)]`), they record `import_time` as the call does.
     fn emit_argument_references(&mut self, call: &ast::ExprCall) {
         let context = self.context;
+        let first = self.edges.len();
         let values = call
             .arguments
             .args
@@ -866,6 +924,17 @@ impl PythonWalker<'_, '_> {
                 extra: json!({"checked_local": true}),
             });
         }
+        if self.runs_on_import() {
+            for edge in &mut self.edges[first..] {
+                edge.extra["import_time"] = json!(true);
+            }
+        }
+    }
+
+    /// Whether the code being walked runs when the module is imported: at
+    /// its top level, outside any branch, loop, `except` handler, or lambda.
+    fn runs_on_import(&self) -> bool {
+        self.enclosing_qualified.is_none() && self.deferred_depth == 0
     }
 
     /// A name used as a value: a function or class of the file or an
@@ -1513,6 +1582,106 @@ fn python_call_name(func: &Expr) -> Option<String> {
         }
         _ => None,
     }
+}
+
+/// pydantic's class methods that build an instance of the class they are
+/// called on (`User.model_validate(raw)`), v2's and v1's.
+const PYTHON_MODEL_CONSTRUCTORS: &[&str] = &[
+    "model_construct",
+    "model_validate",
+    "model_validate_json",
+    "model_validate_strings",
+    "parse_obj",
+    "parse_raw",
+];
+
+/// The class a call builds without calling it by name: a generic class
+/// subscripted (`Box[int](item=1)`), or a pydantic model through
+/// [`PYTHON_MODEL_CONSTRUCTORS`]. Only a class the file declares at its top
+/// level, or a capitalized name imported from a module of the repository;
+/// `handlers[key](x)` calls an item, not `handlers`.
+fn python_constructed_class(func: &Expr, context: &PythonParseContext<'_>) -> Option<String> {
+    let name = match func {
+        Expr::Subscript(subscript) => subscript.value.as_name_expr()?,
+        Expr::Attribute(attribute)
+            if PYTHON_MODEL_CONSTRUCTORS.contains(&attribute.attr.as_str()) =>
+        {
+            attribute.value.as_name_expr()?
+        }
+        _ => return None,
+    };
+    python_class_target(name.id.as_str(), context)
+}
+
+/// The class `name` names: one the file declares at its top level, or a
+/// capitalized name imported from a module of the repository.
+fn python_class_target(name: &str, context: &PythonParseContext<'_>) -> Option<String> {
+    if context.top_level_defined_names.contains(name) {
+        return context
+            .class_names
+            .contains(name)
+            .then(|| qualify(&context.file_path, name, None));
+    }
+    let target = python_resolve_imported_call_target(name, context)?;
+    let original = target.rsplit("::").next().unwrap_or(&target);
+    let capitalized = original.starts_with(|c: char| c.is_ascii_uppercase())
+        && original.bytes().any(|byte| byte.is_ascii_lowercase());
+    capitalized.then_some(target)
+}
+
+/// The names an annotation is built from: `Item` of `list[Item]`,
+/// `Optional[Box]`, `Box | None`, and `Annotated[Box, Field(..)]`.
+fn python_annotation_names<'e>(annotation: &'e Expr, names: &mut Vec<&'e ast::ExprName>) {
+    match annotation {
+        Expr::Name(name) => names.push(name),
+        Expr::Subscript(subscript) => {
+            python_annotation_names(&subscript.value, names);
+            python_annotation_names(&subscript.slice, names);
+        }
+        Expr::Tuple(tuple) => {
+            for element in &tuple.elts {
+                python_annotation_names(element, names);
+            }
+        }
+        Expr::BinOp(union) => {
+            python_annotation_names(&union.left, names);
+            python_annotation_names(&union.right, names);
+        }
+        _ => {}
+    }
+}
+
+/// pydantic's model bases (`BaseModel`, `BaseSettings`, `RootModel`).
+const PYTHON_MODEL_BASES: &[&str] = &["BaseModel", "BaseSettings", "RootModel"];
+
+/// Whether a class base as written makes the class a pydantic model: a model
+/// base imported from pydantic (`BaseModel`, `pydantic.BaseModel`), or, in a
+/// file that imports from pydantic, a class imported from a module of the
+/// repository (a model of another file, most likely).
+fn python_is_model_base(base: &str, context: &PythonParseContext<'_>) -> bool {
+    let pydantic = |module: &str| {
+        matches!(
+            module.split('.').next(),
+            Some("pydantic" | "pydantic_settings")
+        )
+    };
+    if let Some((root, rest)) = base.split_once('.') {
+        return context
+            .import_aliases
+            .get(root)
+            .is_some_and(|module| pydantic(module))
+            && PYTHON_MODEL_BASES.contains(&rest);
+    }
+    if let Some((module, original)) = context.import_map.get(base)
+        && pydantic(module)
+    {
+        return PYTHON_MODEL_BASES.contains(&original.as_str());
+    }
+    python_resolve_imported_call_target(base, context).is_some()
+        && context
+            .import_map
+            .values()
+            .any(|(module, _)| pydantic(module))
 }
 
 fn python_bound_member_target(
