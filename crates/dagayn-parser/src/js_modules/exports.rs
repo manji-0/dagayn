@@ -92,7 +92,7 @@ fn javascript_export_index_uncached(
             continue;
         }
         let parts = javascript_export_statement_parts(child, &source);
-        let resolved_module = parts.target_module.as_deref().and_then(&resolve);
+        let resolved_module = parts.target_module.as_deref().and_then(resolve);
         if let Some(export_clause) = parts.export_clause {
             let mut clause_cursor = export_clause.walk();
             for spec in export_clause.children(&mut clause_cursor) {

@@ -52,6 +52,12 @@ Removed).
   met (0.463 to 0.312): the rest are methods on values, calls into other
   packages, and build-tag variants (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
 
+### Changed
+
+- The Rust workspace targets 1.99.1 (the tsrs crates, which the TypeScript
+  SCIP indexer will use, need 1.99). One lint new in 1.99,
+  `needless_borrows_for_generic_args`, fired once and is fixed.
+
 ### Removed
 
 - **Breaking:** the `dagayn-vscode` editor extension, its CI jobs (the
