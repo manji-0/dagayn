@@ -499,6 +499,7 @@ dependencies = [
  "dagayn-mcp",
  "dagayn-parser",
  "dagayn-postproc",
+ "dagayn-scip-typescript",
  "dagayn-tools",
  "pyo3",
  "serde_json",

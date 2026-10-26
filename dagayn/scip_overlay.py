@@ -4,9 +4,13 @@
 registered indexer covers, that indexer, then lets the graph settle its
 ``CALLS`` edges by the index (``GraphStore.apply_scip_overlay_json``). A
 project is a directory holding the indexer's marker file (``Cargo.toml``,
-``tsconfig.json``, ``go.mod``, ...). When the indexer is not installed, the
+``tsconfig.json``, ``go.mod``, ...). TypeScript's indexer ships with dagayn
+(:mod:`dagayn.scip_typescript`, run as a child process); the others are
+programs this machine has to provide. When an indexer is not installed, the
 build prints a hint saying how to install it and the language keeps the
-targets resolution gives; a failed run is a warning and does the same.
+targets resolution gives; a failed run is a warning and does the same. A
+project missing what its indexer ``wants`` (``node_modules``) is still
+indexed, with a hint, and calls into what is missing stay unsettled.
 
 Rust and TypeScript indexes are authoritative: their answer replaces the
 extractor's. The others, not yet measured against dagayn's own resolution,
@@ -27,12 +31,15 @@ import logging
 import os
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+from dagayn.child_env import child_env
 
 logger = logging.getLogger(__name__)
 
@@ -69,21 +76,26 @@ class Indexer:
     ``markers`` are file-name patterns (or paths, `build/compile_commands.json`)
     whose directory is a project;
     ``requires`` are paths that must exist next to the marker (installed
-    dependencies). ``topmost`` keeps only the outermost project (a Cargo
-    workspace, not its member crates). ``commands`` are the default command
-    prefixes, tried in order: the first whose program is on ``PATH`` runs.
-    ``arguments`` gives the rest of the command for a project and an output
-    path; an indexer that always writes ``fixed_output`` in its working
-    directory has it moved to the output path.
+    dependencies); ``wants`` are paths whose absence (in the project or an
+    ancestor up to the repository root) still lets the indexer run but costs
+    answers, so it is a hint. ``topmost`` keeps only the outermost project (a
+    Cargo workspace, not its member crates). ``commands`` are the default
+    command prefixes, tried in order: the first whose program is on ``PATH``
+    runs. ``install`` says how to get the program; ``None`` means dagayn
+    ships the indexer, so ``commands[0]`` runs as given. ``arguments`` gives
+    the rest of the command for a project and an output path; an indexer
+    that always writes ``fixed_output`` in its working directory has it moved
+    to the output path.
     """
 
     language: str
     markers: tuple[str, ...]
     commands: tuple[tuple[str, ...], ...]
     arguments: Callable[[Path, Path, Path], list[str]]
-    install: str
+    install: str | None
     authoritative: bool = False
     requires: tuple[str, ...] = ()
+    wants: tuple[str, ...] = ()
     topmost: bool = False
     fixed_output: str | None = None
     # Programs installed in the project rather than on PATH
@@ -104,6 +116,14 @@ def _rust_arguments(project: Path, output: Path, _: Path) -> list[str]:
 def _typescript_arguments(project: Path, output: Path, _: Path) -> list[str]:
     tsconfigs = sorted(p.name for p in project.glob("tsconfig*.json"))
     return ["index", "--output", str(output), *tsconfigs]
+
+
+def parse_typescript_arguments(argv: list[str]) -> tuple[Path, list[str]]:
+    """The inverse of :func:`_typescript_arguments`, for the bundled indexer:
+    the output path and the tsconfigs (``tsconfig.json`` when none is named)."""
+    if len(argv) < 3 or argv[:2] != ["index", "--output"]:
+        raise ValueError(f"expected `index --output OUT [tsconfig...]`, got {argv}")
+    return Path(argv[2]), argv[3:] or ["tsconfig.json"]
 
 
 def _go_arguments(_: Path, output: Path, __: Path) -> list[str]:
@@ -174,11 +194,11 @@ INDEXERS: tuple[Indexer, ...] = (
     Indexer(
         language="typescript",
         markers=("tsconfig.json",),
-        requires=("node_modules",),
-        commands=(("scip-typescript",), ("npx", "-y", "@sourcegraph/scip-typescript")),
+        commands=((sys.executable, "-P", "-m", "dagayn.scip_typescript"),),
         arguments=_typescript_arguments,
-        install="npm install -g @sourcegraph/scip-typescript (or install Node.js for npx)",
+        install=None,
         authoritative=True,
+        wants=("node_modules",),
     ),
     Indexer(
         language="go",
@@ -281,7 +301,8 @@ INDEXERS: tuple[Indexer, ...] = (
 class ScipJob:
     """One indexer run: the language, its command, where it runs, the prefix
     that turns its document paths into the graph's, and whether its answer
-    replaces resolution's."""
+    replaces resolution's. ``env`` is set for a bundled indexer (the dagayn
+    to import); the others inherit the environment."""
 
     language: str
     command: list[str]
@@ -290,6 +311,7 @@ class ScipJob:
     output: Path
     authoritative: bool = False
     fixed_output: str | None = None
+    env: dict[str, str] | None = None
 
 
 @dataclass
@@ -311,13 +333,16 @@ def _timeout() -> int:
 
 def _command(indexer: Indexer, project: Path) -> list[str] | None:
     """The indexer's command prefix: the override, the program the project
-    installed, or the first default whose program is on ``PATH``."""
+    installed, the bundled command, or the first default whose program is on
+    ``PATH``."""
     override = os.environ.get(indexer.env_var)
     if override:
         return shlex.split(override)
     for local in indexer.project_commands:
         if (project / local).is_file():
             return [str(project / local)]
+    if indexer.install is None:
+        return list(indexer.commands[0])
     for command in indexer.commands:
         program = shutil.which(command[0])
         if program:
@@ -342,6 +367,17 @@ def _projects(repo_root: Path, indexer: Indexer) -> list[Path]:
         if marked and all((here / required).exists() for required in indexer.requires):
             projects.append(here)
     return projects
+
+
+def _missing_wants(repo_root: Path, project: Path, indexer: Indexer) -> list[str]:
+    """What the indexer wants that neither the project nor an ancestor up to
+    the repository root has (a workspace hoists ``node_modules`` to its root)."""
+    candidates = [p for p in (project, *project.parents) if p.is_relative_to(repo_root)]
+    return [
+        wanted
+        for wanted in indexer.wants
+        if not any((candidate / wanted).exists() for candidate in candidates)
+    ]
 
 
 def _python_environment(project: Path, scratch: Path) -> Path | None:
@@ -386,12 +422,15 @@ def plan_jobs(repo_root: Path, output_dir: Path) -> tuple[list[ScipJob], list[st
             )
             continue
         missing = False
+        wanting: list[str] = []
         for number, project in enumerate(projects):
             command = _command(indexer, project)
             if command is None:
                 missing = True
                 continue
             relative = project.relative_to(repo_root).as_posix()
+            if lacks := _missing_wants(repo_root, project, indexer):
+                wanting.append(f"{relative} ({', '.join(lacks)})")
             output = output_dir / f"{indexer.language}-{number}.scip"
             jobs.append(
                 ScipJob(
@@ -402,12 +441,18 @@ def plan_jobs(repo_root: Path, output_dir: Path) -> tuple[list[ScipJob], list[st
                     output=output,
                     authoritative=indexer.authoritative,
                     fixed_output=indexer.fixed_output,
+                    env=child_env() if indexer.install is None else None,
                 )
             )
         if missing:
             hints.append(
                 f"{indexer.language}: no SCIP indexer found; install it with "
                 f"`{indexer.install}` (calls keep dagayn's own resolution)"
+            )
+        if wanting:
+            hints.append(
+                f"{indexer.language}: dependencies not installed in {', '.join(wanting)}; "
+                "calls into packages keep dagayn's own resolution"
             )
     return jobs, hints
 
@@ -426,6 +471,7 @@ def run_scip_overlay(store: Any, repo_root: Path, output_dir: Path) -> ScipOverl
             completed = subprocess.run(  # noqa: S603 - indexer command, not shell
                 job.command,
                 cwd=job.cwd,
+                env=job.env,
                 capture_output=True,
                 text=True,
                 timeout=_timeout(),
@@ -438,9 +484,12 @@ def run_scip_overlay(store: Any, repo_root: Path, output_dir: Path) -> ScipOverl
             shutil.move(str(job.cwd / job.fixed_output), job.output)
         if completed.returncode != 0 or not job.output.is_file():
             tail = (completed.stderr or completed.stdout or "").strip().splitlines()[-3:]
-            report.warnings.append(
-                f"{label}: indexer exited {completed.returncode}: {' | '.join(tail)}"
+            ended = (
+                f"killed by {signal.Signals(-completed.returncode).name}"
+                if completed.returncode < 0
+                else f"exited {completed.returncode}"
             )
+            report.warnings.append(f"{label}: indexer {ended}: {' | '.join(tail)}")
             continue
         try:
             raw = store.apply_scip_overlay_json(
