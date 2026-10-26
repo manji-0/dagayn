@@ -8,6 +8,7 @@ This directory stores design notes and implementation plans that are more detail
 - `ANALYSIS-TOOL-STRATEGY.md` — plan for a smaller, workflow-oriented analysis tool surface
 - `ARCHITECTURE-TOOL-TARGET.md` — what `architecture_analysis_tool` is for: the measured noise in today's modes, the declared-unit map plus findings target contract, the finding kinds, and the eval that gates them
 - `COMPONENT-PRINCIPLES-TARGET.md` — DIP, ISP, CRP, CCP, OCP, and REP observed without declared layers: what the graph can count, the SAP abstractness gap for Rust, the draft evidence and finding candidates, and the measurement that decides them
+- `FIRST-CLASS-LANGUAGES-TARGET.md` — TypeScript, Python, and Go at Rust's level: what first-class means, the measured capability matrix per language, the gaps ranked by the tools agents use, and the ordered work list with the eval each item must move
 - `FLOW-TOOL-TARGET.md` — what `flow_tool` is for: the measured noise in the stored reachable sets, the entry-points-for-a-symbol target contract, and the eval that gates it
 - `GO-SUPPORT-MEASUREMENTS.md` — Go test reach against `go test` coverage (testify, compress, scip-go), and what Go tests and packages in the graph changed
 - `OXC-PARSER-EVALUATION.md` — whether to parse JavaScript / TypeScript with oxc instead of tree-sitter: measurements, error-recovery gap, and the decision to keep tree-sitter

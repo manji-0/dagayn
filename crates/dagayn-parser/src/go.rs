@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 
 use serde_json::json;
@@ -31,12 +31,15 @@ pub(super) fn parse_go_with_parser(
         let root = tree.root_node();
         let module = repo_root.and_then(|root| go_module_path(root, &file_path));
         let namespace = go_package_namespace(root, source, &file_path, module.as_ref());
-        let stdlib = GoStdlibScope::of_file(root, source, module.map(|(path, _)| path));
+        let mut stdlib = GoStdlibScope::of_file(root, source, module.map(|(path, _)| path));
+        stdlib.own_package = namespace
+            .as_deref()
+            .map(|path| path.strip_suffix("_test").unwrap_or(path).to_string());
         let context = GoContext {
             source,
             file_path: &file_path,
             stdlib: &stdlib,
-            struct_fields: go_struct_fields(root, source),
+            struct_fields: go_struct_fields(root, source, &stdlib),
             bindings: RefCell::new(MemberCallBindings::with_types(go_declared_types(
                 root, source,
             ))),
@@ -174,8 +177,9 @@ struct GoContext<'a> {
     source: &'a [u8],
     file_path: &'a FilePath,
     stdlib: &'a GoStdlibScope,
-    /// `struct` name -> field -> field type node text (`cfg *Config`).
-    struct_fields: HashMap<String, HashMap<String, String>>,
+    /// `struct` name -> field -> the field's type, if it names one
+    /// (`cfg *Config`).
+    struct_fields: HashMap<String, HashMap<String, Option<GoType>>>,
     bindings: RefCell<MemberCallBindings>,
     /// Names the enclosing function declares (parameters, receiver,
     /// `var`, `:=`, `range`): a receiver of these is a variable, never a
@@ -199,7 +203,7 @@ fn go_walk_children(
             }
             "type_declaration" => {
                 // A type declared in a function body is local to it.
-                go_emit_types(child, source, file_path, enclosing_func, nodes, edges);
+                go_emit_types(child, context, enclosing_func, nodes, edges);
             }
             "function_declaration" | "method_declaration" => {
                 // `func _()` is the blank identifier: nothing can refer to it.
@@ -234,6 +238,11 @@ fn go_walk_children(
             "short_var_declaration" | "assignment_statement" | "var_spec" => {
                 go_walk_children(child, context, enclosing_func, nodes, edges);
                 go_bind_declaration(child, context, enclosing_func.is_some());
+                continue;
+            }
+            "range_clause" => {
+                go_walk_children(child, context, enclosing_func, nodes, edges);
+                go_bind_range(child, context);
                 continue;
             }
             "call_expression" => {
@@ -278,12 +287,12 @@ fn go_emit_imports(
 
 fn go_emit_types(
     node: tree_sitter::Node<'_>,
-    source: &[u8],
-    file_path: &FilePath,
+    context: &GoContext<'_>,
     parent: Option<&str>,
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let (source, file_path) = (context.source, context.file_path);
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
         if child.kind() != "type_spec" {
@@ -295,7 +304,7 @@ fn go_emit_types(
             continue;
         };
         let qualified = qualify(file_path, &name, parent);
-        let extra = go_type_extra(child, source);
+        let extra = go_type_extra(child, source, context.stdlib);
         nodes.push(ParsedNode {
             kind: crate::core::types::NodeKind::Class,
             name,
@@ -322,7 +331,11 @@ fn go_emit_types(
     }
 }
 
-fn go_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Value {
+fn go_type_extra(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    stdlib: &GoStdlibScope,
+) -> serde_json::Value {
     let type_role = go_type_role(node, source);
     let mut extra = json!({"type_role": type_role});
     if let Some(map) = extra.as_object_mut() {
@@ -333,9 +346,128 @@ fn go_type_extra(node: tree_sitter::Node<'_>, source: &[u8]) -> serde_json::Valu
         if type_role == "struct" {
             map.insert("container_role".to_string(), json!("data_container"));
             map.insert("value_semantics".to_string(), json!(true));
+            if let Some(body) = node
+                .child_by_field_name("type")
+                .filter(|ty| ty.kind() == "struct_type")
+            {
+                let (fields, embedded) = go_struct_declaration(body, source, stdlib);
+                map.insert("field_types".to_string(), json!(fields));
+                if !embedded.is_empty() {
+                    map.insert("embedded".to_string(), json!(embedded));
+                }
+            }
         }
     }
     extra
+}
+
+/// A struct's named fields and their types as resolution reads them
+/// (`field_types`: `[]hcode` for `[]*hcode`, `[4]hcode`, or `map[K]hcode`;
+/// another package's type by its import path, `example.com/m/huff0.Scratch`
+/// for `*huff0.Scratch`; empty for a type with no methods to find), and the
+/// types it embeds (`embedded`: `fastGen` for `fastGen` or `*fastGen`).
+fn go_struct_declaration(
+    body: tree_sitter::Node<'_>,
+    source: &[u8],
+    stdlib: &GoStdlibScope,
+) -> (BTreeMap<String, String>, Vec<String>) {
+    let mut fields = BTreeMap::new();
+    let mut embedded = Vec::new();
+    let mut declarations = Vec::new();
+    go_field_declarations(body, &mut declarations);
+    for declaration in declarations {
+        let Some(ty) = declaration.child_by_field_name("type") else {
+            continue;
+        };
+        let mut cursor = declaration.walk();
+        let names = declaration
+            .children_by_field_name("name", &mut cursor)
+            .map(|name| node_text(name, source))
+            .collect::<Vec<_>>();
+        if names.is_empty() {
+            let name = go_type_text(ty, source, stdlib);
+            if !name.is_empty() && !name.starts_with("[]") {
+                // An embedded field is named by its type (`e.fastGen`).
+                let field = name.rsplit(['.', '/']).next().unwrap_or(&name).to_string();
+                fields.insert(field, name.clone());
+                embedded.push(name);
+            }
+        }
+        for name in names {
+            fields.insert(name, go_type_text(ty, source, stdlib));
+        }
+    }
+    (fields, embedded)
+}
+
+fn go_field_declarations<'tree>(
+    node: tree_sitter::Node<'tree>,
+    out: &mut Vec<tree_sitter::Node<'tree>>,
+) {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        if child.kind() == "field_declaration" {
+            out.push(child);
+        } else if child.kind() == "field_declaration_list" {
+            go_field_declarations(child, out);
+        }
+    }
+}
+
+/// A type expression as `field_types` spells it (see
+/// [`go_struct_declaration`]).
+fn go_type_text(ty: tree_sitter::Node<'_>, source: &[u8], stdlib: &GoStdlibScope) -> String {
+    let inner = |field: &str| {
+        ty.child_by_field_name(field)
+            .map(|inner| go_type_text(inner, source, stdlib))
+            .unwrap_or_default()
+    };
+    match ty.kind() {
+        "pointer_type" | "parenthesized_type" => {
+            let mut cursor = ty.walk();
+            ty.named_children(&mut cursor)
+                .next()
+                .map(|inner| go_type_text(inner, source, stdlib))
+                .unwrap_or_default()
+        }
+        "generic_type" => inner("type"),
+        "slice_type" | "array_type" | "map_type" => {
+            let element = inner(if ty.kind() == "map_type" {
+                "value"
+            } else {
+                "element"
+            });
+            if element.is_empty() {
+                element
+            } else {
+                format!("[]{element}")
+            }
+        }
+        "type_identifier" => {
+            let name = node_text(ty, source);
+            if is_go_predeclared_type(&name) {
+                String::new()
+            } else {
+                name
+            }
+        }
+        "qualified_type" => {
+            let (Some(package), Some(name)) = (
+                ty.child_by_field_name("package"),
+                ty.child_by_field_name("name"),
+            ) else {
+                return String::new();
+            };
+            let package = node_text(package, source);
+            let path = stdlib
+                .imports
+                .get(&package)
+                .or_else(|| stdlib.packages.get(&package))
+                .unwrap_or(&package);
+            format!("{path}.{}", node_text(name, source))
+        }
+        _ => String::new(),
+    }
 }
 
 fn go_type_role(node: tree_sitter::Node<'_>, _source: &[u8]) -> &'static str {
@@ -640,6 +772,28 @@ fn go_emit_call(
             GoReceiver::Typed(GoType::Named(type_name)) => {
                 extra[GO_TYPED_RECEIVER_KEY] = json!(type_name);
             }
+            GoReceiver::Typed(GoType::Field { owner, path }) => {
+                // Never bound by name: only the field's type, which another
+                // file declares, says which method this is.
+                extra["receiver_unknown"] = json!(true);
+                let (field, element) = match path.strip_suffix("[]") {
+                    Some(field) => (field, true),
+                    None => (path.as_str(), false),
+                };
+                extra["receiver_field"] = json!({"owner": owner, "field": field});
+                if element {
+                    extra["receiver_field"]["element"] = json!(true);
+                }
+            }
+            GoReceiver::Typed(GoType::Package(path, type_name)) => {
+                // Bound in that package only (`receiver_package`), never to
+                // the caller package's type of the name.
+                extra["receiver_type"] = json!(type_name);
+                extra["receiver_package"] = json!(path);
+            }
+            GoReceiver::Typed(GoType::Elements(_) | GoType::Channel(_)) => {
+                extra["receiver_unknown"] = json!(true);
+            }
             GoReceiver::Unknown(origin) => {
                 extra["receiver_unknown"] = json!(true);
                 if let Some(origin) = origin {
@@ -684,18 +838,83 @@ fn go_emit_call(
 /// [`go_finish_typed_receivers`] once every method of the file is known.
 const GO_TYPED_RECEIVER_KEY: &str = "go_typed_receiver";
 
-/// A type a receiver is declared with: one named in the repository
-/// (`Store`, `*Store`, `models.Store`), or one of the standard library
-/// (import path, name: `net/http`, `Request` for `*http.Request`).
+/// A type a value is declared with.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum GoType {
+    /// A type of the file's package (`Store`, `*Store`, `Store[T]`).
     Named(String),
+    /// A type of the standard library: import path, name (`net/http`,
+    /// `Request` for `*http.Request`).
     Std(String, String),
+    /// A type of another package of the repository or of a module the
+    /// file imports: import path, name (`example.com/m/zstd`, `Decoder` for
+    /// `*zstd.Decoder`).
+    Package(String, String),
+    /// A slice, array, or map of the type (`[]T`, `[4]*T`, `map[K]T`),
+    /// whose elements an index or a `range` gives.
+    Elements(Box<GoType>),
+    /// A channel of the type (`chan *T`), whose values a receive (`<-ch`)
+    /// or a `range` gives.
+    Channel(Box<GoType>),
+    /// A field of a struct another file declares, by its path from the
+    /// struct (`br` for `s.br` on `s *Scratch`, `state.jobs` for
+    /// `e.state.jobs`, `nodes[]` for an element `s.nodes[i]`): resolution
+    /// reads the fields' types from the structs' `field_types`.
+    Field { owner: String, path: String },
 }
 
-/// A variable bound to a type of the standard library is remembered as
-/// `path:Name`; no Go import path or identifier has a `:`.
-const GO_STD_TYPE_SEPARATOR: char = ':';
+impl GoType {
+    /// What an index (`x[i]`) or a `range` gives of a value of this type.
+    fn element(self) -> Option<GoType> {
+        match self {
+            GoType::Elements(inner) => Some(*inner),
+            GoType::Field { owner, path } if !path.ends_with("[]") => Some(GoType::Field {
+                owner,
+                path: format!("{path}[]"),
+            }),
+            _ => None,
+        }
+    }
+
+    /// How [`MemberCallBindings`] remembers a variable of this type: `Name`,
+    /// `path:Name` for the standard library (no Go import path or identifier
+    /// has a `:`), `%path Name` for another package's, `[]T` for elements,
+    /// `<-T` for a channel, `@Owner.path` for a field of another file's
+    /// struct.
+    fn key(&self) -> String {
+        match self {
+            GoType::Named(name) => name.clone(),
+            GoType::Std(path, name) => format!("{path}:{name}"),
+            GoType::Package(path, name) => format!("%{path} {name}"),
+            GoType::Elements(inner) => format!("[]{}", inner.key()),
+            GoType::Channel(inner) => format!("<-{}", inner.key()),
+            GoType::Field { owner, path } => format!("@{owner}.{path}"),
+        }
+    }
+
+    fn from_key(key: &str) -> GoType {
+        if let Some((path, name)) = key.strip_prefix('%').and_then(|rest| rest.split_once(' ')) {
+            return GoType::Package(path.to_string(), name.to_string());
+        }
+        if let Some(inner) = key.strip_prefix("[]") {
+            return GoType::Elements(Box::new(GoType::from_key(inner)));
+        }
+        if let Some(inner) = key.strip_prefix("<-") {
+            return GoType::Channel(Box::new(GoType::from_key(inner)));
+        }
+        if let Some(field) = key.strip_prefix('@') {
+            let (owner, path) = field.split_once('.').unwrap_or((field, ""));
+            return GoType::Field {
+                owner: owner.to_string(),
+                path: path.to_string(),
+            };
+        }
+        match key.split_once(':') {
+            Some((path, name)) => GoType::Std(path.to_string(), name.to_string()),
+            None => GoType::Named(key.to_string()),
+        }
+    }
+}
 
 /// What a member call's receiver says about the method it calls.
 #[derive(Debug)]
@@ -758,13 +977,14 @@ fn go_declared_types(root: tree_sitter::Node<'_>, source: &[u8]) -> HashSet<Stri
     out
 }
 
-/// The named fields of the file's top-level structs and their types as
-/// written: `type Store struct { cfg *Config }` gives `Store` -> `cfg` ->
-/// `*Config`, which types `s.cfg.Get()`.
+/// The fields of the file's top-level structs and their types: `type Store
+/// struct { cfg *Config }` gives `Store` -> `cfg` -> `Config`, which types
+/// `s.cfg.Get()`. An embedded field is named by its type.
 fn go_struct_fields(
     root: tree_sitter::Node<'_>,
     source: &[u8],
-) -> HashMap<String, HashMap<String, String>> {
+    stdlib: &GoStdlibScope,
+) -> HashMap<String, HashMap<String, Option<GoType>>> {
     let mut out = HashMap::new();
     let mut cursor = root.walk();
     for declaration in root.children(&mut cursor) {
@@ -782,33 +1002,32 @@ fn go_struct_fields(
             if spec.kind() != "type_spec" || ty.kind() != "struct_type" {
                 continue;
             }
+            let mut declarations = Vec::new();
+            go_field_declarations(ty, &mut declarations);
             let mut fields = HashMap::new();
-            go_collect_fields(ty, source, &mut fields);
+            for declaration in declarations {
+                let Some(field_type) = declaration.child_by_field_name("type") else {
+                    continue;
+                };
+                let mut names = declaration.walk();
+                let names = declaration
+                    .children_by_field_name("name", &mut names)
+                    .map(|field| node_text(field, source))
+                    .collect::<Vec<_>>();
+                let ty = go_type_of(field_type, source, stdlib);
+                if names.is_empty()
+                    && let Some(GoType::Named(name) | GoType::Package(_, name)) = &ty
+                {
+                    fields.insert(name.clone(), ty.clone());
+                }
+                for field in names {
+                    fields.insert(field, ty.clone());
+                }
+            }
             out.insert(node_text(name, source), fields);
         }
     }
     out
-}
-
-fn go_collect_fields(
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-    out: &mut HashMap<String, String>,
-) {
-    let mut cursor = node.walk();
-    for child in node.children(&mut cursor) {
-        if child.kind() == "field_declaration" {
-            let Some(ty) = child.child_by_field_name("type") else {
-                continue;
-            };
-            let mut names = child.walk();
-            for name in child.children_by_field_name("name", &mut names) {
-                out.insert(node_text(name, source), node_text(ty, source));
-            }
-        } else {
-            go_collect_fields(child, source, out);
-        }
-    }
 }
 
 /// The bindings and locals of the enclosing scope, restored by
@@ -903,27 +1122,50 @@ fn go_collect_locals(
 }
 
 /// The type a type expression declares a value with: `Store`, `*Store`,
-/// `Store[T]`, `models.Store` name a type; `*http.Request` one of the
-/// standard library. Predeclared types (`error`, `string`), slices, maps,
-/// channels, and functions name none whose methods resolution could find.
-fn go_type_of(ty: tree_sitter::Node<'_>, context: &GoContext<'_>) -> Option<GoType> {
+/// `Store[T]` name a type of the package, and so does `models.Store` in the
+/// external test package of `models`; `*zstd.Decoder` names one of the
+/// imported package, `*http.Request` one of the standard library; `[]T`,
+/// `[4]T`, and `map[K]T` the elements' type, `chan T` its values'.
+/// Predeclared types (`error`, `string`) and functions name none whose
+/// methods resolution could find.
+fn go_type_of(ty: tree_sitter::Node<'_>, source: &[u8], stdlib: &GoStdlibScope) -> Option<GoType> {
     match ty.kind() {
         "pointer_type" | "parenthesized_type" => {
             let mut cursor = ty.walk();
             let inner = ty.named_children(&mut cursor).next()?;
-            go_type_of(inner, context)
+            go_type_of(inner, source, stdlib)
         }
-        "generic_type" => go_type_of(ty.child_by_field_name("type")?, context),
+        "generic_type" => go_type_of(ty.child_by_field_name("type")?, source, stdlib),
+        "slice_type" | "array_type" => Some(GoType::Elements(Box::new(go_type_of(
+            ty.child_by_field_name("element")?,
+            source,
+            stdlib,
+        )?))),
+        "map_type" => Some(GoType::Elements(Box::new(go_type_of(
+            ty.child_by_field_name("value")?,
+            source,
+            stdlib,
+        )?))),
+        "channel_type" => Some(GoType::Channel(Box::new(go_type_of(
+            ty.child_by_field_name("value")?,
+            source,
+            stdlib,
+        )?))),
         "type_identifier" => {
-            let name = node_text(ty, context.source);
+            let name = node_text(ty, source);
             (!is_go_predeclared_type(&name)).then_some(GoType::Named(name))
         }
         "qualified_type" => {
-            let package = node_text(ty.child_by_field_name("package")?, context.source);
-            let name = node_text(ty.child_by_field_name("name")?, context.source);
-            Some(match context.stdlib.imports.get(&package) {
-                Some(path) => GoType::Std(path.clone(), name),
-                None => GoType::Named(name),
+            let package = node_text(ty.child_by_field_name("package")?, source);
+            let name = node_text(ty.child_by_field_name("name")?, source);
+            if let Some(path) = stdlib.imports.get(&package) {
+                return Some(GoType::Std(path.clone(), name));
+            }
+            let path = stdlib.packages.get(&package)?;
+            Some(if stdlib.own_package.as_ref() == Some(path) {
+                GoType::Named(name)
+            } else {
+                GoType::Package(path.clone(), name)
             })
         }
         _ => None,
@@ -959,17 +1201,11 @@ fn is_go_predeclared_type(name: &str) -> bool {
 }
 
 fn go_bind(var: &str, ty: GoType, context: &GoContext<'_>) {
-    let mut bindings = context.bindings.borrow_mut();
-    match ty {
-        GoType::Named(name) => bindings.bind_any(var, name),
-        GoType::Std(path, name) => {
-            bindings.bind_any(var, format!("{path}{GO_STD_TYPE_SEPARATOR}{name}"))
-        }
-    }
+    context.bindings.borrow_mut().bind_any(var, ty.key());
 }
 
 fn go_bind_type(var: &str, ty: tree_sitter::Node<'_>, context: &GoContext<'_>) {
-    match go_type_of(ty, context) {
+    match go_type_of(ty, context.source, context.stdlib) {
         Some(ty) => go_bind(var, ty, context),
         None => context.bindings.borrow_mut().forget_foreign(var),
     }
@@ -981,10 +1217,38 @@ fn go_bound_type(var: &str, context: &GoContext<'_>) -> Option<GoType> {
     let bound = bindings
         .bound_type(var)
         .or_else(|| bindings.foreign_type(var))?;
-    Some(match bound.split_once(GO_STD_TYPE_SEPARATOR) {
-        Some((path, name)) => GoType::Std(path.to_string(), name.to_string()),
-        None => GoType::Named(bound.to_string()),
-    })
+    Some(GoType::from_key(bound))
+}
+
+/// Binds the value variable of a `range` over a value of a declared type
+/// (`for _, tok := range in` on `in []token`, `for b := range ch` on `ch
+/// chan *blockDec`) to the elements' type; every variable it declares drops
+/// what it was bound to.
+fn go_bind_range(node: tree_sitter::Node<'_>, context: &GoContext<'_>) {
+    let Some(left) = node.child_by_field_name("left") else {
+        return;
+    };
+    let mut cursor = left.walk();
+    let names = left
+        .named_children(&mut cursor)
+        .filter(|name| name.kind() == "identifier")
+        .map(|name| node_text(name, context.source))
+        .collect::<Vec<_>>();
+    for name in &names {
+        context.bindings.borrow_mut().forget_foreign(name);
+    }
+    let ranged = node
+        .child_by_field_name("right")
+        .and_then(|right| go_value_type(right, context));
+    match (names.as_slice(), ranged) {
+        ([value], Some(GoType::Channel(inner))) => go_bind(value, *inner, context),
+        ([_, value], Some(ranged)) => {
+            if let Some(element) = ranged.element() {
+                go_bind(value, element, context);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Binds the variables a declaration or assignment gives a value:
@@ -1033,11 +1297,13 @@ fn go_bind_declaration(node: tree_sitter::Node<'_>, context: &GoContext<'_>, in_
             (index == 0 && values.len() == 1).then(|| values[0])
         };
         let several = values.len() == 1 && names.len() > 1;
+        // `br := &br[i]`: the value is read before the name is rebound.
+        let ty = value.and_then(|value| go_value_type(value, context));
         context.bindings.borrow_mut().forget_foreign(&var);
         let Some(value) = value else {
             continue;
         };
-        if let Some(ty) = go_value_type(value, context) {
+        if let Some(ty) = ty {
             go_bind(&var, ty, context);
         } else if in_function
             && value.kind() == "call_expression"
@@ -1060,31 +1326,79 @@ fn go_bind_declaration(node: tree_sitter::Node<'_>, context: &GoContext<'_>, in_
 }
 
 /// The type a value is written with: `Store{}`, `&Store{}`, `new(Store)`,
-/// `x.(Store)`, a conversion to a type of the file (`Store(x)`), or a
-/// variable bound to one.
+/// `make([]Store, n)`, `x.(Store)`, a conversion to a type of the file
+/// (`Store(x)`), a variable bound to one, or a field, element, or received
+/// value of one.
 fn go_value_type(value: tree_sitter::Node<'_>, context: &GoContext<'_>) -> Option<GoType> {
     match value.kind() {
-        "composite_literal" => go_type_of(value.child_by_field_name("type")?, context),
+        "composite_literal" => go_type_of(
+            value.child_by_field_name("type")?,
+            context.source,
+            context.stdlib,
+        ),
         "unary_expression" => {
-            let operator = value.child_by_field_name("operator")?;
-            (node_text(operator, context.source) == "&")
-                .then(|| go_value_type(value.child_by_field_name("operand")?, context))
-                .flatten()
+            let operator = node_text(value.child_by_field_name("operator")?, context.source);
+            let operand = go_value_type(value.child_by_field_name("operand")?, context);
+            match (operator.as_str(), operand) {
+                ("&", operand) => operand,
+                // `<-ch` on `ch chan *T`.
+                ("<-", Some(GoType::Channel(inner))) => Some(*inner),
+                _ => None,
+            }
         }
         "parenthesized_expression" => {
             let mut cursor = value.walk();
             let inner = value.named_children(&mut cursor).next()?;
             go_value_type(inner, context)
         }
-        "type_assertion_expression" => go_type_of(value.child_by_field_name("type")?, context),
+        "type_assertion_expression" => go_type_of(
+            value.child_by_field_name("type")?,
+            context.source,
+            context.stdlib,
+        ),
+        // `s.br`: the field's type when the file declares the struct, else
+        // the field for resolution to type (see [`GoType::Field`]).
+        "selector_expression" => {
+            let field = node_text(value.child_by_field_name("field")?, context.source);
+            match go_value_type(value.child_by_field_name("operand")?, context)? {
+                GoType::Named(owner) => match context
+                    .struct_fields
+                    .get(&owner)
+                    .and_then(|fields| fields.get(&field))
+                {
+                    Some(declared) => declared.clone(),
+                    None => Some(GoType::Field { owner, path: field }),
+                },
+                GoType::Field { owner, path } => Some(GoType::Field {
+                    owner,
+                    path: format!("{path}.{field}"),
+                }),
+                _ => None,
+            }
+        }
+        "index_expression" => {
+            go_value_type(value.child_by_field_name("operand")?, context)?.element()
+        }
+        "slice_expression" => {
+            match go_value_type(value.child_by_field_name("operand")?, context)? {
+                GoType::Field { path, .. } if path.ends_with("[]") => None,
+                ty @ (GoType::Elements(_) | GoType::Field { .. }) => Some(ty),
+                _ => None,
+            }
+        }
         "call_expression" => {
             let function = value.child_by_field_name("function")?;
             let arguments = value.child_by_field_name("arguments")?;
             let name = node_text(function, context.source);
-            if function.kind() == "identifier" && name == "new" {
+            // `new(T)`, and `make([]T, n)` / `make(chan *T)`, whose type
+            // is the result's.
+            if function.kind() == "identifier"
+                && matches!(name.as_str(), "new" | "make")
+                && !context.stdlib.declared.contains(&name)
+            {
                 let mut cursor = arguments.walk();
                 let ty = arguments.named_children(&mut cursor).next()?;
-                return go_type_of(ty, context);
+                return go_type_of(ty, context.source, context.stdlib);
             }
             (function.kind() == "identifier"
                 && context.bindings.borrow().constructor_type(&name).is_some())
@@ -1165,21 +1479,9 @@ fn go_receiver(
             GoReceiver::Unknown(go_call_origin(operand, Some(method), context))
         }
         "selector_expression" => {
-            // `s.cfg.Get()`: the field's type in the struct `s` is.
-            let (Some(object), Some(field)) = (
-                operand.child_by_field_name("operand"),
-                operand.child_by_field_name("field"),
-            ) else {
+            let Some(object) = operand.child_by_field_name("operand") else {
                 return GoReceiver::Known;
             };
-            if let Some(GoType::Named(owner)) = go_value_type(object, context)
-                && let Some(ty) = context
-                    .struct_fields
-                    .get(&owner)
-                    .and_then(|fields| fields.get(&node_text(field, source)))
-            {
-                return go_field_receiver(ty, context);
-            }
             if go_is_local_value(object, context) {
                 GoReceiver::Unknown(None)
             } else {
@@ -1194,23 +1496,6 @@ fn go_receiver(
             }
         }
         _ => GoReceiver::Known,
-    }
-}
-
-/// A struct field's type, as written (`*Config`), parsed as a receiver.
-fn go_field_receiver(ty: &str, context: &GoContext<'_>) -> GoReceiver {
-    let ty = ty.trim_start_matches('*');
-    if let Some((package, name)) = ty.split_once('.') {
-        return match context.stdlib.imports.get(package) {
-            Some(path) => GoReceiver::Typed(GoType::Std(path.clone(), name.to_string())),
-            None => GoReceiver::Typed(GoType::Named(name.to_string())),
-        };
-    }
-    let name = ty.split('[').next().unwrap_or(ty);
-    if name.chars().all(|c| c == '_' || c.is_alphanumeric()) && !is_go_predeclared_type(name) {
-        GoReceiver::Typed(GoType::Named(name.to_string()))
-    } else {
-        GoReceiver::Known
     }
 }
 
@@ -1249,6 +1534,9 @@ struct GoStdlibScope {
     /// packages are never the standard library, even under a name like
     /// `crypto/...` that has no dot.
     module: Option<String>,
+    /// The import path of the package the file is of, or tests from outside
+    /// (`package zip_test` is `zip`'s): `zip.Writer` there is `zip`'s own.
+    own_package: Option<String>,
 }
 
 impl GoStdlibScope {
@@ -1258,6 +1546,7 @@ impl GoStdlibScope {
             packages: HashMap::new(),
             declared: HashSet::new(),
             module,
+            own_package: None,
         };
         scope.collect(root, source);
         scope

@@ -220,3 +220,172 @@ fifths of what is left is calls on values and into other packages, which
 the plan assigns to SCIP and to G3. Part of the drop to 0.312 is also the
 removal of wrong edges: the self-calls through a package qualifier had
 counted as callers. G2 ships with this clause recorded as not met.
+
+## G2b: receivers typed by their declarations
+
+<!-- derived-from #why-the-no-caller-bar-is-not-met -->
+
+Go extractor 11. Go writes the types of its values down, and the extractor
+now reads more of what is written: the type of a struct field (`s.br`,
+`br := &s.br`, a path of fields `e.state.jobs`), of an element of a slice,
+array, or map (`b[i]` on `b []hcode`, `for _, tok := range in`), of a
+channel's values (`for block := range ch`, `<-ch`), of `make([]T, n)`,
+and the methods a struct gets from the structs it embeds (`e.addBlock()` on
+a `fastEncL1` that embeds `fastGen`). A struct of another file is finished
+in post-processing from its Class node's `field_types` and `embedded`.
+Another package's type (`d *zstd.Decoder`) is bound in that package
+through its import path (`receiver_package`). None of this infers a type:
+every rule reads a declaration, and a selector Go itself would reject as
+ambiguous (two members of one name at one embedding depth) binds nothing.
+
+The ground truth is scip-go v0.2.7, built from the clone above, indexed
+with `GOTOOLCHAIN=go1.25.3`: compress for darwin/arm64, linux/amd64, and
+`-tags noasm` (so every build-tag variant of a file is in some index),
+testify for darwin/arm64 and linux/amd64. A script joins each graph edge to
+the SCIP reference of the method's name at the call (on the edge's line or
+the next lines of a chain split over lines): an edge is right when that
+reference's symbol is defined where the target node starts.
+
+### What the 219 were
+
+Of compress's 419 production functions with no caller after G2, G2 put 219
+down to method calls on values of unknown type. SCIP says what they are:
+
+| | compress | testify |
+|---|---|---|
+| Unknown-value functions with no caller (G2) | 219 | 24 |
+| No direct reference in any SCIP build (interface dispatch, method values) | 127 | 4 |
+| No SCIP symbol (a file no build compiles) | 1 | 0 |
+| Referenced directly | 91 | 20 |
+| Of those, given a caller by go 11 | **71** | **17** |
+
+127 of the 219 cannot get a caller from any rule that binds a call to the
+method it names: their only uses are calls through an interface
+(`io.Reader.Read`, the `flate` package's `encoder.Encode`) or method
+values. The 91 referenced ones, by the shape of their first call site:
+
+| Shape | Example | compress: referenced / now with a caller | testify |
+|---|---|---|---|
+| A variable read from a field | `wr := &b.wr; wr.reset()` | 20 / 20 | |
+| A field of a struct of another file | `s.bw.close()` | 16 / 15 | 1 / 1 |
+| An element of a declared slice or array | `huffNode[n].setCount()` | 11 / 11 | 1 / 1 |
+| A method of an embedded struct | `e.addBlock()` on `fastEncL1` | 10 / 10 | 9 / 9 |
+| A `range` variable | `for _, tok := range in` | 9 / 9 | |
+| A call's result | `snapref.NewBufferedWriter(&buf).Write()` | 14 / 1 | 8 / 6 |
+| Another local | `case b := <-a.reuse` | 10 / 5 | 1 / 0 |
+| A method value | `e.initialize` passed as a function | 1 / 0 | |
+
+Most of the call results left are calls into another package
+(`snapref.NewBufferedWriter`, `s2.MakeDict`, `zip.NewWriter` from the
+external test package), which G3 binds, and methods declared twice under
+build tags (`huff0.Decoder.Decompress4X` in `decompress_asm.go` and
+`decompress_generic.go`), which stay unbound as G2's build-tag functions
+do.
+
+### Every newly bound edge
+
+| Rule | compress right / wrong | testify right / wrong |
+|---|---|---|
+| A field of another file's struct (`receiver_field`) | 155 / 0 | |
+| An element of such a field | 81 / 0 | |
+| A method of an embedded struct | 107 / 0 | 238 / 0 |
+| A receiver typed in the file (field, element, channel, `make`, another package's type) | 161 / 0 | 18 / 0 |
+| A same-file method the file now types | 13 / 0 | 2 / 0 |
+| A call on a returned value the chain now types (`m.On(..).Return(..)`) | | 163 / 0 |
+| **All** | **517 / 0** | **421 / 0** |
+
+Precision against SCIP is 1.000 on both, with no edge SCIP could not
+judge. Eight edges go 10 bound are bound differently, and all eight were
+wrong: a field of another package's type (`compressor *flate.Writer` in
+`gzip`, `zlib`, and `zip/register.go`) had been read as the caller
+package's type of that name, so `z.compressor.Write(p)` in
+`gzip/gzip.go:233` was a self-call to `gzip`'s `Writer.Write`. Go 11 binds
+all eight to `flate/deflate.go::Writer`'s methods, which SCIP confirms.
+`zlib/writer.go::Writer.Flush` loses its only caller that way: the caller
+was the wrong self-call. No other function loses a caller.
+
+### Hand check
+
+A seeded random sample (`random.Random(2026)`) of the new edges, 20 of
+compress and 10 of testify, each checked against the declaration of its
+receiver (in parentheses).
+
+| # | Call (file:line) | Caller | Bound to | Right |
+|---|---|---|---|---|
+| 1 | `flate/fuzz_test.go:73` `fw.ResetDict(..)` (`fw := encs[..]`, `encs := make([]*Writer, ..)`) | `FuzzEncoding` | `flate/deflate.go::Writer.ResetDict` | yes |
+| 2 | `flate/huffman_bit_writer.go:301` `offEnc.codes[i].len()` (`offEnc *huffmanEncoder`, `codes []hcode`) | `huffmanBitWriter.generateCodegen` | `flate/huffman_code.go::hcode.len` | yes |
+| 3 | `flate/inflate_gen.go:1308` `dict.writeCopy(..)` (`dict := &f.dict`, `dict dictDecoder` in `inflate.go`) | `decompressor.huffmanGenericReader` | `flate/dict_decoder.go::dictDecoder.writeCopy` | yes |
+| 4 | `flate/level5.go:190` `e.matchlenLong(..)` (`e *fastEncL5`, which embeds `fastGen`) | `fastEncL5.Encode` | `flate/fast_encoder.go::fastGen.matchlenLong` | yes |
+| 5 | `flate/level6.go:151` `e.matchlen(..)` (`e *fastEncL6`, embeds `fastGen`) | `fastEncL6.Encode` | `flate/fast_encoder.go::fastGen.matchlen` | yes |
+| 6 | `flate/token.go:189` `tok.literal()` (`for _, tok := range in`, `in []token`) | `tokens.indexTokens` | `flate/token.go::token.literal` | yes |
+| 7 | `fse/compress.go:187` `s.bw.flush32()` (`s *Scratch`, `bw bitWriter`) | `Scratch.compress` | `fse/bitwriter.go::bitWriter.flush32` | yes |
+| 8 | `huff0/decompress.go:1068` `br.advance(..)` (`br := &br[i]`, `var br [4]bitReaderBytes`) | `Decoder.decompress4X8bitExactly` | `huff0/bitreader.go::bitReaderBytes.advance` | yes |
+| 9 | `huff0/decompress_generic.go:40` `br[3].init(..)` (`var br [4]bitReaderShifted`) | `Decoder.Decompress4X` | `huff0/bitreader.go::bitReaderShifted.init` | yes |
+| 10 | `huff0/decompress_generic.go:107` `br[stream].peekBitsFast(..)` (same `br`) | `Decoder.Decompress4X` | `huff0/bitreader.go::bitReaderShifted.peekBitsFast` | yes |
+| 11 | `lzw/aldus_test.go:520` `r.Read(..)` (`r := lzw.NewReader(..).(*lzw.Reader)` in `lzw_test`) | `BenchmarkDecodeAldus` | `lzw/reader.go::Reader.Read` | yes |
+| 12 | `zstd/blockenc.go:626` `mlEnc.normalizeCount(..)` (`mlEnc := b.coders.mlEnc`, `mlEnc *fseEncoder`) | `blockEnc.encode` | `zstd/fse_encoder.go::fseEncoder.normalizeCount` | yes |
+| 13 | `zstd/decoder.go:491` `d.current.crc.Reset()` (`current decoderState`, `crc *xxhash.Digest`) | `Decoder.nextBlock` | `zstd/internal/xxhash/xxhash.go::Digest.Reset` | yes |
+| 14 | `zstd/decoder.go:587` `d.frame.crc.Write(..)` (`frame *frameDec`, `crc *xxhash.Digest`) | `Decoder.nextBlockSync` | `zstd/internal/xxhash/xxhash.go::Digest.Write` | yes |
+| 15 | `zstd/enc_fast.go:220` `e.matchlen(..)` (`e *fastEncoder`, embeds `fastBase`) | `fastEncoder.Encode` | `zstd/enc_base.go::fastBase.matchlen` | yes |
+| 16 | `zstd/fse_decoder.go:278` `v.addBits(..)` (`range s.dt[:tableSize]`, `dt [maxTablesize]decSymbol`) | `fseDecoder.transform` | `zstd/fse_decoder.go::decSymbol.addBits` | yes |
+| 17 | `zstd/fuzz_test.go:265` `enc.MaxEncodedSize(..)` (`enc := encs[level]`, `var encs [..]*Encoder`) | `FuzzEncoding` | `zstd/encoder.go::Encoder.MaxEncodedSize` | yes |
+| 18 | `zstd/seqdec.go:260` `br.remain()` (`br := s.br`, `br *bitReader`) | `sequenceDecs.decodeSync` | `zstd/bitreader.go::bitReader.remain` | yes |
+| 19 | `zstd/seqdec_generic.go:133` `llTable[llState].newState()` (`llTable := s.litLengths.fse.dt[:..]`) | `sequenceDecs.decode` | `zstd/fse_decoder.go::decSymbol.newState` | yes |
+| 20 | `zstd/seqdec_test.go:162` `s.litLengths.fse.mustReadFrom(..)` (`s := sequenceDecs{..}`, `fse *fseDecoder`) | `readDecoders` | `zstd/fse_decoder.go::fseDecoder.mustReadFrom` | yes |
+| 21 | `mock/mock_test.go:374` `mockedService.On(..)` (`TestExampleImplementation` embeds `Mock`) | `Test_Mock_On_WithFuncArgMatcher` | `mock/mock.go::Mock.On` | yes |
+| 22 | `mock/mock_test.go:418` `mockedService.On(..)` (same type) | `Test_Mock_On_WithMapArgMatcher` | `mock/mock.go::Mock.On` | yes |
+| 23 | `mock/mock_test.go:975` `.Return(..)` on `mockedService.On(..)` (`On` returns `*Call`) | `Test_Mock_Return_Nothing` | `mock/mock.go::Call.Return` | yes |
+| 24 | `mock/mock_test.go:1240` `mockedService.On(..)` (`new(TestExampleImplementation)`) | `Test_Mock_Return_NotBefore_Orphan_Call` | `mock/mock.go::Mock.On` | yes |
+| 25 | `mock/mock_test.go:1684` `.Twice()` on `.Return(..)` (`*Call`) | `Test_Mock_AssertExpectations_With_Repeatability` | `mock/mock.go::Call.Twice` | yes |
+| 26 | `mock/mock_test.go:1692` `mockedService.AssertExpectations(t)` (embeds `Mock`) | the same test | `mock/mock.go::Mock.AssertExpectations` | yes |
+| 27 | `mock/mock_test.go:1765` `.Return(..)` on `.On(..)` | `Test_Mock_AssertCalled_WithAnythingOfTypeArgument` | `mock/mock.go::Call.Return` | yes |
+| 28 | `mock/mock_test.go:1817` `mockedService.AssertNotCalled(..)` (embeds `Mock`) | `Test_Mock_AssertNotCalled` | `mock/mock.go::Mock.AssertNotCalled` | yes |
+| 29 | `mock/mock_test.go:1862` `.Maybe()` on `.Return(..)` | `Test_Mock_AssertOptional` | `mock/mock.go::Call.Maybe` | yes |
+| 30 | `mock/mock_test.go:2118` `.WaitUntil(..)` on `.Return()` | `Test_WaitUntil_Parallel` | `mock/mock.go::Call.WaitUntil` | yes |
+
+30 of 30 right, as SCIP says of all 938.
+
+### The no-caller share after G2b
+
+| | compress | testify |
+|---|---|---|
+| Production functions | 1,345 | 817 |
+| No caller, go 10 | 419 (0.312) | 270 (0.330) |
+| No caller, go 11 | **346 (0.257)** | **242 (0.296)** |
+| go 11 with the scip-go overlay (`dagayn build --scip`) | 277 (0.206) | 149 (0.182) |
+| Of go 11's, no direct reference in any SCIP build | 227 (0.169 of all) | 23 (0.028 of all) |
+
+Test reach moves with it: compress's functions that ran but are called
+untested go from 360 to 274 (untested precision 0.304 to 0.363, recall
+0.913 to 0.907, tested precision 0.976 to 0.978), testify's from 42 to 32
+(0.913 to 0.932, 0.995 to 0.993, 0.992 to 0.989).
+
+### Why 0.15 cannot be reached this way
+
+The clause counts a function with no caller whatever the reason, and on
+compress 227 of the 346 left have no direct reference in any of the three
+SCIP builds: interface dispatch, method values, `init`, `main`, and
+functions nothing calls. Their share alone is 0.169, above the bar. Even
+compiler-grade resolution of every direct reference does not reach 0.15:
+the scip-go overlay on top of go 11 leaves 0.206, because it settles
+direct references only. The 119 that SCIP references and the graph still
+gives no caller are calls into other packages (30 functions, G3),
+functions declared under two build tags (53), functions used as values
+(13), and calls on values (23, most of them methods on what a call into
+another package returned, or methods declared under two build tags).
+testify is the other way round: 214 of its 242 are called only through a
+package qualifier (mostly `assert` functions `require` calls as
+`assert.Errorf`), which G3 binds, and only 23 have no direct reference.
+
+Proposed revision, for the owner: measure the clause on the functions the
+graph could give a caller to, those scip-go references directly. Of
+compress's 1,046 such functions the graph gives no caller to 193 (0.185)
+at go 10, 119 (0.114) at go 11, and 50 (0.048) with the scip-go overlay.
+A bar of < 0.12 for this item is met. Binding the 30 cross-package
+functions and the methods on cross-package results would bring it to
+about 0.08 (an estimate from the counts above, not a measurement), a bar
+to set for G3. The share over all functions stays
+reported, with 0.169 as its floor on compress for anything that binds
+direct calls and 0.15 reachable only with dispatch edges (an interface
+method call bound to its implementations), which no item of the plan
+builds.

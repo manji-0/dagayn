@@ -51,6 +51,18 @@ Removed).
   bar of under 0.15 production functions with no caller on compress is not
   met (0.463 to 0.312): the rest are methods on values, calls into other
   packages, and build-tag variants (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
+- Go receivers are typed by their declarations (go extractor 11): a struct
+  field's type (`s.bw.close()`, `br := &s.br`, `e.state.jobs`), an element
+  of a declared slice, array, or map (`b[i]`, `range`), a channel's values,
+  `make([]T, n)`, and the methods a struct gets from the structs it embeds.
+  Struct nodes record `field_types` and `embedded`, and a struct of another
+  file is finished in post-processing (`receiver_field`). Another package's
+  type (`d *zstd.Decoder`) is bound in that package (`receiver_package`)
+  instead of as the caller package's type of the name, which corrects 8
+  wrong edges on compress (`z.compressor.Write` in `gzip` was a self-call).
+  On compress v1.20.1 production functions with no caller go from 0.312 to
+  0.257, on testify v1.12.1 from 0.330 to 0.296; all 938 new edges agree
+  with scip-go (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
 
 ### Changed
 

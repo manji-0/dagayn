@@ -72,6 +72,9 @@ new rules, and a gap it leaves is closed through SCIP.
 
 The dedicated extractors for the other languages stay as they are. They get
 bug fixes, and new investment goes to the measured languages first.
+[First-class languages](./plans/FIRST-CLASS-LANGUAGES-TARGET.md) measures
+what TypeScript, Python, and Go lack against Rust and orders the work, each
+item gated on an eval number.
 
 ### Human-facing surfaces go
 
