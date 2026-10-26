@@ -6,7 +6,10 @@ use super::*;
 
 fn repo(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
     let mut root = std::env::temp_dir();
-    root.push(format!("dagayn-rust-test-files-{name}-{}", std::process::id()));
+    root.push(format!(
+        "dagayn-rust-test-files-{name}-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&root);
     for (path, text) in files {
         let path = root.join(path);
@@ -16,7 +19,8 @@ fn repo(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
     root
 }
 
-const BODY: &str = "pub struct Fixture;\nfn helper() -> u8 { crate::work() }\n#[test]\nfn runs() { helper(); }\n";
+const BODY: &str =
+    "pub struct Fixture;\nfn helper() -> u8 { crate::work() }\n#[test]\nfn runs() { helper(); }\n";
 
 /// `(name, kind, is_test)` of every node the parser records for `file`.
 fn nodes_of(root: &std::path::Path, file: &str) -> Vec<(String, String, bool)> {
@@ -43,7 +47,10 @@ fn files_declared_under_cfg_test_are_test_code() {
             ("src/tests/mod.rs", "mod child;\npub struct Shared;\n"),
             ("src/tests/child.rs", BODY),
             ("src/support/x.rs", BODY),
-            ("src/contests.rs", "pub struct Contest;\npub fn rank() -> u8 { 1 }\n"),
+            (
+                "src/contests.rs",
+                "pub struct Contest;\npub fn rank() -> u8 { 1 }\n",
+            ),
             ("src/not_tests.rs", "pub fn live() {}\n"),
             ("src/either.rs", "pub fn maybe() {}\n"),
         ],
@@ -63,11 +70,22 @@ fn files_declared_under_cfg_test_are_test_code() {
         // Functions are tests, as in a `tests/` directory; types keep
         // their kind.
         if file != "src/tests/mod.rs" {
-            assert!(nodes.contains(&("helper".into(), "Test".into(), true)), "{file}");
-            assert!(nodes.contains(&("Fixture".into(), "Class".into(), true)), "{file}");
+            assert!(
+                nodes.contains(&("helper".into(), "Test".into(), true)),
+                "{file}"
+            );
+            assert!(
+                nodes.contains(&("Fixture".into(), "Class".into(), true)),
+                "{file}"
+            );
         }
     }
-    for file in ["src/contests.rs", "src/not_tests.rs", "src/either.rs", "src/lib.rs"] {
+    for file in [
+        "src/contests.rs",
+        "src/not_tests.rs",
+        "src/either.rs",
+        "src/lib.rs",
+    ] {
         let nodes = nodes_of(&root, file);
         assert!(
             nodes.iter().all(|(_, _, is_test)| !*is_test),
@@ -98,7 +116,10 @@ fn every_node_of_a_tests_directory_file_is_test_code() {
         &[
             ("Cargo.toml", "[package]\nname = \"app\"\n"),
             ("src/lib.rs", "pub fn work() -> u8 { 1 }\n"),
-            ("tests/it.rs", "use app::work;\nstruct Harness;\nfn helper() -> u8 { work() }\n#[test]\nfn runs() { helper(); }\n"),
+            (
+                "tests/it.rs",
+                "use app::work;\nstruct Harness;\nfn helper() -> u8 { work() }\n#[test]\nfn runs() { helper(); }\n",
+            ),
         ],
     );
     let nodes = nodes_of(&root, "tests/it.rs");
