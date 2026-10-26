@@ -126,9 +126,6 @@ jobs:
           PY
 
       - name: Smoke-test the bundled TypeScript indexer
-        # The wheel ships dagayn's own TypeScript SCIP indexer (run from
-        # ``_core`` in a child process): ``build --scip`` on a two-file
-        # project must run it and settle the one call.
         shell: bash
         run: |
           venv="${RUNNER_TEMP}/wheel-smoke"

@@ -1,5 +1,3 @@
-"""Environment for a child Python that must import this dagayn."""
-
 from __future__ import annotations
 
 import os

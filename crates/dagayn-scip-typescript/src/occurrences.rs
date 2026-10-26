@@ -1,12 +1,7 @@
-//! One source file to its SCIP `Document`: every identifier is resolved by
-//! the checker and emitted as an occurrence.
-//!
-//! A declaration name is a definition of its own symbol. Any other
-//! identifier resolves to a symbol (aliases followed to what they import);
-//! one occurrence is emitted at the identifier's range for each distinct
-//! declaration symbol, so a function/namespace merge yields two occurrences
-//! at one range and the overlay counts the call `ambiguous` instead of
-//! choosing a declaration (the conservative rule).
+//! Conservative mode, the owner's call: an identifier whose symbol has
+//! several declarations gets one occurrence per distinct declaration symbol
+//! at the same range, so the overlay counts the call `ambiguous` and leaves
+//! it instead of choosing a declaration.
 
 use protobuf::EnumOrUnknown;
 use scip::types::{Document, Occurrence, PositionEncoding};
@@ -159,7 +154,6 @@ mod tests {
         let text = "a\nconst s = \"\u{1F6D2}\"; total()\n";
         let starts = line_starts(text);
         let start = text.find("total").unwrap();
-        // The cart emoji is one char, four UTF-8 bytes, two UTF-16 units.
         assert_eq!(
             range_utf16(text, &starts, start, start + 5),
             vec![1, 16, 21]

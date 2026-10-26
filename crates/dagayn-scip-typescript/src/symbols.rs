@@ -15,15 +15,21 @@ use rustc_hash::FxHashMap;
 use tsrs_ast::{self as ast, Kind, Node};
 use tsrs_core::P;
 
-/// `(name, version, directory)` of the nearest `package.json` above a file,
-/// cached per directory.
+#[derive(Clone)]
+struct Package {
+    name: String,
+    version: String,
+    dir: String,
+}
+
+/// The nearest `package.json` above each directory.
 #[derive(Default)]
 struct Packages {
-    cache: HashMap<String, Option<(String, String, String)>>,
+    cache: HashMap<String, Option<Package>>,
 }
 
 impl Packages {
-    fn of(&mut self, file: &str) -> Option<(String, String, String)> {
+    fn of(&mut self, file: &str) -> Option<Package> {
         let mut dir = Path::new(file).parent();
         while let Some(d) = dir {
             let key = d.to_string_lossy().to_string();
@@ -42,7 +48,11 @@ impl Packages {
                             .and_then(|x| x.as_str())
                             .unwrap_or(".")
                             .to_string();
-                        Some((name, version, key.clone()))
+                        Some(Package {
+                            name,
+                            version,
+                            dir: key.clone(),
+                        })
                     });
                 self.cache.insert(key, found.clone());
                 if found.is_some() {
@@ -81,7 +91,6 @@ fn decl_name(decl: P<Node>) -> String {
     }
 }
 
-/// A type literal inside a union or intersection has no name of its own.
 fn type_literal_is_local(lit: P<Node>) -> bool {
     let mut a = lit.parent();
     while let Some(n) = a {
@@ -134,13 +143,11 @@ impl SymbolNamer {
         }
     }
 
-    /// Local ids restart at 1 for each document.
     pub(crate) fn start_document(&mut self) {
         self.locals.clear();
         self.next_local = 0;
     }
 
-    /// The symbol of a declaration node, or of a source file (its module).
     pub(crate) fn symbol_for(&mut self, decl: P<Node>) -> Option<String> {
         let sf = ast::get_source_file_of_node(decl)?;
         let kind = decl.kind();
@@ -162,12 +169,12 @@ impl SymbolNamer {
             )
         } else {
             match self.packages.of(&file) {
-                Some((n, v, dir)) => {
+                Some(package) => {
                     let rel = file
-                        .strip_prefix(&format!("{dir}/"))
+                        .strip_prefix(&format!("{}/", package.dir))
                         .unwrap_or(&file)
                         .to_string();
-                    (n, v, rel)
+                    (package.name, package.version, rel)
                 }
                 None => (
                     ".".to_string(),
@@ -189,7 +196,6 @@ impl SymbolNamer {
         if kind == Kind::SourceFile {
             return Some(format!("scip-typescript npm {pkg} {ver} {desc}"));
         }
-        // Enclosing named containers, outermost first.
         let mut chain = Vec::new();
         let mut a = decl.parent();
         while let Some(n) = a {

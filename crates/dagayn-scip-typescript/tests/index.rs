@@ -1,10 +1,3 @@
-//! The index of `fixtures/shop`, read back as the overlay reads it.
-//!
-//! `node_modules` is gitignored, so the fixture keeps its fake package in
-//! `vendor_modules/` and each test copies the fixture to a tempdir, laying
-//! the package out as pnpm does: `node_modules/left-pad` is a symlink into
-//! `node_modules/.pnpm/`, the realpath scip-typescript named `.` (#219).
-
 use std::path::{Path, PathBuf};
 
 use dagayn_scip_typescript::{IndexError, index};
@@ -122,7 +115,6 @@ fn symbols_follow_scip_typescript_grammar_and_ranges_count_utf16_units() {
         "scip-typescript npm shop 1.2.3 src/`main.ts`/"
     );
 
-    // `const label = "🛒"; total([1, 2]);`: the cart is two UTF-16 units.
     let total = occurrences_at(main, MAIN, 5, "total");
     assert_eq!(
         symbols(&total),
@@ -165,7 +157,6 @@ fn symbols_follow_scip_typescript_grammar_and_ranges_count_utf16_units() {
     );
     assert_eq!(definition[0].symbol_roles, ROLE_DEFINITION);
 
-    // Three declarations of `format` (two overloads and the body) share one symbol.
     let format = occurrences_at(main, MAIN, 6, "format");
     assert_eq!(
         symbols(&format),
@@ -195,8 +186,6 @@ fn locals_are_numbered_per_document() {
     let (_, index) = shop.index(&["tsconfig.json"]).unwrap();
     let cart = document(&index, "src/cart.ts");
     let main = document(&index, "src/main.ts");
-    // The first local of each document is `local 1`: `prices` in cart.ts,
-    // the arrow parameter `item` in main.ts.
     assert_eq!(
         symbols(&occurrences_at(cart, CART, 0, "prices")),
         vec!["local 1"]
@@ -205,8 +194,6 @@ fn locals_are_numbered_per_document() {
         symbols(&occurrences_at(main, MAIN, 7, "item")),
         vec!["local 1"]
     );
-    // A function declared inside a body is local too, with the id of its
-    // declaration wherever it is referenced.
     let label_definition = symbols(&occurrences_at(cart, CART, 31, "label"));
     assert!(
         label_definition[0].starts_with("local "),

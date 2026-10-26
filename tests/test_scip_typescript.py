@@ -1,6 +1,3 @@
-"""The bundled TypeScript indexer end to end: a real build of a small project,
-indexed by the real ``_core`` in a child process and applied to the graph."""
-
 from __future__ import annotations
 
 import json
@@ -27,8 +24,6 @@ SHIM = [sys.executable, "-P", "-m", "dagayn.scip_typescript"]
 
 
 def _shop(tmp_path: Path, *, node_modules: bool) -> Path:
-    """The crate's fixture, with its vendored package installed as
-    ``node_modules`` or absent."""
     repo = tmp_path / "shop"
     shutil.copytree(FIXTURE, repo)
     vendored = repo / "vendor_modules"
@@ -52,7 +47,6 @@ def _overlay(repo: Path) -> tuple[ScipOverlayReport, Path]:
 
 
 def _main_calls(db_path: Path) -> dict[str, dict]:
-    """The CALLS edges of ``src/main.ts`` by target, with their extra."""
     with sqlite3.connect(db_path) as db:
         rows = db.execute(
             "select target_qualified, extra from edges "
@@ -69,8 +63,6 @@ def test_the_bundled_indexer_settles_calls_through_the_real_core(tmp_path: Path)
     calls = _main_calls(db_path)
     assert calls["src/cart.ts::total"] == {"resolved_by": "scip"}
     assert calls["src/cart.ts::Cart.add"] == {"resolved_by": "scip"}
-    # A function/namespace merge is two symbols at one range: the conservative
-    # rule leaves the call as resolution left it.
     assert "resolved_by" not in calls["src/cart.ts::discount"]
     assert calls["left-pad::default"]["external_package"] == "left-pad"
 

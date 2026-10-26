@@ -15,13 +15,13 @@ from dagayn.scip_overlay import INDEXERS, plan_jobs, run_scip_overlay
 
 
 class _Store:
-    """Records each language's indexes as one call, as the store takes them."""
-
     def __init__(self) -> None:
         self.calls: list[list[tuple[str, str, bool]]] = []
 
     def apply_scip_overlays_json(self, indexes: list[tuple[str, str, bool]], repo_root: str) -> str:
-        self.calls.append([(Path(path).name, prefix, authoritative) for path, prefix, authoritative in indexes])
+        self.calls.append(
+            [(Path(path).name, prefix, authoritative) for path, prefix, authoritative in indexes]
+        )
         return json.dumps([{"documents": 1, "calls": 2, "confirmed": 2} for _ in indexes])
 
 
@@ -41,7 +41,6 @@ def _repo(tmp_path: Path) -> Path:
     (web / "node_modules").mkdir(parents=True)
     (web / "tsconfig.json").write_text("{}")
     (web / "tsconfig.test.json").write_text("{}")
-    # A tsconfig without node_modules is indexed, with a hint.
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "tsconfig.json").write_text("{}")
     (tmp_path / "svc").mkdir()
@@ -79,15 +78,12 @@ def test_jobs_follow_the_projects_and_the_overrides(
     assert jobs[2].command[:3] == ["scip-ts", "index", "--output"]
     assert jobs[2].command[-2:] == ["tsconfig.json", "tsconfig.test.json"]
     assert jobs[3].command[:2] == ["scip-go", "--output"]
-    # The bundled indexer's jobs carry the import path, overridden or not;
-    # the others inherit the environment.
     assert [job.env is None for job in jobs] == [True, False, False, True]
 
 
 def test_a_missing_indexer_is_a_hint_not_a_failure(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     jobs, hints = plan_jobs(repo, tmp_path / "out")
-    # TypeScript's indexer ships with dagayn: it runs with nothing on PATH.
     assert [(job.language, job.prefix) for job in jobs] == [
         ("typescript", "docs/"),
         ("typescript", "web/"),
@@ -112,14 +108,12 @@ def test_node_modules_is_looked_for_up_to_the_repository_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("DAGAYN_SCIP_TYPESCRIPT", "scip-ts")
-    # Hoisted to the workspace root: found.
     (tmp_path / "node_modules").mkdir()
     (tmp_path / "repo" / "web").mkdir(parents=True)
     (tmp_path / "repo" / "web" / "tsconfig.json").write_text("{}")
     jobs, hints = plan_jobs(tmp_path, tmp_path / "out")
     assert [job.prefix for job in jobs] == ["repo/web/"]
     assert hints == []
-    # Above the repository: not the repository's.
     jobs, hints = plan_jobs(tmp_path / "repo", tmp_path / "out")
     assert [job.prefix for job in jobs] == ["web/"]
     assert [hint.split(":")[0] for hint in hints] == ["typescript"]
@@ -157,7 +151,6 @@ def test_indexes_are_applied_and_failures_reported(
     assert store.calls == [[("rust-0.scip", "", True)], [("go-0.scip", "svc/", False)]]
     assert [run["language"] for run in report.runs] == ["rust", "go"]
     assert [hint.split(":")[0] for hint in report.hints] == ["typescript"]
-    # Both TypeScript projects ran the failing override.
     assert len(report.warnings) == 2
     assert all("typescript" in w and "exited 3" in w for w in report.warnings)
 

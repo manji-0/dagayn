@@ -3256,10 +3256,6 @@ fn a_definition_one_index_holds_settles_another_indexs_reference() {
     use protobuf::{EnumOrUnknown, Message};
     use scip::types::{Document, Index, Occurrence, PositionEncoding};
 
-    // `pkg` is a workspace package the `e2e` project reaches through
-    // node_modules: e2e's index names pkg's symbols without a definition
-    // for them, and pkg's index holds the definition. `trim` is defined by
-    // no index of the build, so it is a package's.
     let root = std::env::temp_dir().join(format!("dagayn-scip-pooled-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("pkg/src")).unwrap();

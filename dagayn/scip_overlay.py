@@ -334,9 +334,6 @@ def _timeout() -> int:
 
 
 def _command(indexer: Indexer, project: Path) -> list[str] | None:
-    """The indexer's command prefix: the override, the program the project
-    installed, the bundled command, or the first default whose program is on
-    ``PATH``."""
     override = os.environ.get(indexer.env_var)
     if override:
         return shlex.split(override)

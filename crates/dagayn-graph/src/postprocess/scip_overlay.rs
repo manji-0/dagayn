@@ -111,9 +111,10 @@ fn read_index(path: &Path, prefix: &str) -> Result<ScipIndex> {
         let file = graph_path(prefix, &document.relative_path);
         let encoding = match document.position_encoding.value() {
             1 => Encoding::Utf8,
+            2 => Encoding::Utf16,
             3 => Encoding::Utf32,
-            // dagayn-scip-typescript says UTF-16 (2); scip-typescript left it
-            // unspecified and counted UTF-16 units too.
+            // scip-typescript left the encoding unspecified and counted
+            // UTF-16 units.
             _ => Encoding::Utf16,
         };
         read.documents.insert(file.clone(), encoding);
@@ -154,10 +155,9 @@ fn read_index(path: &Path, prefix: &str) -> Result<ScipIndex> {
     Ok(read)
 }
 
-/// A document's path in the graph: the index's prefix and the document's
-/// relative path, with the `..` segments of a file outside the project
-/// (`packages/worker/` indexing `../../env.d.ts`) resolved, so the file
-/// is the one the graph parsed and the one other indexes name.
+/// A tsconfig may include a file outside its directory
+/// (`../../worker-configuration.d.ts`); the graph parsed it at the resolved
+/// path, and so did the root's index.
 fn graph_path(prefix: &str, relative_path: &str) -> String {
     let path = format!("{prefix}{relative_path}");
     let mut segments: Vec<&str> = Vec::new();

@@ -100,8 +100,6 @@ pub fn index(
         .map_err(|_| IndexError::Thread)?
 }
 
-/// The three-line stderr tail the build's warning quotes names the tsrs
-/// build the panic came from.
 fn install_panic_hook() {
     static HOOK: Once = Once::new();
     HOOK.call_once(|| {
@@ -209,7 +207,6 @@ fn index_on_this_thread(
     Ok(report)
 }
 
-/// `path` relative to `base`, both absolute with `/` separators.
 fn relative_to(base: &str, path: &str) -> String {
     let b: Vec<&str> = base.split('/').filter(|x| !x.is_empty()).collect();
     let p: Vec<&str> = path.split('/').filter(|x| !x.is_empty()).collect();
