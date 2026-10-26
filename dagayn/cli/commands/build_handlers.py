@@ -359,6 +359,8 @@ def handle_build_command(args: argparse.Namespace, repo_root: Path) -> None:
         )
     for hint in result.get("scip_hints") or []:
         print(f"hint: {hint}")
+    for warning in result.get("warnings") or []:
+        print(f"WARNING: {warning}", file=sys.stderr)
     if pp != "none":
         _print_postprocess_summary(result)
     if result.get("status") == "error":
