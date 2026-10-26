@@ -186,6 +186,11 @@ fn name_columns(line: &str, name: &str, encoding: Encoding, member: bool) -> Vec
 fn external_target(symbol: &str, separator: &str) -> Option<(String, bool, String)> {
     let parsed = ::scip::symbol::parse_symbol(symbol).ok()?;
     let package = parsed.package.into_option()?;
+    // scip-typescript names a package it resolved through a pnpm realpath
+    // `.` (#219): no package is better than an edge to `''`.
+    if package.name.is_empty() || package.name == "." {
+        return None;
+    }
     let descriptors = parsed.descriptors;
     let (name, stdlib) = match (package.manager.as_str(), package.name.as_str()) {
         ("cargo", "std" | "core" | "alloc" | "proc_macro" | "test") => ("std".to_string(), true),
@@ -648,6 +653,20 @@ mod tests {
                 false
             ),
             Some(("globalThis".to_string(), true, "Array.map".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_symbol_without_a_package_name_has_no_external_target() {
+        // scip-typescript writes `npm . .` for a package it resolved through a
+        // pnpm realpath (#219); the scip parser reads `.` as the empty name.
+        let symbol = "scip-typescript npm . . `context.d.ts`/Context#json().";
+        let parsed = ::scip::symbol::parse_symbol(symbol).unwrap();
+        assert_eq!(parsed.package.into_option().unwrap().name, "");
+        assert_eq!(external_target(symbol, "."), None);
+        assert_eq!(
+            external_target("scip-typescript npm  1.0.0 `a.ts`/f().", "."),
+            None
         );
     }
 
