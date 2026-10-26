@@ -54,6 +54,27 @@ Removed).
 
 ### Changed
 
+- `dagayn build --scip` indexes TypeScript with an indexer dagayn ships
+  (`crates/dagayn-scip-typescript`, on the tsrs checker pinned at
+  `e906c9e4`, run as `python -P -m dagayn.scip_typescript` in a child
+  process so a checker panic ends only the indexer) and no longer looks for
+  scip-typescript or `npx`. A project without `node_modules` (in the project
+  or an ancestor up to the repository root) is indexed with a hint instead
+  of skipped: its own symbols resolve and only calls into packages stay
+  unsettled. A reference whose symbol has several declarations (a
+  function/namespace merge) is emitted once per declaration symbol, so the
+  overlay counts the call `ambiguous` and leaves it rather than choosing.
+  On a pnpm workspace of 26,423 TypeScript call edges the indexer settles
+  21,738 (82.3%) where scip-typescript settled 21,723, 2,278 of them to the
+  empty package fixed below, and agrees with scip-typescript on every other
+  edge both settle; its root project indexes in 1.1 s where scip-typescript
+  took 17.9 s. On a second corpus of 7,010 edges it settles 4,737 (67.6%)
+  to scip-typescript's 4,731 and agrees on all 4,731. The release wheel
+  grows from 40.6 MB to 43.0 MB (macOS arm64, Python 3.13).
+- `dagayn build` prints the build's warnings (a failed indexer, an index not
+  applied, a post-processing pass that failed) as `WARNING:` lines on
+  stderr; they were in the result but never shown. An indexer a signal ended
+  is reported as `indexer killed by SIGABRT`, not `exited -6`.
 - The Rust workspace targets 1.99.1 (the tsrs crates, which the TypeScript
   SCIP indexer will use, need 1.99). One lint new in 1.99,
   `needless_borrows_for_generic_args`, fired once and is fixed.
@@ -156,6 +177,10 @@ Removed).
 
 ### Fixed
 
+- A SCIP symbol with an empty package name gives a call no external target
+  (#219). scip-typescript named a package it resolved through a pnpm
+  realpath `.`, and the overlay wrote 2,278 CALLS edges to the package `''`
+  on one workspace; such an edge now stays as resolution left it.
 - Calls written in Rust `macro_rules!` bodies are edges (rust extractor
   26). tree-sitter keeps a body as tokens, which no pass read, so
   `crates/dagayn-parser/src/parsers.rs` reached none of the 28
