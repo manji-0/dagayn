@@ -112,6 +112,78 @@ def test_rust_population_reads_each_function_s_own_coverage_records(tmp_path: Pa
     ]
 
 
+def test_go_cover_func_listing_is_read_as_go_coverage(tmp_path: Path):
+    # dagayn: tests eval/run_test_reach_eval.py::load_coverage
+    listing = tmp_path / "cover.func"
+    listing.write_text(
+        "example.com/m/pkg/a.go:3:\t\tRan\t\t75.0%\n"
+        "example.com/m/pkg/a.go:9:\t\tidle\t\t0.0%\n"
+        "total:\t\t\t\t(statements)\t\t37.5%\n",
+        encoding="utf-8",
+    )
+    coverage = harness.load_coverage(listing)
+    assert coverage == {
+        "type": harness.GO_COVER_FUNC,
+        "functions": [
+            ["example.com/m/pkg/a.go", 3, "Ran", 75.0],
+            ["example.com/m/pkg/a.go", 9, "idle", 0.0],
+        ],
+    }
+    report = tmp_path / "coverage.json"
+    report.write_text('{"files": {}}', encoding="utf-8")
+    assert harness.load_coverage(report) == {"files": {}}
+    empty = tmp_path / "empty.txt"
+    empty.write_text("not coverage\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        harness.load_coverage(empty)
+
+
+def test_go_population_matches_a_function_by_file_and_first_line(tmp_path: Path):
+    # dagayn: tests eval/run_test_reach_eval.py::go_population
+    # dagayn: tests eval/run_test_reach_eval.py::go_modules
+    repo = tmp_path / "repo"
+    (repo / "tools").mkdir(parents=True)
+    (repo / "go.mod").write_text("module example.com/m\n\ngo 1.22\n", encoding="utf-8")
+    (repo / "tools" / "go.mod").write_text("module example.com/tools\n", encoding="utf-8")
+    (repo / "vendor" / "x").mkdir(parents=True)
+    (repo / "vendor" / "x" / "go.mod").write_text("module example.com/x\n", encoding="utf-8")
+    assert harness.go_modules(repo) == {"example.com/m": ".", "example.com/tools": "tools"}
+    db = tmp_path / "graph.db"
+    with sqlite3.connect(db) as conn:
+        conn.executescript(
+            "CREATE TABLE nodes (qualified_name TEXT, kind TEXT, is_test INT, language TEXT,"
+            " file_path TEXT, line_start INT, line_end INT);"
+            "CREATE TABLE edges (kind TEXT, target_qualified TEXT, extra TEXT);"
+        )
+        conn.executemany(
+            "INSERT INTO nodes VALUES (?, 'Function', 0, 'go', ?, ?, ?)",
+            [
+                ("pkg/a.go::Ran", "pkg/a.go", 3, 7),
+                ("pkg/a.go::idle", "pkg/a.go", 9, 11),
+                # Not in the listing: built only under another GOARCH.
+                ("pkg/a_amd64.go::fast", "pkg/a_amd64.go", 1, 4),
+                ("pkg/a_test.go::helper", "pkg/a_test.go", 5, 6),
+                ("tools/gen.go::Gen", "tools/gen.go", 2, 9),
+            ],
+        )
+        conn.execute("INSERT INTO edges VALUES ('CALLS', 'pkg/a.go::Ran', '{}')")
+    coverage = {
+        "type": harness.GO_COVER_FUNC,
+        "functions": [
+            ["example.com/m/pkg/a.go", 3, "Ran", 75.0],
+            ["example.com/m/pkg/a.go", 9, "idle", 0.0],
+            ["example.com/m/pkg/a_test.go", 5, "helper", 100.0],
+            ["example.com/tools/gen.go", 2, "Gen", 10.0],
+        ],
+    }
+    rows = harness.population(db, coverage, repo)
+    assert sorted(rows) == [
+        ("pkg/a.go::Ran", True, 1),
+        ("pkg/a.go::idle", False, 0),
+        ("tools/gen.go::Gen", True, 0),
+    ]
+
+
 def test_gate_reports_each_metric_below_its_floor():
     result = {"untested_precision": 0.3, "tested_precision": 0.99, "untested_recall": None}
     floors = {

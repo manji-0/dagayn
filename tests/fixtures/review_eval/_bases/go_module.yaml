@@ -1,0 +1,67 @@
+# Small Go module: package mathx with Add and Mul (tested in the package's
+# own test file), Twice in another file of the package calling Add, an
+# untested Pad, and a command that imports the package.
+files:
+  go.mod: |
+    module example.com/demo
+
+    go 1.22
+  mathx/math.go: |
+    package mathx
+
+    // Add adds two numbers.
+    func Add(a, b int) int {
+    	return a + b
+    }
+
+    // Mul multiplies two numbers.
+    func Mul(a, b int) int {
+    	return a * b
+    }
+  mathx/twice.go: |
+    package mathx
+
+    // Twice doubles a number through Add.
+    func Twice(a int) int {
+    	return Add(a, a)
+    }
+  mathx/pad.go: |
+    package mathx
+
+    import "strings"
+
+    // Pad pads a string on the left to width characters.
+    func Pad(text string, width int) string {
+    	if len(text) >= width {
+    		return text
+    	}
+    	return strings.Repeat(" ", width-len(text)) + text
+    }
+  mathx/math_test.go: |
+    package mathx
+
+    import "testing"
+
+    func TestAdd(t *testing.T) {
+    	if Add(1, 2) != 3 {
+    		t.Fatal("Add(1, 2) != 3")
+    	}
+    }
+
+    func BenchmarkMul(b *testing.B) {
+    	for i := 0; i < b.N; i++ {
+    		Mul(2, 3)
+    	}
+    }
+  cmd/demo/main.go: |
+    package main
+
+    import (
+    	"fmt"
+
+    	"example.com/demo/mathx"
+    )
+
+    func main() {
+    	fmt.Println(mathx.Twice(21))
+    }

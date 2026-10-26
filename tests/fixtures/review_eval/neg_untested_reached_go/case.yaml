@@ -1,0 +1,22 @@
+description: Edits mathx/math.go::Add and Mul; mathx/math_test.go's TestAdd and BenchmarkMul
+  call them from another file of the package, so no untested_change.
+negative: true
+commit_change: true
+allowed_kinds: [tests_to_run]
+base:
+  from: go_module
+change:
+  files:
+    mathx/math.go: |
+      package mathx
+
+      // Add adds two numbers.
+      func Add(a, b int) int {
+      	return b + a
+      }
+
+      // Mul multiplies two numbers.
+      func Mul(a, b int) int {
+      	return b * a
+      }
+expected_findings: []

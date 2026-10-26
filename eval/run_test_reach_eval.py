@@ -24,7 +24,12 @@ counts only what ran in the pytest process: code a test runs in a
 subprocess (the ``dagayn`` command) counts as not run, so the precision of
 ``untested`` is if anything overstated. A ``cargo llvm-cov --json`` export
 measures Rust and counts what binaries the tests spawn ran too, which the
-call graph does not cross, so there it is if anything understated.
+call graph does not cross, so there it is if anything understated. A
+``go tool cover -func`` listing measures Go: a function counts as covered
+when its percentage is above zero. Run the tests with ``-coverpkg=./...`` so
+that a package's functions count when another package's tests run them. A
+file the build left out (another ``GOARCH``'s ``_amd64.go``, a build tag) is
+absent from the listing, and so are its functions from the population.
 
 Usage::
 
@@ -35,12 +40,18 @@ Usage::
     cargo llvm-cov --workspace --ignore-filename-regex 'dagayn-py/' \
         --json --output-path rust-coverage.json
     uv run python eval/run_test_reach_eval.py --coverage rust-coverage.json
+
+    go test -coverpkg=./... -coverprofile=cover.out ./...
+    go tool cover -func=cover.out > cover.func
+    dagayn build --repo GO_REPO
+    uv run python eval/run_test_reach_eval.py --coverage cover.func --repo GO_REPO
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sqlite3
 import sys
 from collections import Counter
@@ -53,6 +64,11 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 THRESHOLDS = ROOT / "eval" / "test_reach_thresholds.yaml"
 TEST_DIRS = {"tests", "test", "__tests__", "spec", "testdata", "fixtures"}
+GO_COVER_FUNC = "go.cover.func"
+# `github.com/x/y/pkg/file.go:12:\tName\t\t75.0%`, one line per function.
+_GO_FUNC_LINE = re.compile(
+    r"^(?P<file>\S+\.go):(?P<line>\d+):\s+(?P<name>\S+)\s+(?P<percent>[\d.]+)%$"
+)
 
 
 def is_test_path(path: str) -> bool:
@@ -79,12 +95,45 @@ def _incoming(conn: sqlite3.Connection) -> Counter[str]:
     )
 
 
-def population(db_path: Path, coverage: dict[str, Any]) -> list[tuple[str, bool, int]]:
+def load_coverage(path: Path) -> dict[str, Any]:
+    """A JSON coverage report as it is, or a ``go tool cover -func`` listing
+    as ``{"type": "go.cover.func", "functions": [[file, line, name,
+    percent], ...]}``."""
+    text = path.read_text(encoding="utf-8")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    functions = []
+    for line in text.splitlines():
+        match = _GO_FUNC_LINE.match(line.strip())
+        if match:
+            functions.append(
+                [
+                    match["file"],
+                    int(match["line"]),
+                    match["name"],
+                    float(match["percent"]),
+                ]
+            )
+    if not functions:
+        raise ValueError(
+            f"{path} is neither a JSON coverage report nor `go tool cover -func` output"
+        )
+    return {"type": GO_COVER_FUNC, "functions": functions}
+
+
+def population(
+    db_path: Path, coverage: dict[str, Any], repo: Path = ROOT
+) -> list[tuple[str, bool, int]]:
     """``(qualified_name, covered, incoming)`` of each production function
     the coverage report measures: Python for a pytest-cov report, Rust for a
-    ``cargo llvm-cov --json`` export."""
+    ``cargo llvm-cov --json`` export, Go for a ``go tool cover -func``
+    listing."""
     if coverage.get("type") == "llvm.coverage.json.export":
-        return rust_population(db_path, coverage)
+        return rust_population(db_path, coverage, repo)
+    if coverage.get("type") == GO_COVER_FUNC:
+        return go_population(db_path, coverage, repo)
     files = coverage["files"]
     rows = []
     with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
@@ -121,7 +170,9 @@ def is_rust_test_code(qualified_name: str, file_path: str) -> bool:
     )
 
 
-def rust_population(db_path: Path, coverage: dict[str, Any]) -> list[tuple[str, bool, int]]:
+def rust_population(
+    db_path: Path, coverage: dict[str, Any], repo: Path = ROOT
+) -> list[tuple[str, bool, int]]:
     """Rust functions against an llvm-cov export. A function's own coverage
     records (one per generic instantiation; an unused function is recorded
     with count 0) are those whose first region starts first within its
@@ -132,7 +183,7 @@ def rust_population(db_path: Path, coverage: dict[str, Any]) -> list[tuple[str, 
         region = function["regions"][0]
         path = Path(function["filenames"][region[5]])
         try:
-            relative = path.relative_to(ROOT).as_posix()
+            relative = path.relative_to(repo).as_posix()
         except ValueError:
             continue
         starts.setdefault(relative, []).append((region[0], function["count"]))
@@ -145,7 +196,7 @@ def rust_population(db_path: Path, coverage: dict[str, Any]) -> list[tuple[str, 
         ).fetchall()
     for qualified_name, file_path, line_start, line_end in nodes:
         relative = (
-            Path(file_path).relative_to(ROOT).as_posix() if file_path.startswith("/") else file_path
+            Path(file_path).relative_to(repo).as_posix() if file_path.startswith("/") else file_path
         )
         if is_rust_test_code(qualified_name, relative) or relative.startswith("crates/dagayn-py/"):
             continue
@@ -162,19 +213,74 @@ def rust_population(db_path: Path, coverage: dict[str, Any]) -> list[tuple[str, 
     return rows
 
 
+def go_modules(repo: Path) -> dict[str, str]:
+    """Module path -> its repository-relative directory, from each
+    ``go.mod`` under *repo* (outside ``vendor`` and ``testdata``)."""
+    modules = {}
+    for go_mod in repo.rglob("go.mod"):
+        relative = go_mod.parent.relative_to(repo)
+        if {"vendor", "testdata", ".git"} & set(relative.parts):
+            continue
+        for line in go_mod.read_text(encoding="utf-8", errors="replace").splitlines():
+            words = line.split()
+            if len(words) >= 2 and words[0] == "module":
+                modules[words[1].strip('"')] = relative.as_posix()
+                break
+    return modules
+
+
+def go_population(
+    db_path: Path, coverage: dict[str, Any], repo: Path
+) -> list[tuple[str, bool, int]]:
+    """Go functions against a ``go tool cover -func`` listing, which names
+    each function by its package's import path, file, and the line of its
+    ``func`` keyword: a node matches on file and first line. It ran when its
+    percentage is above zero."""
+    modules = sorted(go_modules(repo).items(), key=lambda item: -len(item[0]))
+    ran: dict[tuple[str, int], bool] = {}
+    for file, line, _name, percent in coverage["functions"]:
+        for module, directory in modules:
+            if file == module or file.startswith(module + "/"):
+                rest = file[len(module) :].lstrip("/")
+                relative = f"{directory}/{rest}" if directory not in ("", ".") else rest
+                ran[(relative, line)] = ran.get((relative, line), False) or percent > 0
+                break
+    rows = []
+    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+        incoming = _incoming(conn)
+        nodes = conn.execute(
+            "SELECT qualified_name, file_path, line_start FROM nodes "
+            "WHERE kind = 'Function' AND is_test = 0 AND language = 'go'"
+        ).fetchall()
+    for qualified_name, file_path, line_start in nodes:
+        covered = ran.get((file_path, line_start))
+        if covered is None or is_test_path(file_path):
+            continue
+        rows.append((qualified_name, covered, incoming[qualified_name]))
+    return rows
+
+
+_REPO = ROOT
+
+
+def _set_repo(repo: Path) -> None:
+    global _REPO
+    _REPO = repo
+
+
 def _reach(qualified_name: str) -> tuple[str, dict[str, Any] | None]:
     from dagayn.tools._native import native_tool
 
     reply = native_tool(
-        "query_graph_tool", pattern="tests_for", target=qualified_name, repo_root=str(ROOT)
+        "query_graph_tool", pattern="tests_for", target=qualified_name, repo_root=str(_REPO)
     )
     return qualified_name, reply.get("test_reach")
 
 
-def evaluate(coverage_path: Path, db_path: Path, jobs: int) -> dict[str, Any]:
-    coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
-    rows = population(db_path, coverage)
-    with Pool(jobs) as pool:
+def evaluate(coverage_path: Path, db_path: Path, jobs: int, repo: Path = ROOT) -> dict[str, Any]:
+    coverage = load_coverage(coverage_path)
+    rows = population(db_path, coverage, repo)
+    with Pool(jobs, initializer=_set_repo, initargs=(repo,)) as pool:
         reach = dict(pool.map(_reach, [qn for qn, _, _ in rows], chunksize=20))
     counts = Counter()
     causes = Counter()
@@ -249,15 +355,22 @@ def main() -> int:
         "--coverage",
         type=Path,
         required=True,
-        help="pytest-cov JSON report, or a cargo llvm-cov JSON export",
+        help="pytest-cov JSON, cargo llvm-cov JSON export, or `go tool cover -func` output",
     )
-    parser.add_argument("--db", type=Path, default=ROOT / ".dagayn" / "graph.db")
+    parser.add_argument(
+        "--repo",
+        type=Path,
+        default=ROOT,
+        help="the repository the coverage measures (default: this one)",
+    )
+    parser.add_argument("--db", type=Path, help="default: REPO/.dagayn/graph.db")
     parser.add_argument("--jobs", type=int, default=8)
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--gate", action="store_true")
     parser.add_argument("--thresholds", type=Path, default=THRESHOLDS)
     args = parser.parse_args()
-    result = evaluate(args.coverage, args.db, args.jobs)
+    repo = args.repo.resolve()
+    result = evaluate(args.coverage, args.db or repo / ".dagayn" / "graph.db", args.jobs, repo)
     print(json.dumps(result, indent=2) if args.json else format_report(result))
     if args.gate:
         failures = gate(result, yaml.safe_load(args.thresholds.read_text(encoding="utf-8")))

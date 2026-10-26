@@ -1,0 +1,25 @@
+description: Edits the bodies of mathx/math.go::Add (TestAdd) and Mul (BenchmarkMul), both
+  tested from mathx/math_test.go.
+negative: false
+commit_change: false
+base:
+  from: go_module
+change:
+  files:
+    mathx/math.go: |
+      package mathx
+
+      // Add adds two numbers.
+      func Add(a, b int) int {
+      	return b + a
+      }
+
+      // Mul multiplies two numbers.
+      func Mul(a, b int) int {
+      	return b * a
+      }
+expected_findings:
+- kind: tests_to_run
+  target: mathx/math_test.go::TestAdd
+- kind: tests_to_run
+  target: mathx/math_test.go::BenchmarkMul

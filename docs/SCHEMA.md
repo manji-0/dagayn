@@ -37,6 +37,12 @@ make a test. The gate is read
 from the declaring file when the gated file is parsed, so adding or removing
 a `#[cfg(test)]` on a `mod` declaration reclassifies the gated file at its
 next re-parse (a full build, or an edit of that file).
+In Go, every node of a `_test.go` file has `is_test`, whether the file is
+in the package or in its external test package (`package name_test`), and
+its top-level functions `go test` runs are `Test` nodes: `TestX`,
+`BenchmarkX`, `FuzzX`, and `ExampleX`, where the prefix stands alone or is
+followed by anything but a lower-case letter (`Testify` is a `Function`).
+A `TestX` method of a suite type is test code, not a `Test` node.
 
 `modifiers` holds a node's declaration modifiers as space-separated words in
 source order (TypeScript: [TYPESCRIPT-EXTRACTION.md](./TYPESCRIPT-EXTRACTION.md);
@@ -130,6 +136,20 @@ none is visible (a Ruby `require` or a namespace-less C# file does not make a
 file visible) a single such method is bound at `MEDIUM`. A type with no such
 method in the repository (`Math.Max`) leaves the call unbound rather than
 binding it to an unrelated function of the same name.
+
+A Go file's File node declares its package's import path as its namespace
+(`extra.namespaces`): the `module` path of the nearest `go.mod` and the
+directory below it (`example.com/m/zstd`), with `_test` appended for an
+external test package (`package zstd_test`), and none for a file the build
+ignores (`//go:build ignore`). Without a `go.mod` the directory stands in for
+the path. So the files of one package see each other, and a test file of the
+package sees the package. Only a plain call (`encode(x)`) binds by name
+there, and only to a top-level function or type. A call through a package
+qualifier or a value of the package (`huff0.Compress()`, `cfg.Load()`)
+carries `receiver` (an import's also `import_path`) and is never bound by
+name; one on a value of unknown type (`receiver_unknown`) is not either, as
+in Rust. A method of a typed receiver binds to its type's methods in the
+type's own directory.
 
 Calls into a package (the standard library or a dependency) target the
 package itself with `extra.external`, `external_package`, `external_symbol`,

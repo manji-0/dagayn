@@ -265,8 +265,17 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // call it came from) and functions their declared `return_type`.
         // 8: a cgo call (`C.f()`, `receiver: "C"`) never binds to a function
         // of the file.
+        // 9: every node of a `_test.go` file is test code (`is_test`), its
+        // top-level `TestX` / `BenchmarkX` / `FuzzX` / `ExampleX` functions
+        // are `Test` nodes, and their calls give `TESTED_BY` edges.
+        // 10: the File node records its package's import path as its
+        // namespace (`_test` for an external test package, none for a
+        // `//go:build ignore` file); a call through a package qualifier or
+        // a value of the package records `receiver` (and an import's
+        // `import_path`), and a call of a local function value
+        // `callee_local`.
         extractor: "go",
-        version: 8,
+        version: 10,
         languages: &["go"],
     },
     ExtractorVersion {

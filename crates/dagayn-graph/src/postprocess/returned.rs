@@ -969,29 +969,6 @@ fn resolve_type(
     } else {
         last
     };
-    // A class of the repository: the file's own, one it imports, or the
-    // only one of that name.
-    let classes = graph
-        .classes
-        .get(&(family, name.to_string()))
-        .map(Vec::as_slice)
-        .unwrap_or_default();
-    let class = classes
-        .iter()
-        .find(|class| class.starts_with(&format!("{file}::")))
-        .or_else(|| {
-            graph
-                .imported_classes
-                .get(file)
-                .and_then(|imported| imported.get(name))
-        })
-        .or(match classes {
-            [only] => Some(only),
-            _ => None,
-        });
-    if let Some(class) = class {
-        return Some(Returned::Class(class.clone(), name.to_string()));
-    }
     // A package qualifier (`http.Client`, `json.Decoder`) is the last
     // element of a package the file imports (`net/http`).
     let qualified_package = || {
@@ -1002,6 +979,70 @@ fn resolve_type(
             .iter()
             .find(|(package, _)| package.rsplit(['/', '.', ':']).next() == Some(root))
     };
+    let go = family == "go";
+    // A Go type is the package's own when unqualified (`*Reader`), so a
+    // class of its directory, and another package's when qualified
+    // (`io.ReadCloser`): a standard package's names no class of the
+    // repository.
+    if go
+        && segments.len() > 1
+        && let Some((package, stdlib)) = graph.external_name(file, root).or_else(qualified_package)
+    {
+        return Some(Returned::External(
+            package.clone(),
+            *stdlib,
+            type_path.to_string(),
+        ));
+    }
+    let directory = |path: &str| path.rsplit_once('/').map_or("", |(dir, _)| dir).to_string();
+    // A class of the repository: the file's own, one it imports, or the
+    // only one of that name.
+    let classes = graph
+        .classes
+        .get(&(family, name.to_string()))
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let in_package = || {
+        let package = directory(file);
+        let own = classes
+            .iter()
+            .filter(|class| {
+                directory(
+                    class
+                        .split_once("::")
+                        .map_or("", |(class_file, _)| class_file),
+                ) == package
+            })
+            .collect::<Vec<_>>();
+        match own.as_slice() {
+            [only] => Some(*only),
+            _ => None,
+        }
+    };
+    let class = classes
+        .iter()
+        .find(|class| class.starts_with(&format!("{file}::")))
+        .or_else(|| {
+            if go && segments.len() == 1 {
+                in_package()
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            graph
+                .imported_classes
+                .get(file)
+                .and_then(|imported| imported.get(name))
+        })
+        .or(match classes {
+            // Never another Go package's type for an unqualified name.
+            [only] if !(go && segments.len() == 1) => Some(only),
+            _ => None,
+        });
+    if let Some(class) = class {
+        return Some(Returned::Class(class.clone(), name.to_string()));
+    }
     if let Some((package, stdlib)) = graph.external_name(file, root).or_else(qualified_package) {
         return Some(Returned::External(
             package.clone(),
@@ -1558,9 +1599,27 @@ pub(crate) fn resolve_returned_receivers(
                         continue;
                     };
                     let prefix = format!("{class}.");
+                    // A Go method is declared in any file of its type's
+                    // package, which is the type's directory.
+                    let in_package = || {
+                        let directory = |qualified: &str| {
+                            let file = qualified.split_once("::").map_or("", |(file, _)| file);
+                            file.rsplit_once('/').map_or("", |(dir, _)| dir).to_string()
+                        };
+                        let package = directory(&class);
+                        let methods = targets
+                            .iter()
+                            .filter(|target| directory(target) == package)
+                            .collect::<Vec<_>>();
+                        match methods.as_slice() {
+                            [only] if family == "go" => Some(*only),
+                            _ => None,
+                        }
+                    };
                     let target = targets
                         .iter()
                         .find(|target| target.starts_with(&prefix))
+                        .or_else(in_package)
                         .or(match targets.as_slice() {
                             [only] => Some(only),
                             _ => None,

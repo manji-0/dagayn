@@ -1,0 +1,43 @@
+description: Adds a third parameter to mathx/math.go::Add and updates its test;
+  mathx/twice.go::Twice (unchanged, another file of the package) still calls Add(a, a).
+negative: false
+commit_change: true
+base:
+  from: go_module
+change:
+  files:
+    mathx/math.go: |
+      package mathx
+
+      // Add adds three numbers.
+      func Add(a, b, c int) int {
+      	return a + b + c
+      }
+
+      // Mul multiplies two numbers.
+      func Mul(a, b int) int {
+      	return a * b
+      }
+    mathx/math_test.go: |
+      package mathx
+
+      import "testing"
+
+      func TestAdd(t *testing.T) {
+      	if Add(1, 2, 0) != 3 {
+      		t.Fatal("Add(1, 2, 0) != 3")
+      	}
+      }
+
+      func BenchmarkMul(b *testing.B) {
+      	for i := 0; i < b.N; i++ {
+      		Mul(2, 3)
+      	}
+      }
+expected_findings:
+- kind: unchanged_caller
+  target: mathx/twice.go::Twice
+  also:
+  - mathx/math.go::Add
+- kind: tests_to_run
+  target: mathx/math_test.go::TestAdd
