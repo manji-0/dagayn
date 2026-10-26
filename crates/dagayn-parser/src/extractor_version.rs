@@ -274,8 +274,16 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // a value of the package records `receiver` (and an import's
         // `import_path`), and a call of a local function value
         // `callee_local`.
+        // 11: struct nodes record `field_types` and `embedded`; a receiver
+        // is typed by the declared type of a struct field (`s.br`, also read
+        // into a variable), of an index or `range` element of a slice,
+        // array, or map, or of a channel's values, and a field (or a path
+        // of fields) of another file's struct records `receiver_field`.
+        // Another package's type (`*zstd.Decoder`) records `receiver_type`
+        // with that package's import path (`receiver_package`) instead of
+        // typing the receiver as the caller package's type of the name.
         extractor: "go",
-        version: 10,
+        version: 11,
         languages: &["go"],
     },
     ExtractorVersion {
