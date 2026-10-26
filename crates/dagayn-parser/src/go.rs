@@ -1015,10 +1015,10 @@ fn go_struct_fields(
                     .map(|field| node_text(field, source))
                     .collect::<Vec<_>>();
                 let ty = go_type_of(field_type, source, stdlib);
-                if names.is_empty() {
-                    if let Some(GoType::Named(name) | GoType::Package(_, name)) = &ty {
-                        fields.insert(name.clone(), ty.clone());
-                    }
+                if names.is_empty()
+                    && let Some(GoType::Named(name) | GoType::Package(_, name)) = &ty
+                {
+                    fields.insert(name.clone(), ty.clone());
                 }
                 for field in names {
                     fields.insert(field, ty.clone());
