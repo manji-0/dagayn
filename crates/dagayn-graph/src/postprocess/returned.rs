@@ -252,9 +252,14 @@ pub(crate) struct Graph {
     globs: HashMap<String, Vec<String>>,
     /// File -> the packages it imports (`net/http`, `java.util`).
     imported_packages: HashMap<String, Vec<(String, bool)>>,
-    /// Struct QN -> field name -> the field's type as written (Rust
+    /// Struct QN -> field name -> the field's type as written (Rust and Go
     /// `field_types`).
     fields: HashMap<String, HashMap<String, String>>,
+    /// Go struct QN -> the types it embeds, as written (`embedded`).
+    embedded: HashMap<String, Vec<String>>,
+    /// Go import path -> the directory of its package's files, `None` when
+    /// files of two directories declare it.
+    go_packages: HashMap<String, Option<String>>,
 }
 
 impl Graph {
@@ -341,7 +346,9 @@ fn load_graph(tx: &Transaction<'_>) -> Result<Graph> {
     let mut graph = Graph::default();
     let mut stmt = tx.prepare(
         "SELECT qualified_name, kind, name, parent_name, file_path, return_type, \
-                json_extract(extra, '$.field_types') FROM nodes",
+                json_extract(extra, '$.field_types'), json_extract(extra, '$.embedded'), \
+                json_extract(extra, '$.namespaces') \
+         FROM nodes",
     )?;
     let rows = stmt.query_map([], |row| {
         <(
@@ -352,13 +359,43 @@ fn load_graph(tx: &Transaction<'_>) -> Result<Graph> {
             String,
             Option<String>,
             Option<String>,
+            Option<String>,
+            Option<String>,
         )>::try_from(row)
     })?;
     let mut class_names_by_qn: HashMap<String, String> = HashMap::new();
     for row in rows {
-        let (qualified, kind, name, parent, file_path, return_type, field_types) = row?;
+        let (
+            qualified,
+            kind,
+            name,
+            parent,
+            file_path,
+            return_type,
+            field_types,
+            embedded,
+            namespaces,
+        ) = row?;
         let family = language_family(&file_path);
         match kind.as_str() {
+            "File" if family == Some("go") => {
+                let namespaces: Vec<String> = namespaces
+                    .as_deref()
+                    .and_then(|text| serde_json::from_str(text).ok())
+                    .unwrap_or_default();
+                let dir = go_directory(&file_path).to_string();
+                for namespace in namespaces {
+                    graph
+                        .go_packages
+                        .entry(namespace)
+                        .and_modify(|known| {
+                            if known.as_deref() != Some(dir.as_str()) {
+                                *known = None;
+                            }
+                        })
+                        .or_insert_with(|| Some(dir.clone()));
+                }
+            }
             "Class" => {
                 class_names_by_qn.insert(qualified.clone(), name.clone());
                 if let Some(fields) = field_types
@@ -366,6 +403,12 @@ fn load_graph(tx: &Transaction<'_>) -> Result<Graph> {
                     .and_then(|text| serde_json::from_str(text).ok())
                 {
                     graph.fields.insert(qualified.clone(), fields);
+                }
+                if let Some(embedded) = embedded
+                    .as_deref()
+                    .and_then(|text| serde_json::from_str(text).ok())
+                {
+                    graph.embedded.insert(qualified.clone(), embedded);
                 }
                 if let Some(family) = family {
                     graph
@@ -1291,6 +1334,206 @@ fn resolve_field_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
     Ok(changed)
 }
 
+/// The directory of a file or of a node's QN: a Go package.
+fn go_directory(qualified: &str) -> &str {
+    let file = qualified
+        .split_once("::")
+        .map_or(qualified, |(file, _)| file);
+    file.rsplit_once('/').map_or("", |(dir, _)| dir)
+}
+
+/// What a Go selector `x.name` names on a value of the type `class`.
+#[derive(Debug, PartialEq, Eq)]
+enum GoMember<'g> {
+    Method(&'g String),
+    /// A field, with its type as `field_types` spells it.
+    Field(&'g str),
+}
+
+/// How deep embedded types are followed.
+const GO_MAX_EMBEDDING_DEPTH: usize = 4;
+
+/// The Go type of the name `name` in the directory `dir`, if exactly one.
+fn go_class_in<'g>(graph: &'g Graph, name: &str, dir: &str) -> Option<&'g String> {
+    let classes = graph.classes.get(&("go", name.to_string()))?;
+    let mut found = classes.iter().filter(|class| go_directory(class) == dir);
+    let only = found.next()?;
+    found.next().is_none().then_some(only)
+}
+
+/// The Go type a `field_types` or `embedded` entry names, seen from the
+/// directory `dir`: `Name` is that package's, `import/path.Name` the
+/// package's of that import path.
+fn go_type_class<'g>(graph: &'g Graph, ty: &str, dir: &str) -> Option<&'g String> {
+    match ty.rsplit_once('.') {
+        Some((path, name)) => {
+            let dir = graph.go_packages.get(path)?.as_deref()?;
+            go_class_in(graph, name, dir)
+        }
+        None => go_class_in(graph, ty, dir),
+    }
+}
+
+/// The member `name` of a value of the Go type `class` by Go's selector
+/// rule: the type's own method or field, else the one member of that name
+/// among the types it embeds at the shallowest depth. Two at one depth are
+/// ambiguous, and a depth with an embedded type whose members are unknown
+/// (of a package outside the repository, an interface, a type of no
+/// `field_types`) hides the deeper ones; both give none.
+fn go_member<'g>(graph: &'g Graph, class: &str, name: &str) -> Option<GoMember<'g>> {
+    let mut level = vec![class.to_string()];
+    let mut seen = HashSet::new();
+    for depth in 0..=GO_MAX_EMBEDDING_DEPTH {
+        let mut hits = Vec::new();
+        let mut opaque = false;
+        let mut next = Vec::new();
+        for class in &level {
+            if !seen.insert(class.clone()) {
+                continue;
+            }
+            let dir = go_directory(class);
+            let symbol = class
+                .split_once("::")
+                .map_or(class.as_str(), |(_, symbol)| symbol);
+            let type_name = symbol.rsplit('.').next().unwrap_or(symbol);
+            hits.extend(
+                graph
+                    .methods
+                    .get(&("go", type_name.to_string(), name.to_string()))
+                    .into_iter()
+                    .flatten()
+                    .filter(|method| go_directory(method) == dir)
+                    .map(GoMember::Method),
+            );
+            let Some(fields) = graph.fields.get(class) else {
+                opaque |= depth > 0;
+                continue;
+            };
+            if let Some(field_type) = fields.get(name) {
+                hits.push(GoMember::Field(field_type));
+            }
+            for embedded in graph.embedded.get(class).into_iter().flatten() {
+                match go_type_class(graph, embedded, dir) {
+                    Some(inner) => next.push(inner.clone()),
+                    None => opaque = true,
+                }
+            }
+        }
+        if !hits.is_empty() {
+            return (hits.len() == 1).then(|| hits.pop()).flatten();
+        }
+        if opaque || next.is_empty() {
+            return None;
+        }
+        level = next;
+    }
+    None
+}
+
+/// The Go type of the field at `path` from the type `owner` (`state.jobs`,
+/// `nodes[].x`: `[]` takes an element), an element of it when `element`.
+fn go_field_class<'g>(
+    graph: &'g Graph,
+    owner: &'g String,
+    path: &str,
+    element: bool,
+) -> Option<&'g String> {
+    let segments = path.split('.').collect::<Vec<_>>();
+    let mut class = owner;
+    for (index, segment) in segments.iter().enumerate() {
+        let (name, mut take_element) = match segment.strip_suffix("[]") {
+            Some(name) => (name, true),
+            None => (*segment, false),
+        };
+        take_element |= element && index + 1 == segments.len();
+        let Some(GoMember::Field(field_type)) = go_member(graph, class, name) else {
+            return None;
+        };
+        let field_type = if take_element {
+            field_type.strip_prefix("[]")?
+        } else {
+            field_type
+        };
+        if field_type.is_empty() || field_type.starts_with("[]") {
+            return None;
+        }
+        class = go_type_class(graph, field_type, go_directory(class))?;
+    }
+    Some(class)
+}
+
+/// Go member calls typed by what the code declares, which one file cannot
+/// finish: `s.bw.close()`, `e.state.jobs.put()`, and `br := &s.br;
+/// br.advance()` on a struct of another file (`receiver_field`: owner,
+/// field path, element) take the fields' types from the structs'
+/// `field_types`; a method of a typed receiver that
+/// its type does not declare (`receiver_type`, or `receiver_class` for one
+/// a returned type gave) is the one an embedded type declares. An
+/// unqualified type is its own package's, a qualified one
+/// (`receiver_package`, `import/path.Name`) the package's of that import
+/// path in the repository.
+/// Returns how many changed.
+fn resolve_go_declared_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
+    let calls = {
+        let mut stmt = tx.prepare(
+            "SELECT id, file_path, target_qualified, extra FROM edges \
+             WHERE kind = 'CALLS' AND file_path LIKE '%.go' \
+               AND (json_extract(extra, '$.receiver_field') IS NOT NULL \
+                    OR json_extract(extra, '$.receiver_type') IS NOT NULL) \
+               AND COALESCE(json_extract(extra, '$.external'), 0) = 0 \
+               AND NOT EXISTS (SELECT 1 FROM nodes n \
+                               WHERE n.qualified_name = edges.target_qualified)",
+        )?;
+        let rows = stmt.query_map([], |row| <(i64, String, String, String)>::try_from(row))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()?
+    };
+    let mut changed = 0_i64;
+    for (id, file, method, extra) in calls {
+        let mut extra: Value = serde_json::from_str(&extra)?;
+        let dir = go_directory(&file);
+        let class = if let Some(owner) = extra["receiver_field"]["owner"].as_str() {
+            let path = extra["receiver_field"]["field"]
+                .as_str()
+                .unwrap_or_default();
+            let element = extra["receiver_field"]["element"].as_bool() == Some(true);
+            match go_class_in(graph, owner, dir)
+                .and_then(|owner| go_field_class(graph, owner, path, element))
+            {
+                Some(class) => class.clone(),
+                None => continue,
+            }
+        } else if let Some(class) = extra["receiver_class"].as_str() {
+            class.to_string()
+        } else if extra.get("receiver_unknown").and_then(Value::as_bool) == Some(true) {
+            continue;
+        } else {
+            let package_dir = match extra["receiver_package"].as_str() {
+                Some(path) => graph.go_packages.get(path).and_then(Option::as_deref),
+                None => Some(dir),
+            };
+            let Some(class) = package_dir.and_then(|package_dir| {
+                go_class_in(graph, extra["receiver_type"].as_str()?, package_dir)
+            }) else {
+                continue;
+            };
+            class.clone()
+        };
+        let Some(GoMember::Method(target)) = go_member(graph, &class, &method) else {
+            continue;
+        };
+        if let Some(map) = extra.as_object_mut() {
+            map.remove("receiver_unknown");
+        }
+        let symbol = class
+            .split_once("::")
+            .map_or(class.as_str(), |(_, symbol)| symbol);
+        extra["receiver_type"] = json!(symbol.rsplit('.').next().unwrap_or(symbol));
+        update_call(tx, id, target, &extra)?;
+        changed += 1;
+    }
+    Ok(changed)
+}
+
 /// Member names a single use cannot type a parameter by: the standard
 /// objects have them too (`(req) => req.text()` on a fetch `Request` is no
 /// call of the repository's `HonoRequest.text`).
@@ -1500,7 +1743,9 @@ pub(crate) fn resolve_returned_receivers(
     let import_targets = &context.import_targets;
     let mut changed = 0_i64;
     for _ in 0..MAX_ROUNDS {
-        let mut round = resolve_field_receivers(tx, graph)? + resolve_shape_receivers(tx, graph)?;
+        let mut round = resolve_field_receivers(tx, graph)?
+            + resolve_go_declared_receivers(tx, graph)?
+            + resolve_shape_receivers(tx, graph)?;
         for (id, source, file, method, mut extra) in pending_calls(tx)? {
             let Some(family) = language_family(&file) else {
                 continue;
@@ -1591,6 +1836,12 @@ pub(crate) fn resolve_returned_receivers(
                         // (a `#[pyclass]` of the same name).
                         if extra.get("receiver_type").is_none() {
                             extra["receiver_type"] = json!(class_name);
+                            // A Go method the type does not declare may be
+                            // one it embeds (see
+                            // [`resolve_go_declared_receivers`]).
+                            if family == "go" {
+                                extra["receiver_class"] = json!(class);
+                            }
                             tx.execute(
                                 "UPDATE edges SET extra = ? WHERE id = ?",
                                 params![serde_json::to_string(&extra)?, id],

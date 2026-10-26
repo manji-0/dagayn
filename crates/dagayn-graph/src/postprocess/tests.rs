@@ -570,13 +570,21 @@ fn go_plain_calls_bind_within_their_package_only() {
     assert_eq!(
         targets,
         vec![
-            ("zstd/dec.go".to_string(), 2, "zstd/enc.go::encode".to_string()),
+            (
+                "zstd/dec.go".to_string(),
+                2,
+                "zstd/enc.go::encode".to_string()
+            ),
             ("zstd/dec.go".to_string(), 3, "Reset".to_string()),
             ("zstd/dec.go".to_string(), 4, "Compress".to_string()),
             ("zstd/dec.go".to_string(), 5, "Flush".to_string()),
             ("zstd/dec.go".to_string(), 6, "Close".to_string()),
             ("zstd/dec.go".to_string(), 7, "Sum".to_string()),
-            ("zstd/dec.go".to_string(), 8, "zstd/enc.go::Scratch.prepare".to_string()),
+            (
+                "zstd/dec.go".to_string(),
+                8,
+                "zstd/enc.go::Scratch.prepare".to_string()
+            ),
             // The external test package sees none of the package's names.
             ("zstd/x_test.go".to_string(), 2, "encode".to_string()),
         ]
@@ -594,7 +602,10 @@ fn go_plain_calls_bind_within_their_package_only() {
             .map(|edge| (edge.file_path, edge.line))
             .collect::<Vec<_>>()
     };
-    assert_eq!(callers("huff0/h.go::Compress"), vec![("zstd/dec.go".to_string(), 4)]);
+    assert_eq!(
+        callers("huff0/h.go::Compress"),
+        vec![("zstd/dec.go".to_string(), 4)]
+    );
     assert_eq!(callers("zstd/enc.go::Compress"), vec![]);
     let _ = std::fs::remove_file(path);
 }
@@ -631,7 +642,11 @@ fn go_methods_of_a_returned_type_are_found_in_its_package() {
         (
             "assert/assertion_forward.go",
             "example.com/t/assert",
-            vec![go_method("Equal", "assert/assertion_forward.go", "Assertions")],
+            vec![go_method(
+                "Equal",
+                "assert/assertion_forward.go",
+                "Assertions",
+            )],
             vec![],
         ),
         (
@@ -643,7 +658,11 @@ fn go_methods_of_a_returned_type_are_found_in_its_package() {
         (
             "require/require_forward.go",
             "example.com/t/require",
-            vec![go_method("Equal", "require/require_forward.go", "Assertions")],
+            vec![go_method(
+                "Equal",
+                "require/require_forward.go",
+                "Assertions",
+            )],
             vec![],
         ),
         (
@@ -651,21 +670,45 @@ fn go_methods_of_a_returned_type_are_found_in_its_package() {
             "example.com/t/assert",
             vec![function_node("TestA", "assert/a_test.go")],
             vec![
-                edge("CALLS", "assert/a_test.go::TestA", "New", "assert/a_test.go", 2),
+                edge(
+                    "CALLS",
+                    "assert/a_test.go::TestA",
+                    "New",
+                    "assert/a_test.go",
+                    2,
+                ),
                 EdgeInput {
                     extra: json!({
                         "receiver_unknown": true,
                         "receiver_from": {"call": "New", "line": 2, "unwrap": false},
                     }),
-                    ..edge("CALLS", "assert/a_test.go::TestA", "Equal", "assert/a_test.go", 3)
+                    ..edge(
+                        "CALLS",
+                        "assert/a_test.go::TestA",
+                        "Equal",
+                        "assert/a_test.go",
+                        3,
+                    )
                 },
-                edge("CALLS", "assert/a_test.go::TestA", "Open", "assert/a_test.go", 4),
+                edge(
+                    "CALLS",
+                    "assert/a_test.go::TestA",
+                    "Open",
+                    "assert/a_test.go",
+                    4,
+                ),
                 EdgeInput {
                     extra: json!({
                         "receiver_unknown": true,
                         "receiver_from": {"call": "Open", "line": 4, "unwrap": false},
                     }),
-                    ..edge("CALLS", "assert/a_test.go::TestA", "Close", "assert/a_test.go", 5)
+                    ..edge(
+                        "CALLS",
+                        "assert/a_test.go::TestA",
+                        "Close",
+                        "assert/a_test.go",
+                        5,
+                    )
                 },
             ],
         ),
@@ -3378,5 +3421,213 @@ fn does_not_link_rust_impls_to_one_of_several_visible_types() {
         source_of(&store, "IMPLEMENTS", "Display"),
         ["src/ops.rs::Store"]
     );
+    let _ = std::fs::remove_file(path);
+}
+
+/// Go calls on a field of a struct another file declares
+/// (`receiver_field`) are typed by the struct's `field_types`, and a method
+/// a struct does not declare is the one an embedded type of its package
+/// declares at the shallowest depth (Go's promotion rule), never another
+/// package's type of the same name, nor either of two at one depth.
+#[test]
+fn go_receivers_typed_by_struct_fields_and_embedded_types() {
+    let path = temp_db("go-declared-receivers");
+    let mut store = GraphStore::open(&path).expect("open");
+    let go = |node: NodeInput| NodeInput {
+        language: "go".to_string(),
+        ..node
+    };
+    let go_struct = |name: &str, file: &str, extra: Value| NodeInput {
+        extra,
+        ..go(class_node(name, file))
+    };
+    let caller = |file: &str, list: &[(&str, i64, Value)]| -> Vec<EdgeInput> {
+        list.iter()
+            .map(|(target, line, extra)| EdgeInput {
+                extra: extra.clone(),
+                ..edge("CALLS", &format!("{file}::run"), target, file, *line)
+            })
+            .collect()
+    };
+    let files: Vec<(&str, &str, Vec<NodeInput>, Vec<EdgeInput>)> = vec![
+        (
+            "fse/scratch.go",
+            "example.com/m/fse",
+            vec![go_struct(
+                "Scratch",
+                "fse/scratch.go",
+                json!({"field_types": {
+                    "bw": "bitWriter",
+                    "nodes": "[]nodeElt",
+                    "ext": "example.com/m/huff0.bitWriter",
+                    "hook": "",
+                    "state": "encState",
+                }}),
+            )],
+            vec![],
+        ),
+        (
+            "fse/bitwriter.go",
+            "example.com/m/fse",
+            vec![
+                go_struct("bitWriter", "fse/bitwriter.go", json!({"field_types": {}})),
+                go(method_node("close", "fse/bitwriter.go", "bitWriter")),
+                go_struct("nodeElt", "fse/bitwriter.go", json!({})),
+                go_struct(
+                    "encState",
+                    "fse/bitwriter.go",
+                    json!({"field_types": {"jobs": "[]bitWriter"}}),
+                ),
+                go(method_node("count", "fse/bitwriter.go", "nodeElt")),
+            ],
+            vec![],
+        ),
+        (
+            "huff0/h.go",
+            "example.com/m/huff0",
+            vec![
+                go_struct(
+                    "Scratch",
+                    "huff0/h.go",
+                    json!({"field_types": {"bw": "bitWriter"}}),
+                ),
+                go_struct("bitWriter", "huff0/h.go", json!({"field_types": {}})),
+                go(method_node("close", "huff0/h.go", "bitWriter")),
+                go(method_node("flush", "huff0/h.go", "bitWriter")),
+            ],
+            vec![],
+        ),
+        (
+            "fse/compress.go",
+            "example.com/m/fse",
+            vec![go(function_node("run", "fse/compress.go"))],
+            caller(
+                "fse/compress.go",
+                &[
+                    (
+                        "close",
+                        2,
+                        json!({"receiver_unknown": true, "receiver_field": {"owner": "Scratch", "field": "bw"}}),
+                    ),
+                    (
+                        "count",
+                        3,
+                        json!({"receiver_unknown": true, "receiver_field": {"owner": "Scratch", "field": "nodes", "element": true}}),
+                    ),
+                    // Another package's type, by its import path.
+                    (
+                        "flush",
+                        4,
+                        json!({"receiver_unknown": true, "receiver_field": {"owner": "Scratch", "field": "ext"}}),
+                    ),
+                    (
+                        "close",
+                        6,
+                        json!({"receiver_type": "bitWriter", "receiver_package": "example.com/m/huff0"}),
+                    ),
+                    // A path of fields, to an element.
+                    (
+                        "close",
+                        8,
+                        json!({"receiver_unknown": true, "receiver_field": {"owner": "Scratch", "field": "state.jobs", "element": true}}),
+                    ),
+                    // A module outside the repository.
+                    (
+                        "close",
+                        7,
+                        json!({"receiver_type": "bitWriter", "receiver_package": "example.org/x"}),
+                    ),
+                    // The slice itself has no methods.
+                    (
+                        "count",
+                        5,
+                        json!({"receiver_unknown": true, "receiver_field": {"owner": "Scratch", "field": "nodes"}}),
+                    ),
+                ],
+            ),
+        ),
+        (
+            "flate/fast.go",
+            "example.com/m/flate",
+            vec![
+                go_struct("fastGen", "flate/fast.go", json!({"field_types": {}})),
+                go(method_node("addBlock", "flate/fast.go", "fastGen")),
+                go_struct("other", "flate/fast.go", json!({"field_types": {}})),
+                go(method_node("addBlock", "flate/fast.go", "other")),
+                go_struct(
+                    "fastEncL1",
+                    "flate/fast.go",
+                    json!({"field_types": {}, "embedded": ["fastGen"]}),
+                ),
+                go_struct(
+                    "fastEncL2",
+                    "flate/fast.go",
+                    json!({"field_types": {}, "embedded": ["fastGen", "other"]}),
+                ),
+                go_struct(
+                    "fastEncL3",
+                    "flate/fast.go",
+                    json!({"field_types": {"addBlock": ""}, "embedded": ["fastGen"]}),
+                ),
+                go_struct(
+                    "fastEncL4",
+                    "flate/fast.go",
+                    json!({"field_types": {}, "embedded": ["fastEncL1", "huff0.Writer"]}),
+                ),
+            ],
+            vec![],
+        ),
+        (
+            "flate/level.go",
+            "example.com/m/flate",
+            vec![go(function_node("run", "flate/level.go"))],
+            caller(
+                "flate/level.go",
+                &[
+                    ("addBlock", 2, json!({"receiver_type": "fastEncL1"})),
+                    // Two at one depth: ambiguous.
+                    ("addBlock", 3, json!({"receiver_type": "fastEncL2"})),
+                    // A field of the name comes first.
+                    ("addBlock", 4, json!({"receiver_type": "fastEncL3"})),
+                    // Another package's embedded type may declare it first.
+                    ("addBlock", 5, json!({"receiver_type": "fastEncL4"})),
+                ],
+            ),
+        ),
+    ];
+    for (file, namespace, mut nodes, edges) in files {
+        nodes.insert(0, namespaced_file_node(file, namespace));
+        store
+            .store_file_nodes_edges(file, &nodes, &edges, "", 0)
+            .expect("store");
+    }
+    store.resolve_bare_call_targets().unwrap();
+    let mut stmt = store
+        .conn
+        .prepare("SELECT file_path, line, target_qualified FROM edges WHERE kind='CALLS' ORDER BY file_path, line")
+        .unwrap();
+    let targets = stmt
+        .query_map([], |row| <(String, i64, String)>::try_from(row))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    let at = |file: &str, line: i64, target: &str| (file.to_string(), line, target.to_string());
+    assert_eq!(
+        targets,
+        vec![
+            at("flate/level.go", 2, "flate/fast.go::fastGen.addBlock"),
+            at("flate/level.go", 3, "addBlock"),
+            at("flate/level.go", 4, "addBlock"),
+            at("flate/level.go", 5, "addBlock"),
+            at("fse/compress.go", 2, "fse/bitwriter.go::bitWriter.close"),
+            at("fse/compress.go", 3, "fse/bitwriter.go::nodeElt.count"),
+            at("fse/compress.go", 4, "huff0/h.go::bitWriter.flush"),
+            at("fse/compress.go", 5, "count"),
+            at("fse/compress.go", 6, "huff0/h.go::bitWriter.close"),
+            at("fse/compress.go", 7, "close"),
+            at("fse/compress.go", 8, "fse/bitwriter.go::bitWriter.close"),
+        ]
+    );
+    drop(stmt);
     let _ = std::fs::remove_file(path);
 }

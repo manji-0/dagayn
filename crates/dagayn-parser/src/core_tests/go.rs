@@ -639,3 +639,174 @@ fn go_test_names_outside_test_files_are_functions() {
     assert!(nodes.iter().all(|node| !node.is_test));
     assert!(!edges.iter().any(|edge| edge.kind == "TESTED_BY"));
 }
+
+#[test]
+fn go_receivers_typed_by_declared_fields_elements_and_embedding() {
+    let source = br#"package fse
+
+import "example.com/m/huff0"
+
+type bitWriter struct{}
+
+func (b *bitWriter) reset() {}
+
+type blockEnc struct {
+	wr    bitWriter
+	codes []hcode
+	fn    func()
+	fastGen
+	*Base
+	ext   huff0.Scratch
+}
+
+func (b *blockEnc) encode(in []token, table map[string]*hcode) {
+	wr := &b.wr
+	wr.reset()
+	b.wr.reset()
+	b.codes[3].set()
+	in[0].literal()
+	for i, tok := range in {
+		tok.offset()
+		_ = i
+	}
+	table["x"].zero()
+}
+
+func (s *Scratch) compress() {
+	s.bw.close()
+	br := &s.br
+	br.advance()
+	nodes := s.nodes[:4]
+	nodes[1].count()
+	for _, n := range s.nodes {
+		n.parent()
+	}
+}
+
+func use(h *huff0.Scratch) {
+	h.Encode()
+}
+"#;
+    let (nodes, edges) = parse_go("fse/compress.go", source);
+    let call = |target: &str, line: i64| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == target && edge.line == line)
+            .unwrap_or_else(|| panic!("no {target} at {line} in {edges:#?}"))
+    };
+    // A field of a struct of this file, read into a variable or not.
+    assert_eq!(
+        call("fse/compress.go::bitWriter.reset", 20)
+            .extra
+            .get("receiver_unknown"),
+        None
+    );
+    assert_eq!(
+        call("fse/compress.go::bitWriter.reset", 21)
+            .extra
+            .get("receiver_unknown"),
+        None
+    );
+    // An element of a slice, array, or map the declaration types.
+    assert_eq!(call("set", 22).extra["receiver_type"], "hcode");
+    assert_eq!(call("literal", 23).extra["receiver_type"], "token");
+    assert_eq!(call("offset", 25).extra["receiver_type"], "token");
+    assert_eq!(call("zero", 28).extra["receiver_type"], "hcode");
+    // A field of a struct of another file: resolution reads its type.
+    assert_eq!(
+        call("close", 32).extra["receiver_field"],
+        serde_json::json!({"owner": "Scratch", "field": "bw"})
+    );
+    assert_eq!(
+        call("advance", 34).extra["receiver_field"],
+        serde_json::json!({"owner": "Scratch", "field": "br"})
+    );
+    assert_eq!(
+        call("count", 36).extra["receiver_field"],
+        serde_json::json!({"owner": "Scratch", "field": "nodes", "element": true})
+    );
+    assert_eq!(
+        call("parent", 38).extra["receiver_field"],
+        serde_json::json!({"owner": "Scratch", "field": "nodes", "element": true})
+    );
+    for line in [32, 34, 36, 38] {
+        let edge = edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.line == line)
+            .expect("call");
+        assert_eq!(edge.extra["receiver_unknown"], true, "{edge:?}");
+    }
+    // Another package's type is bound in that package only.
+    assert_eq!(call("Encode", 43).extra["receiver_type"], "Scratch");
+    assert_eq!(
+        call("Encode", 43).extra["receiver_package"],
+        "example.com/m/huff0"
+    );
+    // A struct records its fields' declared types and the types it embeds.
+    let block = nodes
+        .iter()
+        .find(|node| node.name == "blockEnc")
+        .expect("blockEnc");
+    assert_eq!(
+        block.extra["field_types"],
+        serde_json::json!({
+            "wr": "bitWriter",
+            "codes": "[]hcode",
+            "fn": "",
+            "fastGen": "fastGen",
+            "Base": "Base",
+            "ext": "example.com/m/huff0.Scratch",
+        })
+    );
+    assert_eq!(
+        block.extra["embedded"],
+        serde_json::json!(["fastGen", "Base"])
+    );
+}
+
+#[test]
+fn go_receivers_typed_by_channels_make_and_field_paths() {
+    let source = br#"package zstd
+
+type blockDec struct{}
+
+func (b *blockDec) decode() {}
+
+func run(e *Encoder, br []bitReader) {
+	seqs := make(chan *blockDec, 4)
+	for block := range seqs {
+		block.decode()
+	}
+	got := <-seqs
+	got.decode()
+	js := &e.state.jobs
+	js.put()
+	e.state.jobs.get()
+	for i := range br {
+		br := &br[i]
+		br.finished()
+	}
+}
+"#;
+    let (_, edges) = parse_go("zstd/run.go", source);
+    let call = |target: &str, line: i64| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.target == target && edge.line == line)
+            .unwrap_or_else(|| panic!("no {target} at {line} in {edges:#?}"))
+    };
+    // A channel's values, by `range` or a receive, of a `make`d channel.
+    call("zstd/run.go::blockDec.decode", 10);
+    call("zstd/run.go::blockDec.decode", 13);
+    // A path of fields from a struct of another file.
+    assert_eq!(
+        call("put", 15).extra["receiver_field"],
+        serde_json::json!({"owner": "Encoder", "field": "state.jobs"})
+    );
+    assert_eq!(
+        call("get", 16).extra["receiver_field"],
+        serde_json::json!({"owner": "Encoder", "field": "state.jobs"})
+    );
+    // A variable shadowing the slice it takes an element of.
+    assert_eq!(call("finished", 19).extra["receiver_type"], "bitReader");
+}

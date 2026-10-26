@@ -52,6 +52,9 @@ parser; "post-processing" means the passes in
 | `receiver_type` | extractor, post-processing | The receiver's type when it is a class of another file (`store: GraphStore`). The target is the bare method name until resolution binds it. |
 | `receiver_unknown` | extractor | The receiver's type is unknown (`x.m()` with `x` untyped). The call is never bound to a same-named function of the file. |
 | `receiver_from` | extractor | `{"call": name, "line": L, "unwrap": bool}`: the receiver is the result of the call `name` on line `L` of the same caller (`store_conn(s).execute()`, or a variable assigned from it). `unwrap` is set when the result was taken out of a wrapper (`?`, `.unwrap()`, `await`, `try`, Go's first of several results). |
+| `receiver_field` | extractor | Go: `{"owner": T, "field": path}`, plus `"element": true` for an element of the last field: the receiver is a field (or a path of fields, `state.jobs`, `nodes[].x`) of a value of `T`, a struct another file declares (`s.bw.close()`, `br := &s.br; br.advance()`). Comes with `receiver_unknown`. |
+| `receiver_package` | extractor | Go: the import path of the package whose type `receiver_type` names (`d *zstd.Decoder`): only that package's type answers, never the caller package's of the name. |
+| `receiver_class` | post-processing | Go: the class a returned type named when it declares no such method (`receiver_type` is its name); the method may be one it embeds. |
 | `enum_variant` | post-processing | On a Rust call of an enum variant (`Kind::File(..)`) bound to the enum node: the variant. |
 | `ffi_abi` | post-processing | `"pyo3"` on a Python call bound to a Rust `#[pymethods]` method. |
 | `alias`, `module_file`, `path` | extractor | Rust: the alias a `use ... as` gave the callee; the module file of a `module::f()` path. |
@@ -66,6 +69,8 @@ Node metadata the passes read:
 | `return_type` (column) | extractor | The declared return type as written (`sqlite3.Connection`, `Result<Self>`, `(*Store, error)`, `Promise<User>`, `Store?`). |
 | `extra.variants` | Rust extractor | An enum's variant names. |
 | `extra.deref_target` | Rust extractor | What a type dereferences to (`impl Deref for FilePath { type Target = str; }` gives `str`; a slice is `slice`). |
+| `extra.field_types` | Rust and Go extractors | A struct's field names and their declared types. Go spells an element type after `[]` (`[]*hcode`, `[4]hcode`, and `map[K]hcode` give `[]hcode`), another package's type by its import path (`example.com/m/zstd.Decoder`), and a type with no methods to find as empty; an embedded field is a field named by its type. |
+| `extra.embedded` | Go extractor | The types a struct embeds (`fastGen` for `fastGen` or `*fastGen`, another package's by its import path). |
 | `extra.rust_kind: "closure"` | Rust extractor | A function node for a `let`-bound closure (`run.call`). |
 | `extra.ffi_export` (`abi: "pyo3"`) | Rust extractor | A `#[pyclass]` / `#[pymethods]` item and its Python name. |
 
@@ -171,7 +176,7 @@ What types a receiver, by language:
 | Rust | parameter and `let` types, `Type::new()` / `?` / `.unwrap()` bindings, enum variants, fields of structs of the file, types written with their crate (`tree_sitter::Node<'_>`) |
 | JavaScript / TypeScript | annotated parameters, variables, and class fields (`constructor(private store: GraphStore)`) |
 | Java, Kotlin, Scala, C# | parameters, locals, fields and properties, `new T()` / constructor calls, casts, `var x = new T()` |
-| Go | method receivers, parameters, `var x T`, `T{}`, `&T{}`, `new(T)`, `x.(T)`, struct fields of the file |
+| Go | method receivers, parameters, `var x T`, `T{}`, `&T{}`, `new(T)`, `make([]T, n)`, `x.(T)`, struct fields (of any file of the package: `receiver_field`), elements of declared slices, arrays, and maps (`x[i]`, `range`), channel values (`<-ch`, `range ch`), methods promoted from embedded structs, and another package's type by its import path (`receiver_package`) |
 | Swift, Dart | parameters, annotated locals, initializer calls, stored properties / fields, `self.` / `this.` |
 | C++, Objective-C | locals, parameters, fields of the owning class (also in out-of-line methods), smart pointers (by pointee), `new` / `make_unique`, `[[T alloc] init]` |
 | PHP | typed parameters, typed and promoted properties, `$x = new T()` |
@@ -213,7 +218,8 @@ transaction:
    to a top-level function or type, a call with `receiver` (a package
    qualifier or a value of the package) is never bound by name, and a typed
    receiver's method is looked up in its type's directory, whose files are
-   its package ([SCHEMA.md](./SCHEMA.md#edges)). A bare name never binds to a node of another
+   its package ([SCHEMA.md](./SCHEMA.md#edges)); a call on another
+   package's type (`receiver_package`) is left to step 4. A bare name never binds to a node of another
    language family ([SCHEMA.md](./SCHEMA.md#edges)), and neither do the
    query-time fallbacks of `callers_of` and `inheritors_of`.
 3. **Enum variants.** A Rust call of a variant (`receiver_type` naming an
@@ -243,6 +249,17 @@ transaction:
      package's, never a repository class of the same name; an unqualified
      one (`*Reader`) is a class of the function's own directory; and the
      method may be declared in any file of that directory. `MEDIUM`.
+   - *Declared Go receivers.* A Go call on a field of a struct another file
+     declares (`receiver_field`: the struct, a path of fields such as
+     `state.jobs`, and `element` for `s.nodes[i]`) takes each field's type
+     from the structs' `field_types`. A method its receiver's type does not
+     declare is the one its embedded types (`embedded`) declare at the
+     shallowest depth, Go's selector rule: two at one depth, or a depth
+     with an embedded type whose members are unknown (a module outside the
+     repository, an interface), bind nothing. An unqualified type is its own
+     package's; a qualified one (`receiver_package`, `import/path.Name` in
+     `field_types`) is that import path's package in the repository, found
+     through the File nodes' namespaces. `MEDIUM`.
    - *PyO3.* A Python call on a `receiver_type` that a Rust
      `#[pyclass(name = ...)]` exports binds to its `#[pymethods]` method.
    - *Glob-imported crate names.* A Rust name a `use super::*` brings in from
@@ -349,10 +366,12 @@ edges, not from `TESTED_BY`.
 - A method name a repository function and a standard type share (`as_str`
   of a repository enum and of `String`) stays unresolved without a typed
   receiver.
-- Go: methods promoted from embedded structs carry the outer struct's
-  `receiver_type`; package-level untyped variables are never marked.
-  A call into another package of the repository (`huff0.Compress()`)
-  stays unbound: imports are not yet bound to packages. Two files of one
+- Go: package-level untyped variables are never marked, and a method of
+  a value an interface declares (`r io.Reader`, an embedded interface) is
+  dispatch, which binds to no implementation. A call into another package
+  of the repository (`huff0.Compress()`) stays unbound: imports are not
+  yet bound to packages; only a method of a value of that package's
+  declared type (`d *zstd.Decoder`) is. Two files of one
   package declaring the same function under different build tags
   (`_amd64.go` and `_generic.go`) leave a plain call of it unbound. A
   default import name is guessed from the path (`go-isatty` gives
