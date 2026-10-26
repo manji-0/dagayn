@@ -80,7 +80,14 @@ What the numbers say:
 Implemented for Rust and TypeScript as `dagayn build --scip`
 (`dagayn/scip_overlay.py` runs the indexers; `GraphStore::apply_scip_overlay`
 in `crates/dagayn-graph/src/postprocess/scip_overlay.rs` applies an index).
-The overlay runs on a full `build`, **before** post-processing:
+The TypeScript indexer is dagayn's own since the scip-typescript measurements
+above: `crates/dagayn-scip-typescript` indexes a project with the tsrs
+checker and writes scip-typescript's symbol grammar, so the overlay reads it
+unchanged; `dagayn.scip_typescript` runs it in a child process (a checker
+panic ends only the indexer). A reference whose symbol has several
+declarations (a function/namespace merge) is emitted once per declaration
+symbol, so the overlay counts the call `ambiguous` and leaves it rather than
+choosing. The overlay runs on a full `build`, **before** post-processing:
 
 1. For each language with an available indexer, run it on the working tree.
 2. For every `CALLS` edge in an indexed file whose content hash still
@@ -141,11 +148,14 @@ needed.
 
 The overlay is opt-in (`dagayn build --scip`) and per project: a project
 whose indexer is not installed gets a `hint:` with the install command, and a
-failed run or a project without its prerequisites (no `node_modules`, no
-`compile_commands.json`) is a warning; both keep today's result. scip-java
-runs the project's build with `clean`, so it also needs
-`DAGAYN_SCIP_ALLOW_BUILD=1`. Indexers are run, not bundled; the per-language
-table is in [COMMANDS.md](../COMMANDS.md#scip-call-resolution).
+failed run or a project without its prerequisites (no
+`compile_commands.json`) is a warning; both keep today's result. A
+TypeScript project without `node_modules` (in the project or up to the
+repository root) is still indexed, with a hint: its own symbols resolve and
+calls into packages stay unsettled. scip-java runs the project's build with
+`clean`, so it also needs `DAGAYN_SCIP_ALLOW_BUILD=1`. TypeScript's indexer
+ships with dagayn; the others are run, not bundled. The per-language table is
+in [COMMANDS.md](../COMMANDS.md#scip-call-resolution).
 
 ### Freezing the inference layer
 

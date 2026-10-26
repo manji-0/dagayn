@@ -39,9 +39,10 @@ the selected embedding mode so graph builds refresh the right retrieval indexes.
      right after a bootstrap): run `dagayn postprocess` (`run_postprocess_tool()` on the
      advanced surface).
    - CLI, full build with post-processing: `dagayn build`; add `--scip` to let
-     installed SCIP indexers (rust-analyzer, scip-typescript, scip-go,
-     scip-python, ...) settle call targets. Missing indexers print `hint:` lines
-     and that language keeps dagayn's own resolution. The overlay runs only on a
+     SCIP indexers settle call targets (TypeScript's ships with dagayn;
+     rust-analyzer, scip-go, scip-python, ... when installed). Missing
+     indexers print `hint:` lines and that language keeps dagayn's own
+     resolution. The overlay runs only on a
      full build; the MCP build tool has no SCIP option, so use the CLI.
    - Advanced surface: `build_or_update_graph_tool(full_rebuild=True,
      local_embedding="none")` for explicit rebuild controls.

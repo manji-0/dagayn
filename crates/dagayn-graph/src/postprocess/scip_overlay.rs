@@ -1,7 +1,7 @@
 //! Call targets from a SCIP index (`docs/plans/SCIP-CALL-RESOLUTION.md`).
 //!
-//! A compiler-grade indexer (`rust-analyzer scip`, `scip-typescript`) says
-//! which definition each reference names. A `CALLS` edge is matched to the
+//! A compiler-grade indexer (`rust-analyzer scip`, dagayn's own
+//! `dagayn-scip-typescript`) says which definition each reference names. A `CALLS` edge is matched to the
 //! reference at its called name's position: the edge's line, or one of the
 //! next eight for a chain the extractor records at the expression's first
 //! line. Its answer then settles the edge:
@@ -96,7 +96,8 @@ fn read_index(path: &Path, prefix: &str) -> Result<ScipIndex> {
         let encoding = match document.position_encoding.value() {
             1 => Encoding::Utf8,
             3 => Encoding::Utf32,
-            // scip-typescript leaves it unspecified and counts UTF-16 units.
+            // dagayn-scip-typescript says UTF-16 (2); scip-typescript left it
+            // unspecified and counted UTF-16 units too.
             _ => Encoding::Utf16,
         };
         read.documents.insert(file.clone(), encoding);

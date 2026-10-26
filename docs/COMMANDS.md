@@ -65,12 +65,13 @@ every command through the full Python CLI; `python -m dagayn` always does.
 
 `dagayn build --scip` settles call targets with SCIP indexers before
 post-processing. For every project of the repository (a directory holding
-the marker file) it runs the indexer, when this machine has it:
+the marker file) it runs the indexer: TypeScript's ships with dagayn, the
+others run when this machine has them:
 
 | Language | Indexer | Project marker | Answer |
 | -------- | ------- | -------------- | ------ |
 | Rust | `rust-analyzer scip` | outermost `Cargo.toml` | replaces the extractor's |
-| TypeScript / JavaScript | `scip-typescript` (or `npx @sourcegraph/scip-typescript`) | `tsconfig.json` with `node_modules` | replaces the extractor's |
+| TypeScript / JavaScript | dagayn's own (`python -m dagayn.scip_typescript`, the tsrs checker; no install) | `tsconfig.json`; without `node_modules` (in the project or up to the repository root) a hint is printed and calls into packages stay unsettled | replaces the extractor's |
 | Go | `scip-go` | `go.mod` | fills |
 | Python | `scip-python` (or `npx @sourcegraph/scip-python`) | outermost `pyproject.toml` / `setup.py` / `setup.cfg` | fills |
 | Java / Kotlin | `scip-java` (or `coursier launch`) | outermost `pom.xml` / `build.gradle(.kts)` / `settings.gradle(.kts)` | fills; runs only with `DAGAYN_SCIP_ALLOW_BUILD=1` |
