@@ -116,6 +116,7 @@ fn survives(
     node: &GraphNode,
     type_refs: &HashSet<String>,
     class_bases: &HashMap<String, Vec<String>>,
+    models: &HashMap<String, HashSet<String>>,
 ) -> bool {
     if CONFIG_LANGUAGES.contains(&node.language.as_str()) || node.language == "markdown" {
         return false;
@@ -187,8 +188,13 @@ fn survives(
     {
         return false;
     }
+    // A pydantic model's method is the framework's only when pydantic calls
+    // it; other framework classes keep every method.
     if node.kind == "Function" && framework_class {
-        return false;
+        let model = check_qn.is_some_and(|qn| models.contains_key(qn));
+        if !model || crate::pydantic::called_by_pydantic(&node.name, &node.extra["decorators"]) {
+            return false;
+        }
     }
     if node.kind == "Function"
         && parent.is_some_and(|p| CDK_CLASS_SUFFIXES.iter().any(|s| p.ends_with(s)))
@@ -466,9 +472,10 @@ fn graph_candidates(
         .count_nodes_by_name(&strings(&["Function", "Class"]), false)
         .ok()?;
 
+    let models = crate::pydantic::models(store)?;
     let surviving: Vec<GraphNode> = candidates
         .into_iter()
-        .filter(|n| survives(n, &type_refs, &class_bases))
+        .filter(|n| survives(n, &type_refs, &class_bases, &models))
         .collect();
     let mut incoming_qns = Vec::new();
     let mut names: Vec<String> = Vec::new();

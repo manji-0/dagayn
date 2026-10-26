@@ -158,8 +158,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // in `m`; both branches of `x = f if c else g` are REFERENCES.
         // 16: a call at a module's top level, outside any branch, loop,
         // `except` handler, or lambda, records `import_time`.
+        // 17: a function passed to such a call records `import_time` too; a
+        // pydantic model's field annotation is a REFERENCES (role
+        // `field_type`) to each class it names; `Box[int](..)` and
+        // `User.model_validate(..)` call the class.
         extractor: "python",
-        version: 16,
+        version: 17,
         languages: &["python", "notebook"],
     },
     ExtractorVersion {

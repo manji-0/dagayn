@@ -13,9 +13,14 @@
 # functions (from 1,215). The 19 wrong untested claims are the same as before;
 # the removed code held 23 right ones (never-run functions it flagged), so
 # precision and recall fell with no judgement getting worse.
+# pydantic validators, field types, and model_validate (python 17): 0.933,
+# 0.642, 0.947 on 1,125; 11 wrong untested claims gone (9 scip_overlay
+# argument builders in a top-level table, GuidanceEvidence.normalize_type),
+# and 2 never-run functions now called tested (one is
+# scip_overlay._python_arguments).
 # The floors sit just under the
 # current values; raise them as the call graph improves.
 floors:
-  untested_precision: 0.82
+  untested_precision: 0.91
   untested_recall: 0.64
   tested_precision: 0.93

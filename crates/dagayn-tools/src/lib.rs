@@ -29,6 +29,7 @@ mod flow;
 mod next;
 pub mod pending;
 mod postprocess;
+mod pydantic;
 mod pypath;
 mod pyunicode;
 mod query;
