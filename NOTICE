@@ -16,9 +16,9 @@ tsrs
 
 The TypeScript SCIP indexer in crates/dagayn-scip-typescript is built on tsrs
 (https://github.com/oxc-project/tsrs), licensed under the Apache License,
-Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0), and embeds the
-TypeScript lib.*.d.ts files it bundles. The NOTICE file of tsrs follows,
-unchanged.
+Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0; the full text is in
+LICENSES/Apache-2.0.txt), and embeds the TypeScript lib.*.d.ts files it
+bundles. The NOTICE file of tsrs follows, unchanged.
 
 tsrs
 Copyright 2026 Max Schwenk and the tsrs contributors
