@@ -9,8 +9,12 @@
 //! - a definition of the repository: the node whose range holds it, `HIGH`;
 //!   an edge already at that node (or at a node containing it, a class for
 //!   its constructor) is confirmed;
-//! - a symbol defined elsewhere: its package, `external`, `HIGH`; an edge
-//!   already external is confirmed and keeps its package name;
+//! - a symbol no index of the language defines: its package, `external`,
+//!   `HIGH`; an edge already external is confirmed and keeps its package
+//!   name. The definitions of every index of the language are pooled before
+//!   any edge is settled: a project's index names a workspace package's
+//!   symbols without defining them (its files are not the project's), and
+//!   the package's own index, or the root's, holds the definition;
 //! - a local (a closure, a callable parameter): an unresolved edge records
 //!   `callee_local`; other edges are left;
 //! - no reference, or several: the edge is left as resolution left it.
@@ -18,7 +22,7 @@
 //! Every edge the index settles records `resolved_by: "scip"`. Files whose
 //! content no longer matches what the graph parsed are skipped.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use ::scip::types::Index;
 use protobuf::Message;
@@ -72,14 +76,26 @@ struct Reference {
     symbol: String,
 }
 
+/// Symbol -> where it is defined. rust-analyzer gives items of one
+/// package's targets (`src/lib.rs::answer` and `tests/tools.rs::answer`)
+/// and same-named nested functions of one module the same symbol.
+type Definitions = HashMap<String, Vec<(String, i64)>>;
+
 #[derive(Default)]
 struct ScipIndex {
     documents: HashMap<String, Encoding>,
     references: HashMap<(String, i64), Vec<Reference>>,
-    /// Symbol -> where it is defined. rust-analyzer gives items of one
-    /// package's targets (`src/lib.rs::answer` and `tests/tools.rs::answer`)
-    /// and same-named nested functions of one module the same symbol.
-    definitions: HashMap<String, Vec<(String, i64)>>,
+    definitions: Definitions,
+}
+
+/// One index of a build: where it is, the prefix that turns its document
+/// paths into the graph's (`frontend/` for an index made in that directory),
+/// and whether its answer replaces resolution's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScipIndexInput {
+    pub path: PathBuf,
+    pub prefix: String,
+    pub authoritative: bool,
 }
 
 const ROLE_DEFINITION: i32 = 1;
@@ -92,7 +108,7 @@ fn read_index(path: &Path, prefix: &str) -> Result<ScipIndex> {
         .map_err(|err| GraphError::Scip(format!("{}: {err}", path.display())))?;
     let mut read = ScipIndex::default();
     for document in index.documents {
-        let file = format!("{prefix}{}", document.relative_path);
+        let file = graph_path(prefix, &document.relative_path);
         let encoding = match document.position_encoding.value() {
             1 => Encoding::Utf8,
             3 => Encoding::Utf32,
@@ -136,6 +152,25 @@ fn read_index(path: &Path, prefix: &str) -> Result<ScipIndex> {
         }
     }
     Ok(read)
+}
+
+/// A document's path in the graph: the index's prefix and the document's
+/// relative path, with the `..` segments of a file outside the project
+/// (`packages/worker/` indexing `../../env.d.ts`) resolved, so the file
+/// is the one the graph parsed and the one other indexes name.
+fn graph_path(prefix: &str, relative_path: &str) -> String {
+    let path = format!("{prefix}{relative_path}");
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." if segments.last().is_some_and(|last| *last != "..") => {
+                segments.pop();
+            }
+            _ => segments.push(segment),
+        }
+    }
+    segments.join("/")
 }
 
 /// The called name of an edge: the last segment of its external symbol, of
@@ -349,20 +384,47 @@ fn write_edge(
 }
 
 impl GraphStore {
-    /// Settles `CALLS` edges by the SCIP index at `index_path` (see the
-    /// module docs). `prefix` turns its document paths into the graph's
-    /// (`frontend/` for an index made in that directory); `repo_root`
-    /// holds the files the graph parsed. An `authoritative` index moves any
-    /// edge it disagrees with; otherwise it only settles edges resolution
-    /// left unresolved and confirms the ones it agrees with.
-    pub fn apply_scip_overlay(
+    /// Settles `CALLS` edges by one language's SCIP indexes, in order (see
+    /// the module docs); `repo_root` holds the files the graph parsed. An
+    /// `authoritative` index moves any edge it disagrees with; otherwise it
+    /// only settles edges resolution left unresolved and confirms the ones
+    /// it agrees with. One stats entry per index.
+    pub fn apply_scip_overlays(
         &mut self,
-        index_path: &Path,
-        prefix: &str,
+        indexes: &[ScipIndexInput],
+        repo_root: &Path,
+    ) -> Result<Vec<ScipOverlayStats>> {
+        let mut read = indexes
+            .iter()
+            .map(|input| read_index(&input.path, &input.prefix))
+            .collect::<Result<Vec<_>>>()?;
+        let mut definitions = Definitions::new();
+        for index in &mut read {
+            for (symbol, places) in index.definitions.drain() {
+                let pooled = definitions.entry(symbol).or_default();
+                for place in places {
+                    if !pooled.contains(&place) {
+                        pooled.push(place);
+                    }
+                }
+            }
+        }
+        indexes
+            .iter()
+            .zip(&read)
+            .map(|(input, index)| {
+                self.settle_by_index(index, &definitions, repo_root, input.authoritative)
+            })
+            .collect()
+    }
+
+    fn settle_by_index(
+        &mut self,
+        index: &ScipIndex,
+        definitions: &Definitions,
         repo_root: &Path,
         authoritative: bool,
     ) -> Result<ScipOverlayStats> {
-        let index = read_index(index_path, prefix)?;
         let tx = write_tx(&mut self.conn)?;
         let mut stats = ScipOverlayStats {
             documents: i64::try_from(index.documents.len()).unwrap_or(i64::MAX),
@@ -519,9 +581,9 @@ impl GraphStore {
                 }
                 continue;
             }
-            if let Some(definitions) = index.definitions.get(symbol) {
+            if let Some(places) = definitions.get(symbol) {
                 let names = defined_names(symbol);
-                let defined: Vec<((&String, i64), Option<String>)> = definitions
+                let defined: Vec<((&String, i64), Option<String>)> = places
                     .iter()
                     .map(|(file, line)| ((file, *line), node_at(file, *line, &names)))
                     .collect();
@@ -655,6 +717,17 @@ mod tests {
             ),
             Some(("globalThis".to_string(), true, "Array.map".to_string()))
         );
+    }
+
+    #[test]
+    fn a_document_outside_its_project_is_the_file_the_graph_parsed() {
+        assert_eq!(graph_path("", "src/a.ts"), "src/a.ts");
+        assert_eq!(graph_path("web/", "src/a.ts"), "web/src/a.ts");
+        assert_eq!(
+            graph_path("packages/worker/", "../../worker-configuration.d.ts"),
+            "worker-configuration.d.ts"
+        );
+        assert_eq!(graph_path("web/", "../../outside.ts"), "../outside.ts");
     }
 
     #[test]
@@ -842,7 +915,14 @@ mod tests {
         std::fs::write(&index_path, index.write_to_bytes().unwrap()).unwrap();
 
         store
-            .apply_scip_overlay(&index_path, "", &root, true)
+            .apply_scip_overlays(
+                &[ScipIndexInput {
+                    path: index_path,
+                    prefix: String::new(),
+                    authoritative: true,
+                }],
+                &root,
+            )
             .expect("apply overlay");
         let edges = store.get_edges_by_source("src/lib.rs::call").unwrap();
         assert_eq!(edges.len(), 1);

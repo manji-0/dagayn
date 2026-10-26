@@ -78,8 +78,9 @@ What the numbers say:
 ### Where SCIP edges enter
 
 Implemented for Rust and TypeScript as `dagayn build --scip`
-(`dagayn/scip_overlay.py` runs the indexers; `GraphStore::apply_scip_overlay`
-in `crates/dagayn-graph/src/postprocess/scip_overlay.rs` applies an index).
+(`dagayn/scip_overlay.py` runs the indexers; `GraphStore::apply_scip_overlays`
+in `crates/dagayn-graph/src/postprocess/scip_overlay.rs` applies a language's
+indexes with their definitions pooled).
 The TypeScript indexer is dagayn's own since the scip-typescript measurements
 above: `crates/dagayn-scip-typescript` indexes a project with the tsrs
 checker and writes scip-typescript's symbol grammar, so the overlay reads it

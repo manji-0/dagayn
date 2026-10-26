@@ -2,7 +2,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use dagayn_graph::{
     EdgeInput, FileBatchItem, GraphEdge, GraphNode, GraphStats, GraphStore as NativeGraphStore,
-    ImpactRadius, NodeInput, NodeSignatureRow,
+    ImpactRadius, NodeInput, NodeSignatureRow, ScipIndexInput,
 };
 use dagayn_postproc::{
     detect_communities_json as native_detect_communities_json,
@@ -425,23 +425,24 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.resolve_bare_call_targets())
     }
 
-    /// Settles CALLS edges by a SCIP index; returns the overlay's counts as
-    /// JSON.
-    #[pyo3(signature = (index_path, prefix, repo_root, authoritative = true))]
-    fn apply_scip_overlay_json(
+    /// Settles CALLS edges by one language's SCIP indexes, each given as
+    /// `(index_path, prefix, authoritative)`; returns one overlay's counts
+    /// per index as a JSON list.
+    fn apply_scip_overlays_json(
         &self,
-        index_path: &str,
-        prefix: &str,
+        indexes: Vec<(String, String, bool)>,
         repo_root: &str,
-        authoritative: bool,
     ) -> PyResult<String> {
-        self.with_store_mut(|store| {
-            let stats = store.apply_scip_overlay(
-                std::path::Path::new(index_path),
+        let indexes: Vec<ScipIndexInput> = indexes
+            .into_iter()
+            .map(|(path, prefix, authoritative)| ScipIndexInput {
+                path: path.into(),
                 prefix,
-                std::path::Path::new(repo_root),
                 authoritative,
-            )?;
+            })
+            .collect();
+        self.with_store_mut(|store| {
+            let stats = store.apply_scip_overlays(&indexes, std::path::Path::new(repo_root))?;
             Ok(serde_json::to_string(&stats)?)
         })
     }

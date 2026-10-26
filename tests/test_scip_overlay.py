@@ -15,14 +15,14 @@ from dagayn.scip_overlay import INDEXERS, plan_jobs, run_scip_overlay
 
 
 class _Store:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str, bool]] = []
+    """Records each language's indexes as one call, as the store takes them."""
 
-    def apply_scip_overlay_json(
-        self, index_path: str, prefix: str, repo_root: str, authoritative: bool = True
-    ) -> str:
-        self.calls.append((Path(index_path).name, prefix, authoritative))
-        return json.dumps({"documents": 1, "calls": 2, "confirmed": 2})
+    def __init__(self) -> None:
+        self.calls: list[list[tuple[str, str, bool]]] = []
+
+    def apply_scip_overlays_json(self, indexes: list[tuple[str, str, bool]], repo_root: str) -> str:
+        self.calls.append([(Path(path).name, prefix, authoritative) for path, prefix, authoritative in indexes])
+        return json.dumps([{"documents": 1, "calls": 2, "confirmed": 2} for _ in indexes])
 
 
 @pytest.fixture(autouse=True)
@@ -154,12 +154,25 @@ def test_indexes_are_applied_and_failures_reported(
     )
     store = _Store()
     report = run_scip_overlay(store, repo, tmp_path / "out")
-    assert store.calls == [("rust-0.scip", "", True), ("go-0.scip", "svc/", False)]
+    assert store.calls == [[("rust-0.scip", "", True)], [("go-0.scip", "svc/", False)]]
     assert [run["language"] for run in report.runs] == ["rust", "go"]
     assert [hint.split(":")[0] for hint in report.hints] == ["typescript"]
     # Both TypeScript projects ran the failing override.
     assert len(report.warnings) == 2
     assert all("typescript" in w and "exited 3" in w for w in report.warnings)
+
+
+def test_a_languages_indexes_are_applied_together(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _repo(tmp_path)
+    monkeypatch.setenv("DAGAYN_SCIP_TYPESCRIPT", _writer(tmp_path))
+    store = _Store()
+    report = run_scip_overlay(store, repo, tmp_path / "out")
+    assert store.calls == [
+        [("typescript-0.scip", "docs/", True), ("typescript-1.scip", "web/", True)]
+    ]
+    assert [run["prefix"] for run in report.runs] == ["docs/", "web/"]
 
 
 def test_an_indexer_killed_by_a_signal_names_it(
@@ -251,6 +264,6 @@ def test_an_indexer_writing_a_fixed_file_has_it_moved(
     php.chmod(0o755)
     store = _Store()
     report = run_scip_overlay(store, repo, tmp_path / "out")
-    assert store.calls == [("php-0.scip", "web/", False)]
+    assert store.calls == [[("php-0.scip", "web/", False)]]
     assert not (repo / "web" / "index.scip").exists()
     assert {hint.split(":")[0] for hint in report.hints} >= {"java", "ruby"}

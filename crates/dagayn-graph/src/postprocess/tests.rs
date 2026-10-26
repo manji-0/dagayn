@@ -2792,6 +2792,14 @@ fn sha256_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
+fn one_index(path: &std::path::Path, authoritative: bool) -> ScipIndexInput {
+    ScipIndexInput {
+        path: path.to_path_buf(),
+        prefix: String::new(),
+        authoritative,
+    }
+}
+
 #[test]
 fn a_scip_index_settles_calls_by_the_reference_at_their_name() {
     use protobuf::{EnumOrUnknown, Message};
@@ -2939,8 +2947,9 @@ fn a_scip_index_settles_calls_by_the_reference_at_their_name() {
         .unwrap();
 
     let stats = store
-        .apply_scip_overlay(&index_path, "", &root, true)
-        .unwrap();
+        .apply_scip_overlays(&[one_index(&index_path, true)], &root)
+        .unwrap()
+        .remove(0);
     assert_eq!(
         stats,
         ScipOverlayStats {
@@ -3179,8 +3188,9 @@ fn a_filling_scip_index_keeps_resolutions_answer() {
         )
         .expect("store");
     let stats = store
-        .apply_scip_overlay(&index_path, "", &root, false)
-        .unwrap();
+        .apply_scip_overlays(&[one_index(&index_path, false)], &root)
+        .unwrap()
+        .remove(0);
     assert_eq!((stats.left, stats.rewritten_to_node), (1, 1));
     let targets = store
         .conn
@@ -3193,6 +3203,149 @@ fn a_filling_scip_index_keeps_resolutions_answer() {
     assert_eq!(
         targets,
         vec!["a.py::Other.helper".to_string(), "a.py::save".to_string()]
+    );
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_definition_one_index_holds_settles_another_indexs_reference() {
+    use protobuf::{EnumOrUnknown, Message};
+    use scip::types::{Document, Index, Occurrence, PositionEncoding};
+
+    // `pkg` is a workspace package the `e2e` project reaches through
+    // node_modules: e2e's index names pkg's symbols without a definition
+    // for them, and pkg's index holds the definition. `trim` is defined by
+    // no index of the build, so it is a package's.
+    let root = std::env::temp_dir().join(format!("dagayn-scip-pooled-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("pkg/src")).unwrap();
+    std::fs::create_dir_all(root.join("e2e")).unwrap();
+    let x = "export const make = () => 1;\nexport const trim = () => 2;\n";
+    let lib = "make();\ntrim();\n";
+    std::fs::write(root.join("pkg/src/x.ts"), x).unwrap();
+    std::fs::write(root.join("e2e/lib.ts"), lib).unwrap();
+    let occurrence = |row: i32, start: i32, name: &str, symbol: &str, roles: i32| Occurrence {
+        range: vec![row, start, start + name.len() as i32],
+        symbol: symbol.to_string(),
+        symbol_roles: roles,
+        ..Occurrence::default()
+    };
+    let make = "scip-typescript npm @acme/pkg 0.1.0 src/`x.ts`/make.";
+    let trim = "scip-typescript npm typescript 5.9.3 lib/`lib.es5.d.ts`/String#trim().";
+    let utf16 = EnumOrUnknown::new(PositionEncoding::UTF16CodeUnitOffsetFromLineStart);
+    let write = |name: &str, index: Index| {
+        let path = root.join(name);
+        std::fs::write(&path, index.write_to_bytes().unwrap()).unwrap();
+        path
+    };
+    let pkg_index = write(
+        "pkg.scip",
+        Index {
+            documents: vec![Document {
+                relative_path: "src/x.ts".to_string(),
+                position_encoding: utf16,
+                occurrences: vec![occurrence(0, 13, "make", make, 1)],
+                ..Document::default()
+            }],
+            ..Index::default()
+        },
+    );
+    let e2e_index = write(
+        "e2e.scip",
+        Index {
+            documents: vec![Document {
+                relative_path: "lib.ts".to_string(),
+                position_encoding: utf16,
+                occurrences: vec![
+                    occurrence(0, 0, "make", make, 0),
+                    occurrence(1, 0, "trim", trim, 0),
+                ],
+                ..Document::default()
+            }],
+            ..Index::default()
+        },
+    );
+
+    let path = temp_db("scip-pooled");
+    let mut store = GraphStore::open(&path).expect("open");
+    let at = |node: NodeInput, line: i64| NodeInput {
+        line_start: line,
+        line_end: line,
+        ..node
+    };
+    store
+        .store_file_nodes_edges(
+            "pkg/src/x.ts",
+            &[
+                file_node("pkg/src/x.ts"),
+                at(function_node("make", "pkg/src/x.ts"), 1),
+                at(function_node("trim", "pkg/src/x.ts"), 2),
+            ],
+            &[],
+            &sha256_hex(x.as_bytes()),
+            0,
+        )
+        .expect("store x");
+    store
+        .store_file_nodes_edges(
+            "e2e/lib.ts",
+            &[file_node("e2e/lib.ts")],
+            &[
+                edge("CALLS", "e2e/lib.ts", "pkg/src/x.ts::make", "e2e/lib.ts", 1),
+                edge("CALLS", "e2e/lib.ts", "pkg/src/x.ts::trim", "e2e/lib.ts", 2),
+            ],
+            &sha256_hex(lib.as_bytes()),
+            0,
+        )
+        .expect("store lib");
+
+    let stats = store
+        .apply_scip_overlays(
+            &[
+                ScipIndexInput {
+                    path: pkg_index,
+                    prefix: "pkg/".to_string(),
+                    authoritative: true,
+                },
+                ScipIndexInput {
+                    path: e2e_index,
+                    prefix: "e2e/".to_string(),
+                    authoritative: true,
+                },
+            ],
+            &root,
+        )
+        .unwrap();
+    assert_eq!(stats.len(), 2);
+    assert_eq!(
+        stats[1],
+        ScipOverlayStats {
+            documents: 1,
+            calls: 2,
+            confirmed: 1,
+            rewritten_to_package: 1,
+            ..ScipOverlayStats::default()
+        }
+    );
+    let targets = store
+        .conn
+        .prepare(
+            "SELECT target_qualified, json_extract(extra, '$.resolved_by') \
+             FROM edges WHERE kind = 'CALLS' ORDER BY line",
+        )
+        .unwrap()
+        .query_map([], |row| <(String, Option<String>)>::try_from(row))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    let scip = Some("scip".to_string());
+    assert_eq!(
+        targets,
+        vec![
+            ("pkg/src/x.ts::make".to_string(), scip.clone()),
+            ("globalThis".to_string(), scip),
+        ]
     );
     let _ = std::fs::remove_file(path);
     let _ = std::fs::remove_dir_all(root);

@@ -2,8 +2,10 @@
 
 ``dagayn build --scip`` runs, for every project of the repository a
 registered indexer covers, that indexer, then lets the graph settle its
-``CALLS`` edges by the index (``GraphStore.apply_scip_overlay_json``). A
-project is a directory holding the indexer's marker file (``Cargo.toml``,
+``CALLS`` edges by the language's indexes together
+(``GraphStore.apply_scip_overlays_json``), so a symbol one project
+references and another defines is the definition's node. A project is a
+directory holding the indexer's marker file (``Cargo.toml``,
 ``tsconfig.json``, ``go.mod``, ...). TypeScript's indexer ships with dagayn
 (:mod:`dagayn.scip_typescript`, run as a child process); the others are
 programs this machine has to provide. When an indexer is not installed, the
@@ -464,8 +466,9 @@ def run_scip_overlay(store: Any, repo_root: Path, output_dir: Path) -> ScipOverl
     output_dir.mkdir(parents=True, exist_ok=True)
     jobs, hints = plan_jobs(repo_root, output_dir)
     report.hints.extend(hints)
+    indexed: dict[str, list[ScipJob]] = {}
     for job in jobs:
-        label = f"SCIP overlay ({job.language}{', ' + job.prefix if job.prefix else ''})"
+        label = _label(job)
         job.output.unlink(missing_ok=True)
         try:
             completed = subprocess.run(  # noqa: S603 - indexer command, not shell
@@ -491,14 +494,23 @@ def run_scip_overlay(store: Any, repo_root: Path, output_dir: Path) -> ScipOverl
             )
             report.warnings.append(f"{label}: indexer {ended}: {' | '.join(tail)}")
             continue
+        indexed.setdefault(job.language, []).append(job)
+    for language, done in indexed.items():
         try:
-            raw = store.apply_scip_overlay_json(
-                str(job.output), job.prefix, str(repo_root), job.authoritative
+            raw = store.apply_scip_overlays_json(
+                [(str(job.output), job.prefix, job.authoritative) for job in done],
+                str(repo_root),
             )
         except (AttributeError, OSError, RuntimeError, TypeError, ValueError) as e:
-            report.warnings.append(f"{label}: index not applied: {type(e).__name__}: {e}")
+            report.warnings.append(
+                f"SCIP overlay ({language}): index not applied: {type(e).__name__}: {e}"
+            )
             continue
-        stats = json.loads(raw)
-        report.runs.append({"language": job.language, "prefix": job.prefix, **stats})
-        logger.info("%s: %s", label, stats)
+        for job, stats in zip(done, json.loads(raw), strict=True):
+            report.runs.append({"language": job.language, "prefix": job.prefix, **stats})
+            logger.info("%s: %s", _label(job), stats)
     return report
+
+
+def _label(job: ScipJob) -> str:
+    return f"SCIP overlay ({job.language}{', ' + job.prefix if job.prefix else ''})"
