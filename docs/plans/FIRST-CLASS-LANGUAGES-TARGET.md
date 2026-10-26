@@ -294,6 +294,8 @@ method-call gap.
    newly bound edges finds no call bound into another package. M2 on
    testify: functions that ran called untested at most a third of 277, at
    tested precision ≥ 0.92. `unchanged_caller_go` passes.
+   The no-caller bar is revised under
+   [Decisions](#decisions-2026-10-26): no extractor can reach 0.15.
 6. **G3, imports bound to packages.** An import of `module/sub/pkg` binds to
    the files of `sub/pkg`, for internal and external test packages
    (`package kong_test`). A package call (`kong.New`) then resolves through
@@ -418,13 +420,38 @@ method-call gap.
   changes, not inference rules. M2 lands with G1, because G1's bar is
   read from it.
 - **Python's bar.** If M3 fails, Python is maintained, not invested in.
+- **TypeScript's SCIP comes from tsrs.** `scip-typescript` is replaced by
+  tsrs crates linked into dagayn, in its conservative mode, which keeps a
+  call with several candidates ambiguous. `scip-typescript` names external
+  packages `.` on pnpm workspaces (27,963 symbols on tstodon, 2,278 hono and
+  zod calls aimed at no package, #219); tsrs has none of these, agrees on all
+  4,731 cfwdon calls, and ran in 1.95s against 17.9s on tstodon. dagayn
+  moves to Rust 1.99.x and follows tsrs, which is pinned to a git rev.
+- **Python's SCIP comes from ty, linked as crates.** `scip-python` binds
+  names through star re-exports wrongly (602 HIGH edges on httpx). ty
+  linked into dagayn and pyrefly were compared on httpx, dagayn and 104
+  pydantic v2 cases. They resolve calls about equally well, but pyrefly
+  binds lazy exports to the module's `__getattr__`, which cost 278 HIGH
+  edges on dagayn. Its API is `#[doc(hidden)]` and it needs 384 crates
+  against ty's 236. ty indexed dagayn in 1.58s against 2.96s for pyrefly,
+  and compiled unchanged across 427 upstream commits. The LSP route
+  (`ty server`) is not taken. Either way dagayn passes the project's
+  interpreter explicitly, which `scip_overlay.py` does not do today.
 - **Go is the one language whose SCIP needs its own toolchain.** Rust's
-  indexer comes from rustup, and TypeScript's and Python's run through
-  `npx`, which `dagayn build --scip` already falls back to. `scip-go`
-  needs a Go toolchain of the version it was built for (1.25). So Go's
+  indexer comes from rustup, and TypeScript's and Python's are linked into
+  dagayn. `scip-go` needs a Go toolchain of the version it was built for
+  (1.25). So Go's
   first-class bar does not depend on SCIP: G1 to G5 must pass on the
   extractor alone, and G6 uses `scip-go` as an answer key for measurement,
   not as a build requirement.
 - **Cloning and tooling.** scip-go and compress may be cloned, and Go 1.25
   and `scip-go` installed, for measurement.
+- **G2's no-caller bar is measured over directly referenced functions.**
+  On compress, 0.169 of all functions have no direct reference in any
+  scip-go index (interface dispatch, method values), so no resolver of
+  direct calls reaches 0.15. The bar is now: of the functions scip-go
+  references directly, under 0.12 have no caller (go 10: 0.185, go 11
+  after G2b: 0.114, with the scip-go overlay: 0.048). The share over all
+  functions is still reported. Reaching 0.15 there needs edges from an
+  interface method to its implementations, which no item builds.
 - **Third-party Python.** Chosen when M3 starts.
