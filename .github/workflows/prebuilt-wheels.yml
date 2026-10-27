@@ -138,6 +138,19 @@ jobs:
           "$venv/bin/dagayn" build --repo "$project" --scip 2>&1 | tee scip.txt
           grep -q "SCIP overlay (typescript): 1 calls, 0 to nodes, 0 to packages, 1 confirmed" scip.txt
 
+      - name: Smoke-test the bundled Python indexer
+        shell: bash
+        run: |
+          venv="${RUNNER_TEMP}/wheel-smoke"
+          project="$(mktemp -d)"
+          mkdir -p "$project/shop"
+          printf '[project]\nname = "shop"\nversion = "0"\n' > "$project/pyproject.toml"
+          printf 'def total(prices: list[int]) -> int:\n    return len(prices)\n' > "$project/shop/cart.py"
+          printf 'from shop.cart import total\n\ncount = total([1, 2])\n' > "$project/shop/main.py"
+          git -C "$project" init -q
+          "$venv/bin/dagayn" build --repo "$project" --scip 2>&1 | tee scip-python.txt
+          grep -q "SCIP overlay (python): 2 calls, 0 to nodes, 0 to packages, 2 confirmed" scip-python.txt
+
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v7
         with:

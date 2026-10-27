@@ -84,6 +84,24 @@ Removed).
   second corpus of 7,010 edges it settles 4,737 (67.6%) to scip-typescript's
   4,731 and agrees on all 4,731. The release wheel grows from 40.6 MB to
   43.0 MB (macOS arm64, Python 3.13).
+- `dagayn build --scip` indexes Python with an indexer dagayn ships
+  (`crates/dagayn-scip-python`, on the ty checker from ruff `e139fbd6`, the
+  commit the Python extractor's parser now also comes from; run as
+  `python -P -m dagayn.scip_python` in a child process) and no longer looks
+  for scip-python or `npx`. Its answer now replaces the extractor's, as Rust's
+  and TypeScript's do. The project's environment is passed explicitly: the
+  `.venv` in the project or an ancestor up to the repository root, else
+  `VIRTUAL_ENV`. Without one, the project is indexed with a hint. On this
+  repository the build settles 21,021 calls where scip-python settled 18,642,
+  in 6.2 s and 646 MB instead of 16.2 s and 1.17 GB. On httpx it settles
+  3,843 calls where scip-python settled 3,238, in 0.8 s instead of 3.7 s. Of
+  25 changed edges checked by hand, 22 are corrections (`from ._models
+  import *` re-exports, pydantic `model_*` calls); on the other 3, ty
+  resolved nothing. In a project whose pydantic is installed only in its
+  `.venv`, 37 calls into pydantic settle, against none with scip-python. A
+  name with several definitions (a `try`/`except ImportError` import) is
+  left `ambiguous`. The release wheel grows from 43.0 MB to 50.7 MB (macOS
+  arm64, Python 3.13) and from 43.5 MB to 52.2 MB (Linux x86_64).
 - `dagayn build` prints the build's warnings (a failed indexer, an index not
   applied, a post-processing pass that failed) as `WARNING:` lines on
   stderr; they were in the result but never shown. An indexer a signal ended

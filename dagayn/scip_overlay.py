@@ -6,16 +6,20 @@ registered indexer covers, that indexer, then lets the graph settle its
 (``GraphStore.apply_scip_overlays_json``), so a symbol one project
 references and another defines is the definition's node. A project is a
 directory holding the indexer's marker file (``Cargo.toml``,
-``tsconfig.json``, ``go.mod``, ...). TypeScript's indexer ships with dagayn
-(:mod:`dagayn.scip_typescript`, run as a child process); the others are
-programs this machine has to provide. When an indexer is not installed, the
-build prints a hint saying how to install it and the language keeps the
-targets resolution gives; a failed run is a warning and does the same. A
-project missing what its indexer ``wants`` (``node_modules``) is still
-indexed, with a hint, and calls into what is missing stay unsettled.
+``tsconfig.json``, ``go.mod``, ...). The TypeScript and Python indexers ship
+with dagayn (:mod:`dagayn.scip_typescript`, :mod:`dagayn.scip_python`, each
+run as a child process); the others are programs this machine has to
+provide. When an indexer is not installed, the build prints a hint saying how
+to install it and the language keeps the targets resolution gives; a failed
+run is a warning and does the same. A project missing what its indexer
+``wants`` (``node_modules``) or its environment (a Python project's virtual
+environment) is still indexed, with a hint, and calls into what is missing
+stay unsettled. The Python indexer is given the project's environment
+explicitly: its ``.venv`` (or one in a directory above it, up to the
+repository root), else the active ``VIRTUAL_ENV``.
 
-Rust and TypeScript indexes are authoritative: their answer replaces the
-extractor's. The others, not yet measured against dagayn's own resolution,
+Rust, TypeScript, and Python indexes are authoritative: their answer replaces
+the extractor's. The others, not yet measured against dagayn's own resolution,
 keep what the extractor resolved and settle the rest, before the inference
 passes run. scip-java runs the project's build (`gradle clean ...` /
 `mvn clean verify`), so it runs only with ``DAGAYN_SCIP_ALLOW_BUILD=1``.
@@ -58,17 +62,6 @@ _SKIPPED_DIRS = {
     "__pycache__",
 }
 
-# Prints the distributions of the interpreter that runs it, in scip-python's
-# `--environment` format.
-_PYTHON_ENVIRONMENT_SCRIPT = """\
-import importlib.metadata as md, json
-print(json.dumps([
-    {"name": d.metadata["Name"], "version": d.version,
-     "files": [str(f) for f in (d.files or []) if str(f).endswith((".py", ".pyi"))]}
-    for d in md.distributions()
-]))
-"""
-
 
 @dataclass(frozen=True)
 class Indexer:
@@ -84,16 +77,18 @@ class Indexer:
     Cargo workspace, not its member crates). ``commands`` are the default
     command prefixes, tried in order: the first whose program is on ``PATH``
     runs. ``install`` says how to get the program; ``None`` means dagayn
-    ships the indexer, so ``commands[0]`` runs as given. ``arguments`` gives
-    the rest of the command for a project and an output path; an indexer
-    that always writes ``fixed_output`` in its working directory has it moved
-    to the output path.
+    ships the indexer, so ``commands[0]`` runs as given. ``environment``
+    finds the environment a project's packages are installed in (from the
+    project and the repository root); its absence is a hint. ``arguments``
+    gives the rest of the command for a project, an output path, and that
+    environment; an indexer that always writes ``fixed_output`` in its
+    working directory has it moved to the output path.
     """
 
     language: str
     markers: tuple[str, ...]
     commands: tuple[tuple[str, ...], ...]
-    arguments: Callable[[Path, Path, Path], list[str]]
+    arguments: Callable[[Path, Path, Path | None], list[str]]
     install: str | None
     authoritative: bool = False
     requires: tuple[str, ...] = ()
@@ -105,17 +100,18 @@ class Indexer:
     project_commands: tuple[str, ...] = ()
     # Why the indexer must be allowed to run (it builds the project).
     builds_project: str | None = None
+    environment: Callable[[Path, Path], Path | None] | None = None
 
     @property
     def env_var(self) -> str:
         return f"DAGAYN_SCIP_{self.language.upper()}"
 
 
-def _rust_arguments(project: Path, output: Path, _: Path) -> list[str]:
+def _rust_arguments(project: Path, output: Path, _: Path | None) -> list[str]:
     return ["scip", str(project), "--output", str(output)]
 
 
-def _typescript_arguments(project: Path, output: Path, _: Path) -> list[str]:
+def _typescript_arguments(project: Path, output: Path, _: Path | None) -> list[str]:
     tsconfigs = sorted(p.name for p in project.glob("tsconfig*.json"))
     return ["index", "--output", str(output), *tsconfigs]
 
@@ -128,31 +124,45 @@ def parse_typescript_arguments(argv: list[str]) -> tuple[Path, list[str]]:
     return Path(argv[2]), argv[3:] or ["tsconfig.json"]
 
 
-def _go_arguments(_: Path, output: Path, __: Path) -> list[str]:
+def _go_arguments(_: Path, output: Path, __: Path | None) -> list[str]:
     return ["--output", str(output)]
 
 
-def _python_arguments(project: Path, output: Path, scratch: Path) -> list[str]:
-    arguments = [
-        "index",
-        "--cwd",
-        str(project),
-        "--project-name",
-        project.name,
-        "--output",
-        str(output),
-    ]
-    environment = _python_environment(project, scratch)
-    if environment is not None:
-        arguments += ["--environment", str(environment)]
-    return arguments
+def _python_arguments(_: Path, output: Path, environment: Path | None) -> list[str]:
+    arguments = ["index", "--output", str(output)]
+    return arguments if environment is None else [*arguments, "--python", str(environment)]
 
 
-def _java_arguments(_: Path, output: Path, __: Path) -> list[str]:
+def parse_python_arguments(argv: list[str]) -> tuple[Path, str | None]:
+    """The inverse of :func:`_python_arguments`, for the bundled indexer:
+    the output path and the environment (``None`` when none is named)."""
+    if len(argv) == 3 and argv[:2] == ["index", "--output"]:
+        return Path(argv[2]), None
+    if len(argv) == 5 and argv[:2] == ["index", "--output"] and argv[3] == "--python":
+        return Path(argv[2]), argv[4]
+    raise ValueError(f"expected `index --output OUT [--python ENV]`, got {argv}")
+
+
+def _python_environment(project: Path, repo_root: Path) -> Path | None:
+    """The virtual environment of a Python project: a ``.venv`` holding a
+    ``pyvenv.cfg`` in the project or a directory above it up to the
+    repository root, else the active ``VIRTUAL_ENV``. The project's own comes
+    first: ``uv run dagayn`` activates dagayn's environment, not the
+    project's."""
+    for directory in (project, *project.parents):
+        if not directory.is_relative_to(repo_root):
+            break
+        if (directory / ".venv" / "pyvenv.cfg").is_file():
+            return directory / ".venv"
+    active = os.environ.get("VIRTUAL_ENV")
+    return Path(active) if active and Path(active).is_dir() else None
+
+
+def _java_arguments(_: Path, output: Path, __: Path | None) -> list[str]:
     return ["index", "--output", str(output)]
 
 
-def _clang_arguments(project: Path, output: Path, _: Path) -> list[str]:
+def _clang_arguments(project: Path, output: Path, _: Path | None) -> list[str]:
     compdb = next(
         p
         for p in (project / "compile_commands.json", project / "build" / "compile_commands.json")
@@ -161,25 +171,25 @@ def _clang_arguments(project: Path, output: Path, _: Path) -> list[str]:
     return [f"--compdb-path={compdb}", f"--index-output-path={output}"]
 
 
-def _dotnet_arguments(project: Path, output: Path, _: Path) -> list[str]:
+def _dotnet_arguments(project: Path, output: Path, _: Path | None) -> list[str]:
     return ["index", "--output", str(output), "--working-directory", str(project)]
 
 
-def _ruby_arguments(project: Path, output: Path, _: Path) -> list[str]:
+def _ruby_arguments(project: Path, output: Path, _: Path | None) -> list[str]:
     arguments = ["--index-file", str(output)]
     # Without a Sorbet config, scip-ruby is told the directory to index.
     return arguments if (project / "sorbet" / "config").is_file() else [*arguments, "."]
 
 
-def _dart_arguments(_: Path, output: Path, __: Path) -> list[str]:
+def _dart_arguments(_: Path, output: Path, __: Path | None) -> list[str]:
     return ["./", "--output", str(output)]
 
 
-def _php_arguments(_: Path, __: Path, ___: Path) -> list[str]:
+def _php_arguments(_: Path, __: Path, ___: Path | None) -> list[str]:
     return []
 
 
-def _r_arguments(project: Path, output: Path, _: Path) -> list[str]:
+def _r_arguments(project: Path, output: Path, _: Path | None) -> list[str]:
     return ["index", str(project), "-o", str(output)]
 
 
@@ -212,10 +222,12 @@ INDEXERS: tuple[Indexer, ...] = (
     Indexer(
         language="python",
         markers=("pyproject.toml", "setup.py", "setup.cfg"),
-        commands=(("scip-python",), ("npx", "-y", "@sourcegraph/scip-python")),
+        commands=((sys.executable, "-P", "-m", "dagayn.scip_python"),),
         arguments=_python_arguments,
-        install="npm install -g @sourcegraph/scip-python (or install Node.js for npx)",
+        install=None,
+        authoritative=True,
         topmost=True,
+        environment=_python_environment,
     ),
     Indexer(
         language="java",
@@ -379,32 +391,6 @@ def _missing_wants(repo_root: Path, project: Path, indexer: Indexer) -> list[str
     ]
 
 
-def _python_environment(project: Path, scratch: Path) -> Path | None:
-    """The distributions of the project's interpreter (its ``.venv``, the
-    active virtualenv, or dagayn's own), written for ``--environment``: a uv
-    venv has no ``pip`` for scip-python to ask."""
-    candidates = [project / ".venv" / "bin" / "python"]
-    if os.environ.get("VIRTUAL_ENV"):
-        candidates.append(Path(os.environ["VIRTUAL_ENV"]) / "bin" / "python")
-    candidates.append(Path(sys.executable))
-    interpreter = next((c for c in candidates if c.is_file()), None)
-    if interpreter is None:
-        return None
-    try:
-        completed = subprocess.run(  # noqa: S603 - the project's own interpreter
-            [str(interpreter), "-c", _PYTHON_ENVIRONMENT_SCRIPT],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=True,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    path = scratch / f"python-environment-{abs(hash(str(project)))}.json"
-    path.write_text(completed.stdout)
-    return path
-
-
 def plan_jobs(repo_root: Path, output_dir: Path) -> tuple[list[ScipJob], list[str]]:
     """The indexer runs this repository and machine allow, and hints for the
     indexers its projects need but this machine lacks."""
@@ -428,13 +414,19 @@ def plan_jobs(repo_root: Path, output_dir: Path) -> tuple[list[ScipJob], list[st
                 missing = True
                 continue
             relative = project.relative_to(repo_root).as_posix()
-            if lacks := _missing_wants(repo_root, project, indexer):
+            lacks = _missing_wants(repo_root, project, indexer)
+            environment = None
+            if indexer.environment is not None:
+                environment = indexer.environment(project, repo_root)
+                if environment is None:
+                    lacks.append("a virtual environment: .venv or VIRTUAL_ENV")
+            if lacks:
                 wanting.append(f"{relative} ({', '.join(lacks)})")
             output = output_dir / f"{indexer.language}-{number}.scip"
             jobs.append(
                 ScipJob(
                     language=indexer.language,
-                    command=[*command, *indexer.arguments(project, output, output_dir)],
+                    command=[*command, *indexer.arguments(project, output, environment)],
                     cwd=project,
                     prefix="" if relative == "." else f"{relative}/",
                     output=output,

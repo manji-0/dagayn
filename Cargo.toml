@@ -8,6 +8,7 @@ members = [
     "crates/dagayn-parser",
     "crates/dagayn-postproc",
     "crates/dagayn-py",
+    "crates/dagayn-scip-python",
     "crates/dagayn-scip-typescript",
     "crates/dagayn-tools",
 ]
@@ -38,13 +39,21 @@ globset = "0.4"
 memchr = "2"
 pyo3 = "0.28"
 regex = "1"
-# Ruff's parser crates are internal components of Ruff with no API
-# stability promise: every 0.0.x release may break, so pin exactly.
-ruff_python_ast = "=0.0.16"
+# Ruff's crates are internal components of Ruff with no API stability
+# promise. The Python extractor's parser and the ty checker behind
+# `dagayn-scip-python` come from one commit, so one copy of ruff is built;
+# bump every ruff_* and ty_* line together.
+ruff_db = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456", features = ["os"] }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
+ruff_source_file = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
+ruff_text_size = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
+ty_ide = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
+ty_module_resolver = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
+ty_project = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
+ty_python_core = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
 # The collection type of ruff_python_ast bodies; tracks its version.
 thin-vec = "0.2.20"
-ruff_python_parser = "=0.0.16"
-ruff_text_size = "=0.0.16"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }

@@ -65,15 +65,15 @@ every command through the full Python CLI; `python -m dagayn` always does.
 
 `dagayn build --scip` settles call targets with SCIP indexers before
 post-processing. For every project of the repository (a directory holding
-the marker file) it runs the indexer: TypeScript's ships with dagayn, the
-others run when this machine has them:
+the marker file) it runs the indexer: TypeScript's and Python's ship with
+dagayn, the others run when this machine has them:
 
 | Language | Indexer | Project marker | Answer |
 | -------- | ------- | -------------- | ------ |
 | Rust | `rust-analyzer scip` | outermost `Cargo.toml` | replaces the extractor's |
 | TypeScript / JavaScript | dagayn's own (`python -m dagayn.scip_typescript`, the tsrs checker; no install) | `tsconfig.json`; without `node_modules` (in the project or up to the repository root) a hint is printed and calls into packages stay unsettled | replaces the extractor's |
 | Go | `scip-go` | `go.mod` | fills |
-| Python | `scip-python` (or `npx @sourcegraph/scip-python`) | outermost `pyproject.toml` / `setup.py` / `setup.cfg` | fills |
+| Python | dagayn's own (`python -m dagayn.scip_python`, the ty checker; no install) | outermost `pyproject.toml` / `setup.py` / `setup.cfg`; the project's `.venv` (in the project or up to the repository root), else `VIRTUAL_ENV`, is passed as its environment, and without one a hint is printed and calls into installed packages resolve only in what ty finds itself | replaces the extractor's |
 | Java / Kotlin | `scip-java` (or `coursier launch`) | outermost `pom.xml` / `build.gradle(.kts)` / `settings.gradle(.kts)` | fills; runs only with `DAGAYN_SCIP_ALLOW_BUILD=1` |
 | C / C++ | `scip-clang` | `compile_commands.json` or `build/compile_commands.json` | fills |
 | C# / VB | `scip-dotnet` | `*.sln`, `*.slnx`, `*.csproj`, `*.vbproj` | fills |
@@ -90,8 +90,9 @@ dagayn's own resolution; a failed run is a warning and does the same.
 `scip-java` runs the project's build with `clean`, so it needs
 `DAGAYN_SCIP_ALLOW_BUILD=1`; `scip-dotnet` runs `dotnet restore`. The indexes
 are written under `.dagayn/scip/`. `DAGAYN_SCIP_<LANGUAGE>`
-(`DAGAYN_SCIP_RUST`, `DAGAYN_SCIP_GO`, `DAGAYN_SCIP_CSHARP`, ...) replaces an
-indexer's command, and `DAGAYN_SCIP_TIMEOUT` bounds each run (seconds,
+(`DAGAYN_SCIP_RUST`, `DAGAYN_SCIP_GO`, `DAGAYN_SCIP_PYTHON`, ...) replaces an
+indexer's command (for Python and TypeScript it is called with dagayn's own
+indexer's arguments), and `DAGAYN_SCIP_TIMEOUT` bounds each run (seconds,
 default 900). The overlay runs only on a full `build`; `update` re-resolves
 the files it re-parses as before, until the next `build --scip`. See
 [CALL-RESOLUTION.md](./CALL-RESOLUTION.md#scip-overlay).

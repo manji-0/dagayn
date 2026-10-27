@@ -36,8 +36,8 @@ def register_commands(sub: argparse._SubParsersAction) -> CommandRegistry:
         action="store_true",
         help=(
             "Settle call targets with SCIP indexers before post-processing: "
-            "dagayn's own TypeScript indexer, and rust-analyzer, scip-go, "
-            "scip-python, ... when installed; prints install hints for missing ones"
+            "dagayn's own TypeScript and Python indexers, and rust-analyzer, "
+            "scip-go, ... when installed; prints install hints for missing ones"
         ),
     )
     _add_local_embedding_args(build_cmd)

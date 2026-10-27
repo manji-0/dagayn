@@ -137,6 +137,76 @@ def test_typescript_arguments_round_trip(tmp_path: Path) -> None:
         scip_overlay.parse_typescript_arguments(["--output", str(output)])
 
 
+def _python_repo(tmp_path: Path, *, venv: bool) -> Path:
+    repo = tmp_path / "repo"
+    (repo / "app").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text('[project]\nname = "app"\n')
+    if venv:
+        (repo / ".venv").mkdir()
+        (repo / ".venv" / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    return repo
+
+
+def test_python_jobs_name_the_project_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    active = tmp_path / "active-venv"
+    active.mkdir()
+    monkeypatch.setenv("VIRTUAL_ENV", str(active))
+    repo = _python_repo(tmp_path, venv=True)
+    jobs, hints = plan_jobs(repo, tmp_path / "out")
+    assert hints == []
+    assert [(job.language, job.prefix, job.authoritative) for job in jobs] == [("python", "", True)]
+    assert jobs[0].command[:4] == [sys.executable, "-P", "-m", "dagayn.scip_python"]
+    assert jobs[0].command[-2:] == ["--python", str(repo / ".venv")]
+    assert jobs[0].env is not None
+
+    (repo / ".venv" / "pyvenv.cfg").unlink()
+    jobs, hints = plan_jobs(repo, tmp_path / "out")
+    assert hints == []
+    assert jobs[0].command[-2:] == ["--python", str(active)]
+
+
+def test_a_python_project_without_an_environment_is_indexed_with_a_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    repo = _python_repo(tmp_path, venv=False)
+    jobs, hints = plan_jobs(repo, tmp_path / "out")
+    assert [job.language for job in jobs] == ["python"]
+    assert "--python" not in jobs[0].command
+    assert [hint.split(":")[0] for hint in hints] == ["python"]
+    assert ". (a virtual environment: .venv or VIRTUAL_ENV)" in hints[0]
+
+
+def test_a_python_environment_is_looked_for_up_to_the_repository_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("VIRTUAL_ENV", raising=False)
+    (tmp_path / ".venv").mkdir()
+    (tmp_path / ".venv" / "pyvenv.cfg").write_text("home = /usr/bin\n")
+    service = tmp_path / "repo" / "service"
+    service.mkdir(parents=True)
+    (service / "pyproject.toml").write_text('[project]\nname = "service"\n')
+    jobs, hints = plan_jobs(tmp_path, tmp_path / "out")
+    assert hints == []
+    assert jobs[0].command[-2:] == ["--python", str(tmp_path / ".venv")]
+    jobs, hints = plan_jobs(tmp_path / "repo", tmp_path / "out")
+    assert "--python" not in jobs[0].command
+    assert [hint.split(":")[0] for hint in hints] == ["python"]
+
+
+def test_python_arguments_round_trip(tmp_path: Path) -> None:
+    output = tmp_path / "out" / "python-0.scip"
+    venv = tmp_path / ".venv"
+    argv = scip_overlay._python_arguments(tmp_path, output, venv)
+    assert scip_overlay.parse_python_arguments(argv) == (output, str(venv))
+    argv = scip_overlay._python_arguments(tmp_path, output, None)
+    assert scip_overlay.parse_python_arguments(argv) == (output, None)
+    with pytest.raises(ValueError, match="index --output OUT"):
+        scip_overlay.parse_python_arguments(["index", "--output", str(output), "--python"])
+
+
 def test_indexes_are_applied_and_failures_reported(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
