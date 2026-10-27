@@ -567,6 +567,92 @@ function helper() {}
 }
 
 #[test]
+fn parses_call_valued_members_of_a_companion_object() {
+    let source = br#"function schemaResult(schema: unknown) { return (raw: unknown) => raw; }
+const schema = make();
+export type IsoInstant = string;
+export const IsoInstant = {
+  schema,
+  parse: schemaResult(schema),
+  later: (schemaResult(schema) as Parser)!,
+  count: 3,
+  made: new Map(),
+} as const;
+const cfg = { port: 1, made: new Map() };
+export function stamp(at: IsoInstant) { return IsoInstant.parse(at); }
+const fields = { id: schemaResult(schema) };
+const Listed = { nested: { parse: schemaResult(schema) } };
+export { Listed };
+export const Wire = { follow: { parse: schemaResult(schema) } };
+"#;
+    let file = "iso.ts";
+    let (nodes, edges) = parse_javascript_like(file, source, "typescript");
+    let named = |name: &str, parent: Option<&str>| {
+        nodes
+            .iter()
+            .filter(|node| node.name == name && node.parent_name.as_deref() == parent)
+            .collect::<Vec<_>>()
+    };
+    let companion = named("IsoInstant", None);
+    assert_eq!(companion.len(), 1, "{nodes:?}");
+    assert_eq!(companion[0].kind, "Class");
+    assert_eq!(companion[0].extra["type_role"], "object");
+    assert_eq!(companion[0].extra["merged_declarations"], 2);
+    for (name, line) in [("parse", 6), ("later", 7)] {
+        let member = named(name, Some("IsoInstant"));
+        assert_eq!(member.len(), 1, "{name}: {nodes:?}");
+        assert_eq!(member[0].kind, "Function");
+        assert_eq!(member[0].extra["member_role"], "call_result");
+        assert_eq!((member[0].line_start, member[0].line_end), (line, line));
+    }
+    for name in ["schema", "count", "made"] {
+        assert!(named(name, Some("IsoInstant")).is_empty(), "{name}");
+    }
+    // A module-private object's call-valued members are data.
+    for name in ["cfg", "fields"] {
+        assert!(named(name, None).is_empty(), "{name}: {nodes:?}");
+    }
+    // Objects nested in a named export, by `export const` or `export { }`.
+    for owner in ["Listed.nested", "Wire.follow"] {
+        assert_eq!(
+            named("parse", Some(owner))[0].extra["member_role"],
+            "call_result",
+            "{owner}"
+        );
+    }
+    let has_edge = |kind: &str, source: &str, target: &str| {
+        edges
+            .iter()
+            .any(|edge| edge.kind == kind && edge.source == source && edge.target == target)
+    };
+    assert!(has_edge(
+        "CONTAINS",
+        "iso.ts::IsoInstant",
+        "iso.ts::IsoInstant.parse"
+    ));
+    // The factory runs when the module loads, not when `parse` is called.
+    assert!(has_edge("CALLS", file, "iso.ts::schemaResult"), "{edges:?}");
+    assert!(
+        !edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.source == "iso.ts::IsoInstant.parse")
+    );
+    assert!(
+        has_edge("CALLS", "iso.ts::stamp", "iso.ts::IsoInstant.parse"),
+        "{edges:?}"
+    );
+    assert!(
+        has_edge("REFERENCES", "iso.ts::stamp", "iso.ts::IsoInstant"),
+        "{edges:?}"
+    );
+
+    // A default-exported configuration is read by a tool, not called.
+    let source = b"export default { preprocess: vitePreprocess() };\n";
+    let (nodes, _) = parse_javascript_like("svelte.config.js", source, "javascript");
+    assert!(nodes.iter().all(|node| node.kind == "File"), "{nodes:?}");
+}
+
+#[test]
 fn parses_typescript_object_literal_containers() {
     let source = br#"export const api = {
   get(id: string) { return this.put() + fetchIt(id); },

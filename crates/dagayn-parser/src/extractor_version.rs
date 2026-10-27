@@ -110,8 +110,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // imported `extends` / `implements` base to its declaration. A call on
         // an imported `PascalCase` value of the repository whose member has
         // no node carries `receiver_type` instead of `receiver_unknown`.
+        // 13: a call-valued member of a module-scope object literal
+        // (`parse: schemaResult(schema)`) is a `Function` node
+        // (`member_role: "call_result"`), and makes the object a container.
         extractor: "javascript",
-        version: 12,
+        version: 13,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {

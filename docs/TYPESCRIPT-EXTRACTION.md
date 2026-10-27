@@ -76,7 +76,7 @@ separate extractors.
 | `enum E`, `const enum E`, `declare enum E` | `Class` | `E` | owner path | `type_role: "enum"`, `container_role: "data_container"`, `value_semantics: true`; `const_enum: true` for `const enum`; `ambient: true` when declared |
 | `namespace N`, `module N` | `Class` | segment name | owner path | `type_role: "namespace"`; `namespace A.B.C` yields nested `A`, `A.B`, `A.B.C` |
 | `declare module "x"`, `declare global` | `Class` | `x` / `global` | owner path | `type_role: "ambient_module"`, `ambient: true` |
-| module-scope `const X = { ... }` or `export default { ... }` with at least one function-valued member | `Class` | `X` / `default` | owner path | `type_role: "object"` (see §7.3) |
+| module-scope `const X = { ... }` or `export default { ... }` with at least one function-valued member, or a call-valued one when `X` is a named export | `Class` | `X` / `default` | owner path | `type_role: "object"` (see §7.3) |
 | `function f`, `function* f`, `async function* f` | `Function` | `f` | owner path | |
 | `declare function f(): T;`, a bodiless method of a `declare class` | `Function` | `f` | owner path | `declaration_only: true` (never `is_abstract`) |
 | module-scope `const f = () => {}` / `function () {}` / `function* () {}` | `Function` | `f` (the binding) | owner path | |
@@ -89,6 +89,7 @@ separate extractors.
 | interface method signature | `Function` | `m` | interface owner path | `is_abstract: true` |
 | any declaration inside `declare ...`, `declare module` / `declare global`, or a `.d.ts` / `.d.mts` / `.d.cts` file | (as above) | | | `ambient: true`; the `.d.ts` File node has `declaration_file: true`, and `export as namespace X` records `umd_global: "X"` on it |
 | object-container member (`get() {}`, `k: () => {}`, `k: function () {}`) | `Function` | member name | container owner path | |
+| call-valued member of a named export's object container (`parse: schemaResult(schema)`) | `Function` | member name | container owner path | `member_role: "call_result"` (see §7.3) |
 | test-runner call in a test file (§5.4) | `Test` | `it:description@L6` | owner path | synthetic; `describe` blocks are not part of the owner path; `test_modifiers` (`only`, `skip`, `each`, ...) |
 
 Nodes that are **not** created:
@@ -295,10 +296,10 @@ class without that member) keeps the bare member name with
 `receiver_unknown: true`, and same-file resolution leaves such edges alone:
 they never bind to the first same-named method or to the caller itself. An
 imported `PascalCase` value of a repository module whose member has no node
-(`IsoInstant.parse(..)` for `export const IsoInstant = { parse:
-schemaResult(schema) }`) carries `receiver_type: "IsoInstant"` instead, so
+(`IpBlock.matches(..)` for `export const IpBlock = { matches, ... }`, a
+shorthand member) carries `receiver_type: "IpBlock"` instead, so
 only a method of that receiver can bind it and the call is never taken for
-a standard method of the same name (`Date.parse`).
+a standard method of the same name (`Element.matches`).
 
 ### 6.2 Imports
 
@@ -471,7 +472,23 @@ Implemented (#15).
 were not nodes at all, and a full build resolved Express's `app.get(...)` to
 the flattened `get`. A container is created only when the object has at least
 one function-valued member; `as const`, `satisfies T`, and parentheses are
-unwrapped. Nested objects become containers when they hold a function-valued
+unwrapped.
+
+In a named export (`export const X`, `export { X }`) and the objects nested
+in it, a member whose value is a call is a `Function` node too
+(`member_role: "call_result"`), since the call may return a function:
+`export const IsoInstant = { schema, parse: schemaResult(schema) } as const`
+yields `Class IsoInstant` containing `Function IsoInstant.parse`, which a
+SCIP definition of `IsoInstant.parse` and a call `IsoInstant.parse(x)` in
+another module both reach. The call itself stays the module's caller, as it
+runs when the module loads. A module-private object or an
+`export default { ... }` keeps call-valued members as data: such objects are
+field shapes, fixtures, and tool configuration (`{ id: z.string() }`,
+`{ preprocess: vitePreprocess() }`). A companion type of the same name
+(`export type IsoInstant = ...`) merges into the container
+(`merged_declarations: 2`), so type references keep their target. Shorthand
+and identifier members (`{ matches }`) are not nodes: they alias a
+declaration that has its own node. Nested objects become containers when they hold a function-valued
 member at some depth below them, up to six levels (`api.a.b.c` gives
 `Class api.a`, `Class api.a.b`, and `Function api.a.b.c`); data-only nested
 objects are not nodes. Container members are reachable only through the
