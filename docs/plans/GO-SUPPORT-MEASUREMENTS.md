@@ -475,7 +475,8 @@ at 0.090 on compress, near its estimate of about 0.08 for G3. 125 of
 testify's 131 are in `require`: `require_forward.go`'s `func (a
 *Assertions) Equal(..)` calls `Equal(a.t, ..)`, the package's function, and
 the extractor binds that plain call to the file's own method of the name.
-That is a same-file binding left from before G3, not an import.
+That is a same-file binding left from before G3, not an import
+([#236](https://github.com/manji-0/dagayn/issues/236)).
 
 ### Every newly bound edge
 

@@ -184,7 +184,10 @@ other import (the standard library, a dependency, a directory under a
 target. A package import makes no file's names visible by a bare name: Go
 names another package's symbols only through its qualifier, and that call
 records `import_path`. `importers_of` on a directory (`internal/symbols`)
-reports the importers of its files, one row per importer.
+reports the importers of its files, one row per importer. The edges are
+written when the importing file is parsed. Editing or removing a file of the
+package makes its importers dependents that an update parses again. A file
+added to the package reaches them only when they are next parsed.
 
 An import that does not run when its module is loaded says so in `extra`:
 Python imports inside a function body carry `import_scope: "function"` and
