@@ -1,0 +1,68 @@
+diff --git a/dagayn/task_queue.py b/dagayn/task_queue.py
+index 04091a9..0965129 100644
+--- a/dagayn/task_queue.py
++++ b/dagayn/task_queue.py
+@@ -443,7 +443,9 @@ class WorkerLock:
+         self.lock_path = Path(lock_path)
+         self._handle: Any = None
+ 
+-    def acquire(self) -> bool:
++    def acquire(self, *, wait: float = 0.0) -> bool:
++        """Take the lock, retrying for up to *wait* seconds while another
++        process holds it."""
+         if self._handle is not None:
+             return True
+         try:
+@@ -452,11 +454,16 @@ class WorkerLock:
+             return True
+         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+         handle = self.lock_path.open("a+", encoding="utf-8")
+-        try:
+-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+-        except (BlockingIOError, OSError):
+-            handle.close()
+-            return False
++        deadline = time.monotonic() + wait
++        while True:
++            try:
++                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
++                break
++            except (BlockingIOError, OSError):
++                if time.monotonic() >= deadline:
++                    handle.close()
++                    return False
++                time.sleep(0.05)
+         try:
+             handle.seek(0)
+             handle.truncate()
+diff --git a/dagayn/tools/queue_worker.py b/dagayn/tools/queue_worker.py
+index 6d4d805..d6745f3 100644
+--- a/dagayn/tools/queue_worker.py
++++ b/dagayn/tools/queue_worker.py
+@@ -272,11 +272,12 @@ def run_worker(
+     """Drain the queue until it has been empty for *idle_seconds*.
+ 
+     Returns the number of tasks executed. A second concurrent worker exits
+-    immediately (0) because it cannot take the worker lock.
++    (0) when it cannot take the worker lock within half a second, which
++    covers a previous worker that is still releasing it.
+     """
+     root = _resolve_repo_root(str(repo_root) if repo_root else None)
+     lock = WorkerLock(worker_lock_path(root))
+-    if not lock.acquire():
++    if not lock.acquire(wait=0.5):
+         logger.info("queue worker: another worker is already running for %s", root)
+         return 0
+     queue = TaskQueue(queue_db_path(root))
+diff --git a/tests/test_task_queue.py b/tests/test_task_queue.py
+index 0a01a1e..256c816 100644
+--- a/tests/test_task_queue.py
++++ b/tests/test_task_queue.py
+@@ -317,6 +317,7 @@ class TestWorkerLock:
+         second = WorkerLock(path)
+         assert first.acquire() is True
+         assert second.acquire() is False
++        assert second.acquire(wait=0.1) is False
+         first.release()
+         assert second.acquire() is True
+         second.release()

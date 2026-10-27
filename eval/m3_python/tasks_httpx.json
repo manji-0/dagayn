@@ -1,0 +1,67 @@
+{
+ "_about": "M3 (docs/plans/FIRST-CLASS-LANGUAGES-TARGET.md): four Python questions on httpx 0.28.1 (encode/httpx b5addb6) with the change in httpx-change.patch as the last commit. Keys were built without dagayn; eval/m3_python/PREREG.md says how.",
+ "source_commit": "b5addb64f0161ff6bfe94c124ef76f6a1fba5254",
+ "change": {
+  "patch": "httpx-change.patch",
+  "message": "Make Response.close() raise StreamClosed on a closed response"
+ },
+ "preamble": "このリポジトリ (カレントディレクトリ。httpx 0.28.1 のチェックアウト) について、次の質問に答えてください。\n- リポジトリのファイルは変更しないこと。一時ファイルが必要なら /tmp の下に作ること。\n- テストスイートやリポジトリのコードは実行しないこと (読む・検索する・解析用のスクリプトを書いて実行するのはよい)。\n- 回答の最後に、次の形式の JSON コードブロックを 1 つだけ置くこと: ```json\n{\"answer\": [...]}\n```\n\n質問: ",
+ "condition_line": {
+  "graph": "- dagayn の MCP ツール (サーバ名 dagayn) が使える。まずそれで調べ、必要なら他の道具で確かめること。\n",
+  "none": "- dagayn の MCP ツールは使えない。標準の道具 (検索・ファイルの読み込み・シェル) で調べること。\n"
+ },
+ "tasks": {
+  "X1": {
+   "prompt": "`httpx/_main.py` の関数 `format_response_headers` の本体は、どのテストを実行したときに実行されるか。`tests/` 配下のテスト関数・テストメソッドのうち、そのテストを 1 つだけ実行したとき (フィクスチャの準備と後始末を含む) に `format_response_headers` の本体が実行されるものをすべて挙げてください。パラメータ化されたテストは 1 つとして数える。形式は \"ファイルパス::テスト関数名\"、テストクラスのメソッドなら \"ファイルパス::クラス名.メソッド名\" (ファイルパスはリポジトリルートから)。",
+   "kind": "symbols",
+   "truth": [
+    "tests/test_main.py::test_auth",
+    "tests/test_main.py::test_binary",
+    "tests/test_main.py::test_download",
+    "tests/test_main.py::test_follow_redirects",
+    "tests/test_main.py::test_get",
+    "tests/test_main.py::test_json",
+    "tests/test_main.py::test_post",
+    "tests/test_main.py::test_redirects",
+    "tests/test_main.py::test_verbose"
+   ]
+  },
+  "X2": {
+   "prompt": "`httpx/_models.py` で定義されている `Headers` のメソッド `get` を直接呼んでいる関数・メソッドをすべて挙げてください。対象は `httpx/` と `tests/` の .py ファイル。同じ名前の別のクラスのメソッドや、標準ライブラリ・外部パッケージの関数・メソッドの呼び出しは数えない。import の行や、文字列・コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::クラス名.メソッド名\" (ファイルパスはリポジトリルートから。呼び出しを直接囲む最も内側の関数・メソッド)。",
+   "kind": "symbols",
+   "truth": [
+    "httpx/_main.py::download_response",
+    "httpx/_main.py::get_lexer_for_response",
+    "httpx/_models.py::Request.__init__",
+    "httpx/_models.py::Response.charset_encoding",
+    "httpx/_models.py::Response.links",
+    "tests/client/test_auth.py::App.__call__",
+    "tests/client/test_auth.py::DigestApp.__call__",
+    "tests/client/test_cookies.py::get_and_set_cookies",
+    "tests/client/test_redirects.py::cookie_sessions",
+    "tests/models/test_headers.py::test_headers"
+   ]
+  },
+  "X3": {
+   "prompt": "`httpx/_decoders.py` の `GZipDecoder` のメソッド `decode` を直接呼び得る関数・メソッドをすべて挙げてください。対象は `httpx/` と `tests/` の .py ファイル。`x.decode(...)` という呼び出しは、実行時に `x` が `GZipDecoder` のインスタンスになり得るなら数える (辞書などの表から取り出したクラスで作られたインスタンスや、リストに入れて渡されたインスタンスを含む)。`bytes.decode` や、ほかのクラスのインスタンスにしかならない呼び出しは数えない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::クラス名.メソッド名\" (ファイルパスはリポジトリルートから。呼び出しを直接囲む最も内側の関数・メソッド)。",
+   "kind": "symbols",
+   "truth": [
+    "httpx/_decoders.py::MultiDecoder.decode",
+    "httpx/_decoders.py::MultiDecoder.flush",
+    "httpx/_models.py::Response.aiter_bytes",
+    "httpx/_models.py::Response.iter_bytes"
+   ]
+  },
+  "X4": {
+   "prompt": "最後のコミットは `httpx/_models.py` の `Response.close` の振る舞いを変えた。このコミットの時点で `Response.close` を直接呼んでいる関数・メソッドのうち、このコミットで変更されていないものをすべて挙げてください。対象は `httpx/` と `tests/` の .py ファイル。「変更された」は、コミットの差分が、その関数・メソッドの定義 (デコレータと def の行から本体の最後の行まで) の中の行を変えた・足した・消したこと。同じ名前の別のクラスのメソッドや、標準ライブラリ・外部パッケージの関数・メソッドの呼び出しは数えない。import の行や、文字列・コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::クラス名.メソッド名\" (ファイルパスはリポジトリルートから。呼び出しを直接囲む最も内側の関数・メソッド)。",
+   "kind": "symbols",
+   "truth": [
+    "httpx/_client.py::Client._send_handling_auth",
+    "httpx/_client.py::Client._send_handling_redirects",
+    "httpx/_models.py::Response.iter_raw",
+    "tests/models/test_responses.py::test_cannot_read_after_response_closed",
+    "tests/models/test_responses.py::test_close_on_async"
+   ]
+  }
+ }
+}

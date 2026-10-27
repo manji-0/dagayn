@@ -46,6 +46,7 @@ import random
 import re
 import shlex
 import shutil
+import sqlite3
 import statistics
 import subprocess
 import sys
@@ -101,13 +102,32 @@ def canon_cycle(cycle: list[str]) -> tuple[str, ...]:
     return tuple(nodes[i:] + nodes[:i])
 
 
+def norm_symbol(item: str) -> str:
+    """`path::Class.method`: pytest's `Class::method` spelling, a parametrize
+    suffix (`[case]`), and a trailing `()` name the same symbol."""
+    path, sep, rest = norm_path(item).partition("::")
+    rest = re.sub(r"\[.*\]$", "", rest.strip())
+    rest = rest.removesuffix("()").replace("::", ".")
+    return path + sep + rest
+
+
 def answer_set(kind: str, items: list[Any]) -> set[Any]:
     if kind == "cycles":
         return {canon_cycle(c) for c in items if isinstance(c, list)}
+    if kind == "symbols":
+        return {norm_symbol(x) for x in items if isinstance(x, str)}
     return {norm_path(x) for x in items if isinstance(x, str)}
 
 
-def make_target(work: Path, commit: str, repo: Path = REPO_ROOT) -> Path:
+def make_target(
+    work: Path,
+    commit: str,
+    repo: Path = REPO_ROOT,
+    change: Path | None = None,
+    change_message: str = "change",
+) -> Path:
+    """`git archive <commit>` as a one-commit repository; with *change*, that
+    patch applied on top as a second commit, so the last commit is a diff."""
     src = work / "src"
     if src.exists():
         return src
@@ -120,7 +140,25 @@ def make_target(work: Path, commit: str, repo: Path = REPO_ROOT) -> Path:
     subprocess.run(["git", "init", "-q"], cwd=src, check=True)
     subprocess.run(["git", "add", "-A"], cwd=src, check=True)
     subprocess.run([*git, "commit", "-q", "-m", f"archive {commit[:12]}"], cwd=src, check=True)
+    if change is not None:
+        subprocess.run(["git", "apply", str(change.resolve())], cwd=src, check=True)
+        subprocess.run(["git", "add", "-A"], cwd=src, check=True)
+        subprocess.run([*git, "commit", "-q", "-m", change_message], cwd=src, check=True)
     return src
+
+
+def graph_metadata(repo: Path) -> dict[str, str]:
+    """The keys that say which build made the graph (an MCP server or a hook
+    running another dagayn can rewrite it)."""
+    db = repo / ".dagayn" / "graph.db"
+    if not db.exists():
+        return {}
+    keys = ("last_build_type", "extractor_versions", "git_head_sha", "postprocess_level")
+    with sqlite3.connect(f"file:{db}?mode=ro", uri=True) as conn:
+        rows = conn.execute(
+            f"select key, value from metadata where key in ({','.join('?' * len(keys))})", keys
+        ).fetchall()
+    return dict(rows)
 
 
 def clean_path() -> str:
@@ -131,11 +169,15 @@ def clean_path() -> str:
     return ":".join(keep)
 
 
-def mcp_config(work: Path, name: str, command: str) -> Path:
+def mcp_config(work: Path, name: str, command: str, serve_args: str = "") -> Path:
     argv = shlex.split(command)
     exe = shutil.which(argv[0]) or argv[0]
     cfg = work / f"mcp-{name}.json"
-    server = {"type": "stdio", "command": exe, "args": [*argv[1:], "serve"]}
+    server = {
+        "type": "stdio",
+        "command": exe,
+        "args": [*argv[1:], "serve", *shlex.split(serve_args)],
+    }
     cfg.write_text(json.dumps({"mcpServers": {"dagayn": server}}))
     return cfg
 
@@ -154,22 +196,34 @@ def run_one(item: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     meta: dict[str, Any] = {**item, "model": ctx["model"]}
     if graph:
         t0 = time.time()
-        subprocess.run(
-            [*shlex.split(command), "build", "--local-embedding", "none"],
+        built = subprocess.run(
+            [*shlex.split(command), "build", *shlex.split(ctx["build_args"])],
             cwd=repo,
             capture_output=True,
+            text=True,
             check=True,
         )
         meta["graph_build_s"] = round(time.time() - t0, 2)
+        meta["graph_build_scip"] = [
+            line for line in built.stdout.splitlines() if line.startswith("SCIP overlay")
+        ]
+        meta["graph_before"] = graph_metadata(repo)
     home = work / "home" / item["id"]
     home.mkdir(parents=True, exist_ok=True)
     env = {k: os.environ[k] for k in PASS_ENV if k in os.environ}
     env.update(HOME=str(home), PATH=clean_path())
     cmd = [
-        "claude", "-p", "--output-format", "stream-json", "--verbose",
+        ctx["claude"], "-p", "--output-format", "stream-json", "--verbose",
         "--model", ctx["model"], "--effort", ctx["effort"],
         "--allowedTools", ALLOWED, "--disallowedTools", DISALLOWED, "--strict-mcp-config",
     ]  # fmt: skip
+    if ctx["keep_home"]:
+        # The CLI's login lives under the real HOME; user settings, CLAUDE.md,
+        # hooks, plugins, and skills stay out through these flags instead.
+        env["HOME"] = os.environ["HOME"]
+        # The login is a keychain item looked up by user name.
+        env.update({k: os.environ[k] for k in ("USER", "LOGNAME") if k in os.environ})
+        cmd += ["--setting-sources", "project,local", "--disable-slash-commands"]
     if graph:
         cmd += ["--mcp-config", str(ctx["mcp"][item["setup"]])]
     line_key = ctx["lines"][item["setup"]] or ("graph" if graph else "none")
@@ -185,6 +239,8 @@ def run_one(item: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
         except subprocess.TimeoutExpired:
             meta.update(exit_code=None, timed_out=True)
     meta["wall_s"] = round(time.monotonic() - t0, 2)
+    if graph:
+        meta["graph_after"] = graph_metadata(repo)
     meta_path.write_text(json.dumps(meta, indent=1) + "\n")
     shutil.rmtree(repo, ignore_errors=True)
     shutil.rmtree(home, ignore_errors=True)
@@ -206,13 +262,18 @@ def score(meta: dict[str, Any], raw: Path, spec: dict[str, Any]) -> dict[str, An
     tools: list[str] = []
     replies: list[int] = []
     result: dict[str, Any] = {}
+    mcp_status = ""
     for line in (raw / f"{meta['id']}.jsonl").read_text().splitlines():
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
         kind = event.get("type")
-        if kind == "assistant":
+        if kind == "system" and event.get("subtype") == "init":
+            mcp_status = " ".join(
+                f"{s.get('name')}:{s.get('status')}" for s in event.get("mcp_servers") or []
+            )
+        elif kind == "assistant":
             for block in event.get("message", {}).get("content", []):
                 if block.get("type") == "tool_use":
                     names[block["id"]] = block["name"]
@@ -261,6 +322,7 @@ def score(meta: dict[str, Any], raw: Path, spec: dict[str, Any]) -> dict[str, An
         "dagayn_tools": " ".join(
             t.removeprefix("mcp__dagayn__") for t in work_tools if t.startswith("mcp__")
         ),
+        "mcp_status": mcp_status,
     }
 
 
@@ -320,6 +382,20 @@ def main() -> int:
         default=REPO_ROOT,
         help="git repository holding source_commit (default: this one)",
     )
+    ap.add_argument(
+        "--build-args", default="--local-embedding none", help="arguments after `build`"
+    )
+    ap.add_argument(
+        "--serve-args",
+        default="",
+        help="arguments after `serve` (`dagayn install` writes --local-embedding)",
+    )
+    ap.add_argument(
+        "--keep-home",
+        action="store_true",
+        help="keep HOME, so the CLI uses its login, and leave the user's settings "
+        "out with --setting-sources project,local --disable-slash-commands",
+    )
     ap.add_argument("--gate", action="store_true")
     ap.add_argument("--max-token-ratio", type=float, default=1.0)
     args = ap.parse_args()
@@ -332,13 +408,24 @@ def main() -> int:
     raw.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="dagayn-agent-tokens-work-"))
     graphs = {name: cmd for name, cmd in setups.items() if cmd != "none"}
+    change = spec.get("change") or {}
     try:
         ctx = {
             "spec": spec, "setups": setups, "model": args.model, "effort": args.effort,
             "lines": {"candidate": args.candidate_line, "baseline": args.baseline_line},
             "timeout": args.timeout, "raw": raw, "work": work,
-            "src": make_target(work, spec["source_commit"], args.source_repo),
-            "mcp": {name: mcp_config(work, name, cmd) for name, cmd in graphs.items()},
+            "build_args": args.build_args, "keep_home": args.keep_home,
+            # Resolved here: the runs' PATH drops every directory holding a
+            # dagayn executable, which may be where `claude` lives too.
+            "claude": shutil.which("claude") or "claude",
+            "src": make_target(
+                work, spec["source_commit"], args.source_repo,
+                args.tasks_file.parent / change["patch"] if change else None,
+                change.get("message", "change"),
+            ),
+            "mcp": {
+                name: mcp_config(work, name, cmd, args.serve_args) for name, cmd in graphs.items()
+            },
         }  # fmt: skip
         items = [
             {"task": t, "setup": s, "rep": r}

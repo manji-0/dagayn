@@ -1,0 +1,50 @@
+diff --git a/httpx/_client.py b/httpx/_client.py
+index 13cd933..5877711 100644
+--- a/httpx/_client.py
++++ b/httpx/_client.py
+@@ -874,7 +874,8 @@ class Client(BaseClient):
+         try:
+             yield response
+         finally:
+-            response.close()
++            if not response.is_closed:
++                response.close()
+ 
+     def send(
+         self,
+@@ -924,7 +925,8 @@ class Client(BaseClient):
+             return response
+ 
+         except BaseException as exc:
+-            response.close()
++            if not response.is_closed:
++                response.close()
+             raise exc
+ 
+     def _send_handling_auth(
+diff --git a/httpx/_models.py b/httpx/_models.py
+index 2cc8632..a05c8e1 100644
+--- a/httpx/_models.py
++++ b/httpx/_models.py
+@@ -962,14 +962,17 @@ class Response:
+         """
+         Close the response and release the connection.
+         Automatically called if the response body is read to completion.
++
++        Raises `StreamClosed` if the response is already closed.
+         """
+         if not isinstance(self.stream, SyncByteStream):
+             raise RuntimeError("Attempted to call a sync close on an async stream.")
+ 
+-        if not self.is_closed:
+-            self.is_closed = True
+-            with request_context(request=self._request):
+-                self.stream.close()
++        if self.is_closed:
++            raise StreamClosed()
++        self.is_closed = True
++        with request_context(request=self._request):
++            self.stream.close()
+ 
+     async def aread(self) -> bytes:
+         """

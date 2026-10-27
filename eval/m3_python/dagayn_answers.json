@@ -1,0 +1,256 @@
+{
+ "X1": {
+  "target": "httpx/_main.py::format_response_headers",
+  "tests_for": {
+   "rows": 0,
+   "test_reach": {
+    "counts_as_tested": false,
+    "hop_limit": 4,
+    "hops": null,
+    "nearest_test": null
+   }
+  },
+  "callers_of_depth6_tests": 0,
+  "summary": "Found 2 result(s) for callers_of('httpx/_main.py::format_response_headers') within 6 hops. No caller the graph records is missing; calls made through strings, getattr, or registration are not edges",
+  "found": 0,
+  "key": 9,
+  "missing": [
+   "tests/test_main.py::test_auth",
+   "tests/test_main.py::test_binary",
+   "tests/test_main.py::test_download",
+   "tests/test_main.py::test_follow_redirects",
+   "tests/test_main.py::test_get",
+   "tests/test_main.py::test_json",
+   "tests/test_main.py::test_post",
+   "tests/test_main.py::test_redirects",
+   "tests/test_main.py::test_verbose"
+  ],
+  "extra": []
+ },
+ "X2": {
+  "target": "httpx/_models.py::Headers.get",
+  "summary": "Found 10 result(s) for callers_of('httpx/_models.py::Headers.get'). No direct caller the graph records is missing; calls made through strings, getattr, or registration are not edges",
+  "found": 10,
+  "key": 10,
+  "missing": [],
+  "extra": []
+ },
+ "X3": {
+  "target": "httpx/_decoders.py::GZipDecoder.decode",
+  "summary": "Found 0 result(s) for callers_of('httpx/_decoders.py::GZipDecoder.decode')",
+  "found": 0,
+  "key": 4,
+  "missing": [
+   "httpx/_decoders.py::MultiDecoder.decode",
+   "httpx/_decoders.py::MultiDecoder.flush",
+   "httpx/_models.py::Response.aiter_bytes",
+   "httpx/_models.py::Response.iter_bytes"
+  ],
+  "extra": []
+ },
+ "X4": {
+  "target": "httpx/_models.py::Response.close",
+  "callers_of": [
+   "httpx/_client.py::Client._send_handling_auth",
+   "httpx/_client.py::Client._send_handling_redirects",
+   "httpx/_client.py::Client.send",
+   "httpx/_client.py::Client.stream",
+   "httpx/_models.py::Response.iter_raw",
+   "tests/models/test_responses.py::test_cannot_read_after_response_closed",
+   "tests/models/test_responses.py::test_close_on_async"
+  ],
+  "review_findings": [
+   {
+    "kind": "tests_to_run"
+   },
+   {
+    "kind": "tests_to_run"
+   },
+   {
+    "kind": "tests_to_run"
+   },
+   {
+    "kind": "tests_to_run"
+   },
+   {
+    "kind": "tests_to_run"
+   },
+   {
+    "kind": "tests_to_run"
+   },
+   {
+    "kind": "tests_to_run"
+   },
+   {
+    "kind": "tests_to_run"
+   },
+   {
+    "kind": "tests_to_run"
+   },
+   {
+    "kind": "tests_to_run"
+   }
+  ],
+  "summary": "Found 7 result(s) for callers_of('httpx/_models.py::Response.close'). No direct caller the graph records is missing; calls made through strings, getattr, or registration are not edges",
+  "found": 0,
+  "key": 5,
+  "missing": [
+   "httpx/_client.py::Client._send_handling_auth",
+   "httpx/_client.py::Client._send_handling_redirects",
+   "httpx/_models.py::Response.iter_raw",
+   "tests/models/test_responses.py::test_cannot_read_after_response_closed",
+   "tests/models/test_responses.py::test_close_on_async"
+  ],
+  "extra": []
+ },
+ "D1": {
+  "target": "dagayn/scip_overlay.py::_timeout",
+  "tests_for": {
+   "rows": 0,
+   "test_reach": {
+    "counts_as_tested": true,
+    "hop_limit": 4,
+    "hops": 1,
+    "nearest_test": "tests/test_scip_overlay.py::test_indexes_are_applied_and_failures_reported"
+   }
+  },
+  "callers_of_depth6_tests": 38,
+  "summary": "Found 93 result(s) for callers_of('dagayn/scip_overlay.py::_timeout') within 6 hops. Showing 46 of 93 rows; all 93 lie in 21 files (files)",
+  "found": 5,
+  "key": 9,
+  "missing": [
+   "tests/test_scip_python.py::test_calls_into_a_package_of_the_project_venv_settle_through_the_real_core",
+   "tests/test_scip_python.py::test_without_a_venv_the_project_is_still_indexed_with_a_hint",
+   "tests/test_scip_typescript.py::test_the_bundled_indexer_settles_calls_through_the_real_core",
+   "tests/test_scip_typescript.py::test_without_node_modules_the_project_is_still_indexed_with_a_hint"
+  ],
+  "extra": [
+   "tests/test_build_tool.py::TestIncrementalPostprocess.test_full_postprocess_after_a_commit_reads_the_changed_files",
+   "tests/test_build_tool.py::TestPostprocessFailuresAreWarnings.test_build_reports_a_failed_postprocess_step",
+   "tests/test_build_tool.py::TestPostprocessFailuresAreWarnings.test_build_survives_a_failed_postprocess_step",
+   "tests/test_build_tool.py::TestPostprocessFailuresAreWarnings.test_run_postprocess_reports_failed_steps",
+   "tests/test_build_tool.py::TestPostprocessFailuresAreWarnings.test_run_postprocess_survives_failed_steps",
+   "tests/test_build_tool.py::TestRepoRootResolution.test_auto_detects_the_repository_from_the_working_directory",
+   "tests/test_build_tool.py::TestRepoRootResolution.test_refuses_an_auto_detected_home_directory",
+   "tests/test_build_tool.py::TestRunEmbeddingPass.test_embeds_without_a_structural_update",
+   "tests/test_build_tool.py::TestRunPostprocess.test_completes_a_graph_built_without_postprocessing",
+   "tests/test_build_tool.py::TestRunPostprocess.test_skipped_steps_leave_their_tables_alone",
+   "tests/test_build_tool.py::TestScip.test_full_build_reports_hints_for_indexers_it_may_not_run",
+   "tests/test_build_tool.py::TestWriteLockContention.test_hook_update_skips_while_another_writer_holds_the_lock",
+   "tests/test_build_tool.py::TestWriteLockContention.test_manual_build_reports_an_error_when_the_lock_never_frees",
+   "tests/test_build_tool.py::TestWriteLockContention.test_run_postprocess_reports_an_error_when_the_lock_never_frees",
+   "tests/test_integration_git.py::test_build_or_update_graph_resolves_changed_files_once",
+   "tests/test_scip_python.py::_overlay",
+   "tests/test_scip_typescript.py::_overlay",
+   "tests/test_session_graph_freshness.py::TestContentDriftConvergence.test_discarded_edit_is_reindexed_by_prepare",
+   "tests/test_session_graph_freshness.py::TestContentDriftConvergence.test_unverified_content_is_not_reported_as_verified",
+   "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_a1_serve_seed_alone_insufficient_then_auto_prepare",
+   "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_h1_head_relocate_prepare",
+   "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_s2_dirty_worktree_prepare_is_structure_ready",
+   "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_w1_from_hook_prepare_resolves_worktree",
+   "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_w1_worktree_create_seed_and_prepare",
+   "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_w1_worktree_sync_cli",
+   "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_w2_reenter_seed_skipped_then_catch_up",
+   "tests/test_session_graph_freshness.py::TestWorktreeFreshnessIntegration.test_uc_w3_worktree_delete_leaves_main_intact",
+   "tests/test_tools.py::TestBuildPostprocess.test_local_embedding_runs_after_build",
+   "tests/test_tools.py::TestBuildPostprocess.test_local_embedding_runs_when_incremental_has_no_changes",
+   "tests/test_tools.py::TestBuildPostprocess.test_local_embedding_skips_when_none",
+   "tests/test_tools.py::TestBuildPostprocess.test_postprocess_full_matches_default",
+   "tests/test_tools.py::TestBuildPostprocess.test_postprocess_minimal_has_fts_no_flows",
+   "tests/test_tools.py::TestBuildPostprocess.test_postprocess_none_produces_nodes_no_flows"
+  ]
+ },
+ "D2": {
+  "target": "dagayn/embeddings_store.py::EmbeddingStore.close",
+  "summary": "Found 47 result(s) for callers_of('dagayn/embeddings_store.py::EmbeddingStore.close'). No direct caller the graph records is missing; calls made through strings, getattr, or registration are not edges",
+  "found": 7,
+  "key": 7,
+  "missing": [],
+  "extra": [
+   "dagayn/tools/docs.py::get_docs_section",
+   "tests/test_embeddings.py::TestBatchFailureFanOut.test_rate_limit_aborts_without_per_node_retries",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_count_empty",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_dimension_count_is_memoized_per_generation",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_embed_all_nodes_removes_orphans_before_embedding",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_embed_nodes_honors_body_text_mode",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_embed_nodes_isolates_failed_nodes_after_batch_failure",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_embed_nodes_partitions_rows_by_text_mode",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_embed_nodes_persists_each_successful_batch",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_embed_nodes_recovers_when_batch_fails_but_individual_nodes_succeed",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_embed_nodes_reports_vector_count_mismatch_with_batch_context",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_embed_nodes_returns_zero_when_unavailable",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_embed_nodes_without_slice_budget_embeds_everything",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_embeddings_writes_bump_the_generation",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_prewarm_search_uses_native_cache",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_remove_inactive_provider_partitions_keeps_active_identity",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_remove_node",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_remove_orphans_can_sweep_all_providers",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_remove_orphans_deletes_only_current_provider_rows",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_search_auto_falls_back_when_native_unavailable",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_search_numpy_matmul_parity_with_python_loop",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_search_python_backend_uses_pure_python_without_numpy",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_search_returns_empty_when_unavailable",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_search_reuses_numpy_matrix_cache",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_search_uses_native_backend_when_configured",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_slice_budget_of_zero_still_makes_progress",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_slice_budget_stops_early_and_reports_remaining",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_store_initializes",
+   "tests/test_embeddings.py::TestEmbeddingStore.test_successive_slices_finish_the_corpus",
+   "tests/test_embeddings.py::TestEmbeddingStoreModelPassthrough.test_model_forwarded_to_get_provider",
+   "tests/test_embeddings.py::TestEmbeddingStoreModelPassthrough.test_provider_and_model_forwarded",
+   "tests/test_embeddings.py::TestEmbeddingStoreModelPassthrough.test_provider_instance_skips_get_provider",
+   "tests/test_embeddings.py::TestPersistedProviderResolution.test_embed_nodes_persists_probed_dimension_in_provider_key",
+   "tests/test_embeddings.py::TestPersistedProviderResolution.test_legacy_provider_rows_remain_searchable_after_dim_suffix_upgrade",
+   "tests/test_embeddings.py::TestProviderKeyReuse.test_active_provider_metadata_names_a_partition_with_rows",
+   "tests/test_embeddings.py::TestProviderKeyReuse.test_re_spelled_model_reuses_the_existing_partition",
+   "tests/test_embeddings.py::TestProviderKeyReuse.test_second_process_does_not_re_embed",
+   "tests/test_embeddings.py::TestVectorDimensionIdentity.test_dimension_change_forces_reembed",
+   "tests/test_sqlite_tuning.py::TestConnectionsAreBounded.test_embedding_store",
+   "tests/test_sqlite_tuning.py::TestConnectionsAreBounded.test_graph_store"
+  ]
+ },
+ "D3": {
+  "target": "dagayn/tools/queue_worker.py::_execute_embed",
+  "summary": "Found 1 result(s) for callers_of('dagayn/tools/queue_worker.py::_execute_embed'). No direct caller the graph records is missing; calls made through strings, getattr, or registration are not edges",
+  "found": 1,
+  "key": 2,
+  "missing": [
+   "dagayn/tools/queue_worker.py::run_worker"
+  ],
+  "extra": []
+ },
+ "D4": {
+  "target": "dagayn/task_queue.py::WorkerLock.acquire",
+  "callers_of": [
+   "dagayn/task_queue.py::WorkerLock.__enter__",
+   "dagayn/task_queue.py::ensure_worker",
+   "dagayn/tools/queue_worker.py::run_worker",
+   "tests/test_task_queue.py::TestEnsureWorker.test_no_spawn_when_lock_held",
+   "tests/test_task_queue.py::TestRunWorker.test_second_worker_exits_immediately",
+   "tests/test_task_queue.py::TestRunWorker.test_worker_releases_lock_on_exit",
+   "tests/test_task_queue.py::TestWorkerLock.test_acquire_and_release",
+   "tests/test_task_queue.py::TestWorkerLock.test_context_manager_raises_when_held",
+   "tests/test_task_queue.py::TestWorkerLock.test_lock_file_contains_pid",
+   "tests/test_task_queue.py::TestWorkerLock.test_second_holder_cannot_acquire"
+  ],
+  "review_findings": [
+   {
+    "kind": "tests_to_run"
+   }
+  ],
+  "summary": "Found 10 result(s) for callers_of('dagayn/task_queue.py::WorkerLock.acquire'). No direct caller the graph records is missing; calls made through strings, getattr, or registration are not edges",
+  "found": 0,
+  "key": 8,
+  "missing": [
+   "dagayn/task_queue.py::WorkerLock.__enter__",
+   "dagayn/task_queue.py::ensure_worker",
+   "tests/test_task_queue.py::TestEnsureWorker.test_no_spawn_when_lock_held",
+   "tests/test_task_queue.py::TestRunWorker.test_second_worker_exits_immediately",
+   "tests/test_task_queue.py::TestRunWorker.test_worker_releases_lock_on_exit",
+   "tests/test_task_queue.py::TestWorkerLock.test_acquire_and_release",
+   "tests/test_task_queue.py::TestWorkerLock.test_context_manager_raises_when_held",
+   "tests/test_task_queue.py::TestWorkerLock.test_lock_file_contains_pid"
+  ],
+  "extra": []
+ }
+}
