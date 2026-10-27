@@ -522,7 +522,7 @@ mod japanese_fts;
 mod maintenance;
 mod node_queries;
 mod postprocess;
-pub use postprocess::ScipOverlayStats;
+pub use postprocess::{ScipIndexInput, ScipOverlayStats};
 mod query;
 mod relationship_edges;
 mod relationship_traversal;

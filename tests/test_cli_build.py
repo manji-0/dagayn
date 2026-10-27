@@ -299,6 +299,29 @@ def test_handle_passes_scip_to_the_build(tmp_path, monkeypatch, capsys):
     )
 
 
+def test_handle_prints_the_builds_warnings_on_stderr(tmp_path, monkeypatch, capsys):
+    from dagayn.tools import build as build_tools
+
+    warning = "SCIP overlay (typescript): indexer killed by SIGABRT: panicked at lib.rs:1:1"
+
+    def fake_build_or_update_graph(**kwargs):
+        return {
+            "files_parsed": 1,
+            "total_nodes": 1,
+            "total_edges": 1,
+            "errors": [],
+            "warnings": [warning],
+        }
+
+    monkeypatch.setattr(build_tools, "build_or_update_graph", fake_build_or_update_graph)
+
+    handle(_parser().parse_args(["build", "--repo", str(tmp_path), "--skip-postprocess", "--scip"]))
+
+    captured = capsys.readouterr()
+    assert f"WARNING: {warning}" in captured.err
+    assert warning not in captured.out
+
+
 def test_handle_prints_build_postprocess_result_without_rerunning(tmp_path, monkeypatch, capsys):
     from dagayn import postprocessing
     from dagayn.tools import build as build_tools

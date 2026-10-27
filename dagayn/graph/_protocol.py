@@ -121,8 +121,8 @@ class GraphQueryProtocol(Protocol):
 
     def resolve_bare_call_targets(self) -> int: ...
 
-    def apply_scip_overlay_json(
-        self, index_path: str, prefix: str, repo_root: str, authoritative: bool = True
+    def apply_scip_overlays_json(
+        self, indexes: list[tuple[str, str, bool]], repo_root: str
     ) -> str: ...
 
     def resolve_bare_inheritance_targets(self) -> int: ...

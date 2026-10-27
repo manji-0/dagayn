@@ -59,6 +59,7 @@ dagayn-graph = { path = "../dagayn-graph", default-features = false }
 dagayn-mcp = { path = "../dagayn-mcp" }
 dagayn-parser = { path = "../dagayn-parser", default-features = false }
 dagayn-postproc = { path = "../dagayn-postproc", default-features = false }
+dagayn-scip-typescript = { path = "../dagayn-scip-typescript" }
 dagayn-tools = { path = "../dagayn-tools", default-features = false }
 pyo3.workspace = true
 serde_json.workspace = true

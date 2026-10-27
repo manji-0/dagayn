@@ -125,6 +125,19 @@ jobs:
           assert boots == 1
           PY
 
+      - name: Smoke-test the bundled TypeScript indexer
+        shell: bash
+        run: |
+          venv="${RUNNER_TEMP}/wheel-smoke"
+          project="$(mktemp -d)"
+          mkdir -p "$project/src"
+          printf '{"compilerOptions": {"strict": true, "types": []}, "include": ["src"]}\n' > "$project/tsconfig.json"
+          printf 'export function total(prices: number[]): number {\n  return prices.length;\n}\n' > "$project/src/cart.ts"
+          printf 'import { total } from "./cart";\nexport const count = total([1, 2]);\n' > "$project/src/main.ts"
+          git -C "$project" init -q
+          "$venv/bin/dagayn" build --repo "$project" --scip 2>&1 | tee scip.txt
+          grep -q "SCIP overlay (typescript): 1 calls, 0 to nodes, 0 to packages, 1 confirmed" scip.txt
+
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v7
         with:

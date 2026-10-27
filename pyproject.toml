@@ -8,6 +8,7 @@ version = "10.0.0"
 description = "Fork of code-review-graph with first-class Terraform support powered by treesitter-tf"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE", "NOTICE", "LICENSES/*"]
 requires-python = ">=3.12"
 authors = [
     { name = "Wataru Manji" },
@@ -78,6 +79,7 @@ include = [
     { path = "README.md", format = "sdist" },
     { path = "LICENSE", format = "sdist" },
     { path = "NOTICE", format = "sdist" },
+    { path = "LICENSES/**/*", format = "sdist" },
     { path = "pyproject.toml", format = "sdist" },
     { path = "Cargo.toml", format = "sdist" },
     { path = "skills/**/*", format = "wheel" },

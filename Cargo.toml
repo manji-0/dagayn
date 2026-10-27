@@ -8,6 +8,7 @@ members = [
     "crates/dagayn-parser",
     "crates/dagayn-postproc",
     "crates/dagayn-py",
+    "crates/dagayn-scip-typescript",
     "crates/dagayn-tools",
 ]
 resolver = "2"
@@ -52,3 +53,12 @@ thiserror = "2"
 toml = "0.8"
 tree-sitter = "0.27"
 tree-sitter-language = "0.1.8"
+# The TypeScript checker behind `dagayn-scip-typescript`. Not on crates.io and
+# without an API stability promise, so pinned to one commit; bump every tsrs_*
+# line together.
+tsrs_ast = { git = "https://github.com/oxc-project/tsrs", rev = "e906c9e4" }
+tsrs_compiler = { git = "https://github.com/oxc-project/tsrs", rev = "e906c9e4" }
+tsrs_core = { git = "https://github.com/oxc-project/tsrs", rev = "e906c9e4" }
+tsrs_scanner = { git = "https://github.com/oxc-project/tsrs", rev = "e906c9e4" }
+tsrs_tsoptions = { git = "https://github.com/oxc-project/tsrs", rev = "e906c9e4" }
+tsrs_vfs = { git = "https://github.com/oxc-project/tsrs", rev = "e906c9e4" }

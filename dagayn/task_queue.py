@@ -46,6 +46,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .child_env import child_env
 from .sqlite_tuning import keep_wal_on_close
 
 logger = logging.getLogger(__name__)
@@ -503,20 +504,6 @@ def worker_lock_path(repo_root: str | Path) -> Path:
     return get_data_dir(Path(repo_root)) / WORKER_LOCK_NAME
 
 
-def _worker_env() -> dict[str, str]:
-    """Environment for the worker: our own import location on ``PYTHONPATH``.
-
-    Paired with ``-P`` (see :func:`ensure_worker`), this makes the worker import
-    the same dagayn as the process spawning it, whether that is site-packages
-    or an uninstalled checkout.
-    """
-    env = dict(os.environ)
-    package_parent = str(Path(__file__).resolve().parent.parent)
-    existing = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = f"{package_parent}{os.pathsep}{existing}" if existing else package_parent
-    return env
-
-
 def ensure_worker(repo_root: str | Path, *, idle_seconds: float = DEFAULT_IDLE_SECONDS) -> bool:
     """Spawn a detached queue worker when one is not already running.
 
@@ -554,7 +541,7 @@ def ensure_worker(repo_root: str | Path, *, idle_seconds: float = DEFAULT_IDLE_S
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        env=_worker_env(),
+        env=child_env(),
     )
     if os.name == "posix":
         # Detach from the hook's process group: the editor reaps its own
