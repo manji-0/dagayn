@@ -745,6 +745,26 @@ fn resolve_type_receiver(
         })
         .cloned()
         .collect();
+    // A type the caller sees by its own file is the one it names, not a
+    // same-named type that the class-name fallback also makes visible:
+    // two crates' `Namer`.
+    let in_visible_file: Vec<String> = typed
+        .iter()
+        .filter(|qn| {
+            file_is_visible(
+                source_file,
+                &node_file_from_qualified(qn, ""),
+                import_targets,
+                visibility,
+            )
+        })
+        .cloned()
+        .collect();
+    let typed = if in_visible_file.is_empty() {
+        typed
+    } else {
+        in_visible_file
+    };
     if let Some(resolved) = resolve_via_imports(&typed, source_file, import_targets, visibility) {
         return Some(resolved);
     }

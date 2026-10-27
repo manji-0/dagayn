@@ -246,8 +246,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // invocation of a macro the file defines whose flat rule matches
         // (`macro_expansion`). `$crate` reads as `crate`. An attribute in a
         // macro's tokens (`#[derive(Debug)]`) is no longer a call.
+        // 27: an associated function's path names its type
+        // (`Names::default()`, `names::Names::<T>::new()`): a type reference,
+        // as a struct literal of it is.
         extractor: "rust",
-        version: 26,
+        version: 27,
         languages: &["rust"],
     },
     ExtractorVersion {
