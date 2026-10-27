@@ -74,20 +74,30 @@ fn escape(name: &str) -> String {
     }
 }
 
-fn decl_name(decl: P<Node>) -> String {
+/// `None` for a declaration whose name is a destructuring pattern: its
+/// elements are the declarations, each named on its own.
+fn decl_name(decl: P<Node>) -> Option<String> {
     if decl.kind() == Kind::Constructor {
-        return "<constructor>".to_string();
+        return Some("<constructor>".to_string());
     }
     match ast::get_name_of_declaration(decl) {
+        Some(n)
+            if matches!(
+                n.kind(),
+                Kind::ObjectBindingPattern | Kind::ArrayBindingPattern
+            ) =>
+        {
+            None
+        }
         Some(n) => {
             let t = n.text();
-            if n.kind() == Kind::StringLiteral {
+            Some(if n.kind() == Kind::StringLiteral {
                 format!("\"{t}\"")
             } else {
                 t.to_string()
-            }
+            })
         }
-        None => "default".to_string(),
+        None => Some("default".to_string()),
     }
 }
 
@@ -199,17 +209,22 @@ impl SymbolNamer {
         let mut chain = Vec::new();
         let mut a = decl.parent();
         while let Some(n) = a {
-            match n.kind() {
+            let suffix = match n.kind() {
                 Kind::ClassDeclaration
                 | Kind::ClassExpression
                 | Kind::InterfaceDeclaration
                 | Kind::EnumDeclaration
-                | Kind::TypeAliasDeclaration => chain.push(format!("{}#", escape(&decl_name(n)))),
-                Kind::ModuleDeclaration => chain.push(format!("{}/", escape(&decl_name(n)))),
+                | Kind::TypeAliasDeclaration => Some('#'),
+                Kind::ModuleDeclaration => Some('/'),
                 Kind::VariableDeclaration | Kind::PropertyAssignment | Kind::PropertySignature => {
-                    chain.push(format!("{}.", escape(&decl_name(n))))
+                    Some('.')
                 }
-                _ => {}
+                _ => None,
+            };
+            if let Some(suffix) = suffix
+                && let Some(name) = decl_name(n)
+            {
+                chain.push(format!("{}{suffix}", escape(&name)));
             }
             a = n.parent();
         }
@@ -217,7 +232,7 @@ impl SymbolNamer {
         for c in chain {
             desc.push_str(&c);
         }
-        let raw = decl_name(decl);
+        let raw = decl_name(decl)?;
         let name = escape(&match kind {
             Kind::GetAccessor => format!("<get>{raw}"),
             Kind::SetAccessor => format!("<set>{raw}"),
