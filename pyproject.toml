@@ -106,6 +106,7 @@ target-version = "py312"
 exclude = [
     "diagrams/",  # diagram DSL scripts — intentionally compact, non-standard style
     "tests/fixtures/sample_databricks_notebook.ipynb",  # SQL/R/Scala cells are not valid Python
+    "crates/dagayn-scip-python/tests/fixtures/",  # indexer tests assert exact lines and columns
 ]
 
 [tool.ruff.lint]
