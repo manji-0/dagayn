@@ -123,7 +123,7 @@ fn javascript_object_members_at<'tree>(
                     });
                 } else if call_results
                     && javascript_unwrap_expression(value)
-                        .is_some_and(|value| value.kind() == "call_expression")
+                        .is_some_and(javascript_may_return_function)
                 {
                     members.push(JavaScriptObjectMember::CallResult { name, member });
                 } else if allow_nested
@@ -142,6 +142,18 @@ fn javascript_object_members_at<'tree>(
         }
     }
     members
+}
+
+/// A call other than `import(..)` (a promise) and a tagged template
+/// (``css`...` ``, ``gql`...` ``: a style or query value).
+fn javascript_may_return_function(value: tree_sitter::Node<'_>) -> bool {
+    value.kind() == "call_expression"
+        && value
+            .child_by_field_name("function")
+            .is_some_and(|callee| callee.kind() != "import")
+        && value
+            .child_by_field_name("arguments")
+            .is_some_and(|arguments| arguments.kind() != "template_string")
 }
 
 /// Declaration-scope statements only: a child of the `program` or of a
@@ -187,6 +199,10 @@ pub(super) fn javascript_module_object_containers<'tree>(
             let export_statement = statement
                 .parent()
                 .is_some_and(|parent| parent.kind() == "export_statement");
+            // `export { X }` names the program's bindings, not a namespace's.
+            let in_program = statement
+                .parent()
+                .is_some_and(|parent| parent.kind() == "program");
             let mut cursor = statement.walk();
             for declarator in statement.named_children(&mut cursor) {
                 if declarator.kind() != "variable_declarator" {
@@ -203,7 +219,8 @@ pub(super) fn javascript_module_object_containers<'tree>(
                     continue;
                 };
                 let name = node_text(name, source);
-                let call_results = export_statement || exported_names.contains(&name);
+                let call_results =
+                    export_statement || (in_program && exported_names.contains(&name));
                 if !javascript_object_members_at(
                     object,
                     source,

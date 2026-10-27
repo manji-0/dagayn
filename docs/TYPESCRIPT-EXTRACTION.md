@@ -484,11 +484,14 @@ another module both reach. The call itself stays the module's caller, as it
 runs when the module loads. A module-private object or an
 `export default { ... }` keeps call-valued members as data: such objects are
 field shapes, fixtures, and tool configuration (`{ id: z.string() }`,
-`{ preprocess: vitePreprocess() }`). A companion type of the same name
+`{ preprocess: vitePreprocess() }`). An `export { X }` clause counts for the
+program's `X` only, and `export { X as default }` counts as a named export.
+A dynamic `import(..)` (a promise) and a tagged template (``css`...` ``) are
+not call-valued members. A companion type of the same name
 (`export type IsoInstant = ...`) merges into the container
 (`merged_declarations: 2`), so type references keep their target. Shorthand
-and identifier members (`{ matches }`) are not nodes: they alias a
-declaration that has its own node. Nested objects become containers when they hold a function-valued
+and identifier members (`{ matches }`) are not nodes: they alias another
+binding. Nested objects become containers when they hold a function-valued
 member at some depth below them, up to six levels (`api.a.b.c` gives
 `Class api.a`, `Class api.a.b`, and `Function api.a.b.c`); data-only nested
 objects are not nodes. Container members are reachable only through the

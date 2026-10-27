@@ -584,6 +584,8 @@ const fields = { id: schemaResult(schema) };
 const Listed = { nested: { parse: schemaResult(schema) } };
 export { Listed };
 export const Wire = { follow: { parse: schemaResult(schema) } };
+namespace N { const Listed = { q: schemaResult(schema) }; }
+export const Styles = { root: css`color: red`, lazy: import("./x"), make: schemaResult(schema) };
 "#;
     let file = "iso.ts";
     let (nodes, edges) = parse_javascript_like(file, source, "typescript");
@@ -611,6 +613,12 @@ export const Wire = { follow: { parse: schemaResult(schema) } };
     // A module-private object's call-valued members are data.
     for name in ["cfg", "fields"] {
         assert!(named(name, None).is_empty(), "{name}: {nodes:?}");
+    }
+    // `export { Listed }` exports the program's `Listed`, not `N.Listed`.
+    assert!(named("Listed", Some("N")).is_empty(), "{nodes:?}");
+    // A tagged template and `import(..)` give a style and a promise.
+    for (name, expected) in [("root", 0), ("lazy", 0), ("make", 1)] {
+        assert_eq!(named(name, Some("Styles")).len(), expected, "{name}");
     }
     // Objects nested in a named export, by `export const` or `export { }`.
     for owner in ["Listed.nested", "Wire.follow"] {
