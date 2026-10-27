@@ -219,7 +219,12 @@ transaction:
    qualifier or a value of the package) is never bound by name, and a typed
    receiver's method is looked up in its type's directory, whose files are
    its package ([SCHEMA.md](./SCHEMA.md#edges)); a call on another
-   package's type (`receiver_package`) is left to step 4. A bare name never binds to a node of another
+   package's type (`receiver_package`) is left to step 4. For a call on a
+   named type (`receiver_type`), a method in a file the caller sees (its
+   own, or one it imports) wins over one that only a same-named class
+   declaration makes visible, so `Namer::new()` binds to
+   the `Namer` the caller imports when another crate declares a `Namer` too;
+   with neither visible the call stays bare. A bare name never binds to a node of another
    language family ([SCHEMA.md](./SCHEMA.md#edges)), and neither do the
    query-time fallbacks of `callers_of` and `inheritors_of`.
 3. **Enum variants.** A Rust call of a variant (`receiver_type` naming an

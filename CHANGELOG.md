@@ -190,6 +190,19 @@ Removed).
 
 ### Fixed
 
+- Rust code run through a derived constructor, or through a type that
+  another crate also names, is no longer reported untested. A call of an
+  associated function (`Names::default()`, `names::Names::<T>::new()`)
+  now gives a type reference to its type (Rust extractor 27), so test
+  reach goes from it to the type's trait methods, as it already did from a
+  struct literal. A call on a named type now binds to the type's method in
+  a file the caller sees, not stays ambiguous because another crate
+  declares a type of the same name (`Namer::new()`). On this repository
+  the change adds 453 references and moves no other edge; Rust test reach
+  goes from 0.442 to 0.445 untested precision (`GraphLock.drop` is now
+  reached), and Python test reach does not change. With PR #230's
+  `dagayn-scip-python` crate as first written, untested precision goes
+  from 0.393 to 0.442, over the 0.43 floor.
 - A SCIP symbol with an empty package name gives a call no external target
   (#219). scip-typescript named a package it resolved through a pnpm
   realpath `.`, and the overlay wrote 2,278 CALLS edges to the package `''`

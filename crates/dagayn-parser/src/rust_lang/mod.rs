@@ -2890,20 +2890,19 @@ fn rust_collect_type_references(
                     .collect(),
             )
         }),
-        // `EdgeKind::Calls`, `types::EdgeKind::Calls`.
-        "scoped_identifier" => node
-            .child_by_field_name("name")
-            .filter(|name| is_type(&node_text(*name, source)))
-            .and_then(|_| node.child_by_field_name("path"))
-            .and_then(|path| {
-                let text = node_text(path, source);
-                let mut segments: Vec<String> = text
-                    .split("::")
-                    .map(|segment| segment.trim().to_string())
-                    .collect();
-                let name = segments.pop()?;
-                is_type(&name).then_some((name, segments))
-            }),
+        // `EdgeKind::Calls`, `types::EdgeKind::Calls`, and the type of an
+        // associated function (`Names::default`, `names::Names::<T>::new`),
+        // which may have no node of its own (a derive's).
+        "scoped_identifier" => node.child_by_field_name("path").and_then(|path| {
+            let text = rust_path_without_generics(&node_text(path, source));
+            let mut segments: Vec<String> = text
+                .split("::")
+                .filter(|segment| !segment.is_empty())
+                .map(str::to_string)
+                .collect();
+            let name = segments.pop()?;
+            is_type(&name).then_some((name, segments))
+        }),
         "token_tree" => {
             // Macro arguments are tokens: `vec![ParsedNode { kind:
             // crate::types::NodeKind::File }]` names ParsedNode and NodeKind.
