@@ -6,7 +6,7 @@
 
 What does dagayn answer about Go code, measured against coverage, before
 and after Go tests and Go packages are in the graph? These are the
-measurements of work items M2, G1, and G2 of the first-class languages plan
+measurements of work items M2, G1, G2, G2b, and G3 of the first-class languages plan
 (`docs/plans/FIRST-CLASS-LANGUAGES-TARGET.md`, PR #217). Each item ships
 only if it meets the bar the plan sets for it.
 
@@ -17,6 +17,7 @@ only if it meets the bar the plan sets for it.
 | testify | v1.12.1 | copy of the Go module cache, no history | 1.24.13 | `assert`, `require`, `internal` |
 | compress | v1.20.1 (`5d880f2`) | clone of `github.com/klauspost/compress` | 1.25.3 | all packages, `-short` |
 | scip-go | v0.2.7 | clone of `github.com/sourcegraph/scip-go` | 1.25.3 | all packages |
+| kong | v1.15.0 | copy of the Go module cache, no history | | none (`alecthomas/assert/v2` is not in the cache) |
 
 Every run is `go test -coverpkg=<the measured packages> -coverprofile=...`
 then `go tool cover -func`, so a function counts as run when any test
@@ -389,3 +390,155 @@ reported, with 0.169 as its floor on compress for anything that binds
 direct calls and 0.15 reachable only with dispatch edges (an interface
 method call bound to its implementations), which no item of the plan
 builds.
+
+## G3: imports bound to packages
+
+<!-- derived-from #the-no-caller-share-after-g2b -->
+
+Go extractor 12. An import of a package of the importing file's own module
+(the nearest `go.mod`) targets the package's files: one `IMPORTS_FROM` edge
+to each `.go` file of its directory, without its `_test.go` files and the
+files the build ignores, each with `import_path` and `package_import`. An
+external test package (`package kong_test`) imports the package it tests
+the same way. A call through the import (`kong.New(...)`, which records
+`import_path` since G2) binds in post-processing to the one top-level
+function or type of that name whose file declares the import path as its
+namespace and is not a test file; two under different build tags bind
+nothing, as G2's plain calls do. A package import makes no file visible to
+bare names, so G2's plain calls bind exactly as before. `importers_of`
+takes a directory and reports its files' importers.
+
+The before graphs are go 11 (main at `2fe1c685`), the after graphs go 12,
+both full builds of copies of the corpora above, checked in the metadata.
+
+### The bar
+
+| Clause | Before (go 11) | After (go 12) | Met |
+|---|---|---|---|
+| in-module imports that reach a file: kong / testify / scip-go / compress | 0 of 12 / 24 / 48 / 127 | 12 / 24 / 48 / 127 (300 / 161 / 87 / 1,109 file edges) | yes |
+| `importers_of internal/symbols` on scip-go | `not_found` | 8 importers | yes |
+| `tests_for kong.go::New`: a nearest test | `options_test.go::TestOptions` (9 `TESTED_BY`, all from the package's own `options_test.go`) | `kong_test.go::mustNew` (65 `TESTED_BY` from `kong_test.go`, `mapper_test.go`, `options_test.go`, `tag_test.go`) | yes |
+| review `dangling_rename_go` | fails (the call stays bare) | passes | yes |
+| architecture `neg_go_test_package_imports_its_importer` | passes | passes | yes |
+
+An in-module import is a distinct (importing file, import path) pair whose
+path is the importing file's module path or below it, as the plan counted
+it. scip-go's test data has 4 more in modules of their own under
+`internal/testdata`, which reach files too (52 by the nearest `go.mod`).
+compress has 6 imports from its nested modules (`zstd/_generate`,
+`s2/cmd/_s2sx`) into the outer module through a `replace` directive; they
+are another module's and keep their import path as the target, while the
+calls through them bind (`s2/cmd/_s2sx/_unpack/main.go:69`
+`s2.NewReader(rd)` to `s2/reader.go::NewReader`), since the called
+package's files declare the import path.
+
+`kong.go::New` had a nearest test at go 11 already, unlike the plan's
+go 8 baseline: `options_test.go` is in `package kong` and calls `New`
+plainly, which G2 binds. G3 adds the external test package's calls
+(`kong.New(...)`, `kong_test.go:26`): calls bound to `New` go from 12 to 68.
+The negative architecture case is package `b` importing `a` while `a`'s
+external test package, in `a`'s directory, imports `b`. That is legal Go and
+a cycle only if `a/a_test.go` were a target of `b`'s import, which the
+extractor leaves out (a parser unit test checks it). The case passes on
+main too, where no Go import reaches a file at all. Go forbids import cycles,
+so no positive case exists. `import_cycles` reports none on the four
+corpora at any `scope_kind`.
+
+### Test reach and the no-caller share
+
+| Repository | Ran, called untested (go 11 → 12) | `no_callers` / `no_test_path` / `beyond_limit` (ran, go 12) | Untested precision | Recall | Tested precision |
+|---|---|---|---|---|---|
+| testify | 32 → **21** of 292 | 17 / 4 / 0 | 0.932 → 0.954 | 0.993 → 0.991 | 0.989 → 0.985 (275) |
+| compress | 274 → **237** of 978 | 144 / 89 / 4 | 0.363 → 0.381 | 0.907 → 0.849 | 0.978 → 0.966 (767) |
+| scip-go | 100 → **51** of 110 | 4 / 39 / 8 | 0.213 → 0.338 | 1.000 → 0.963 | 1.000 → 0.983 (60) |
+
+compress's recall drops because 10 functions that did not run now count as
+tested: 9 of `internal/lz4ref`, which `s2`'s `TestLZ4Converter_*` call
+through the import but which download their test data and failed offline
+in the coverage run, and `zip/writer.go::Writer.RegisterCompressor`, whose
+only test is an `Example` without an `Output:` comment, which `go test`
+compiles and does not run. The edges are right (the SCIP check below); the
+coverage run did not run those tests. testify and scip-go get one such
+function each (`require.PanicsWithValue`, reached from `mock`'s tests,
+which testify's coverage run leaves out). No function of the three lost
+its test path.
+
+| Production functions with no caller | compress | testify |
+|---|---|---|
+| all, go 11 | 346 of 1,345 (0.257) | 242 of 817 (0.296) |
+| all, go 12 | **321 (0.239)** | **154 (0.188)** |
+| of those scip-go references directly, go 11 | 119 of 1,046 (0.114) | 219 of 554 (0.395) |
+| of those scip-go references directly, go 12 | **94 (0.090)** | **131 (0.236)** |
+
+G2b's revised bar (under 0.12 over the directly referenced functions) holds
+at 0.090 on compress, near its estimate of about 0.08 for G3. 125 of
+testify's 131 are in `require`: `require_forward.go`'s `func (a
+*Assertions) Equal(..)` calls `Equal(a.t, ..)`, the package's function, and
+the extractor binds that plain call to the file's own method of the name.
+That is a same-file binding left from before G3, not an import.
+
+### Every newly bound edge
+
+The script G2b used (`scipcheck.py`) joins each edge go 12 binds and go 11
+did not to the scip-go reference of the method's name at the call, on the
+same indexes (three builds of compress, two of testify).
+
+| | compress right / wrong / unknown | testify right / wrong / unknown |
+|---|---|---|
+| Calls through an import | 319 / 0 / 9 | 642 / 0 / 7 |
+| Calls on what such a call returned (`zstd.NewReader(..)` then `dec.Close()`) | 110 / 0 / 8 | |
+| **All** | **429 / 0 / 17** | **642 / 0 / 7** |
+
+Precision 1.000 on both. SCIP cannot judge 24 edges: 15 of compress's are
+in `s2/cmd/_s2sx`, a module of its own that no index covers, and testify's
+7 in `internal/spew`, which the indexes leave out; compress's other two are
+conversions to a type of another package (`zstd.EncoderLevel(..)` in
+`dict/cmd/builddict/main.go:41`, `lzw.Order(..)` in `lzw/aldus_test.go:425`),
+right by hand. Edges go 11 bound that go 12 binds differently: 9 on
+compress, all wrong before, and none on testify. They are `rc.Close()` on
+the first named result of `func openFile(..) (rc io.ReadCloser, ..)` in
+`s2/cmd/s2c` and `s2/cmd/s2d`, which the return-type pass read as the name
+`ReadCloser` and bound to `zip/reader.go::ReadCloser.Close`. G3 made one
+more of them (`readahead.NewReaderSize`, now bound, returns `(res
+io.ReadCloser, err error)`), so the pass now reads a Go result's type
+without its name, and all of them are `io.Closer`'s, as scip-go says.
+
+kong and scip-go have no SCIP index here. kong gets 268 new edges (218
+through an import), scip-go 89 (74).
+
+### Hand check
+
+A seeded sample (`random.Random(2026)`) of the new edges of each corpus, 6
+of kong, 6 of scip-go, 8 of compress, 5 of testify, each checked against
+the import of the caller's file and the declaration it binds to (the
+receiver's declaration in parentheses).
+
+| # | Call (file:line) | Caller | Bound to | Right |
+|---|---|---|---|---|
+| 1 | `help_test.go:304` `kong.Name("test-app")` | `TestHelpTree` | `options.go::Name` | yes |
+| 2 | `help_test.go:681` `kong.Exit(func(int) {..})` | `TestHelpGrouping` | `options.go::Exit` | yes |
+| 3 | `kong_test.go:2179` `kong.New(&cli)` | `TestDuplicateChildName` | `kong.go::New` | yes |
+| 4 | `kong_test.go:2648` `parser.Parse(..)` (`parser, err := kong.New(..)`, `*Kong`) | `TestIssue483EmptyRootNodeNoRun` | `kong.go::Kong.Parse` | yes |
+| 5 | `signature_test.go:76` `kong.Exit(..)` | `TestSignaturePointerReceiverHelp` | `options.go::Exit` | yes |
+| 6 | `tag_test.go:145` `kong.Exit(..)` | `TestTagSetOnCommand` | `options.go::Exit` | yes |
+| 7 | `internal/git/toplevel.go:12` `command.Run(dir, "git", ..)` | `TopLevel` | `internal/command/command.go::Run` | yes |
+| 8 | `internal/implementations/implementations.go:43` `fingerprint.Encode(..)` | `methodMask` | `internal/implementations/fingerprint/fingerprint.go::Encode` | yes |
+| 9 | `internal/lookup/lookup.go:114` `newtypes.GetID(pkg)` | `Global.GetPackage` | `internal/newtypes/newtypes.go::GetID` | yes |
+| 10 | `internal/symbols/composer_test.go:13` `symbols.NewComposer("", "")` (`package symbols_test`) | `TestComposeNil` | `internal/symbols/composer.go::NewComposer` | yes |
+| 11 | `internal/symbols/composer_test.go:16` `c.Compose(pkg, nil)` (`c := symbols.NewComposer(..)`, `*Composer`) | `TestComposeNil` | `internal/symbols/composer.go::Composer.Compose` | yes |
+| 12 | `internal/visitors/visitor_file.go:388` `document.IsDocDeprecated(..)` | `fileVisitor.isDeprecated` | `internal/document/document.go::IsDocDeprecated` | yes |
+| 13 | `gzhttp/compress_test.go:2030` `zs.Write(body)` (`zs, _ := zstd.NewWriter(..)`, `*Encoder`) | `newTestHandler` | `zstd/encoder.go::Encoder.Write` | yes |
+| 14 | `gzhttp/compress_test.go:2352` `dec.Close()` (`dec, err := zstd.NewReader(..)`, `*Decoder`) | `TestZstdRandomJitter` | `zstd/decoder.go::Decoder.Close` | yes |
+| 15 | `s2/cmd/_s2sx/_unpack/main.go:69` `s2.NewReader(rd)` (another module, `replace` to `../../..`) | `main` | `s2/reader.go::NewReader` | yes |
+| 16 | `s2/fuzz_test.go:16` `fuzz.AddFromZip(..)` | `FuzzEncodingBlocks` | `internal/fuzz/helpers.go::AddFromZip` | yes |
+| 17 | `s2/fuzz_test.go:116` `snapref.Decode(decDst, comp)` | `FuzzEncodingBlocks` | `internal/snapref/decode.go::Decode` | yes |
+| 18 | `s2/s2_test.go:2137` `zip.NewReader(..)` | `TestDataRoundtrips` | `zip/reader.go::NewReader` | yes |
+| 19 | `zstd/example_test.go:33` `r.DecodeAll(delta, nil)` (`r, _ := zstd.NewReader(..)`, `*Decoder`) | `ExampleWithEncoderDictRaw` | `zstd/decoder.go::Decoder.DecodeAll` | yes |
+| 20 | `zstd/snappy_test.go:73` `snappy.NewBufferedWriter(&comp)` (`snappy "…/internal/snapref"`) | `TestSnappy_ConvertXML` | `internal/snapref/encode.go::NewBufferedWriter` | yes |
+| 21 | `mock/mock_test.go:880` `require.Equal(..)` | `Test_Mock_Return_Run_Out_Of_Order` | `require/require.go::Equal` | yes |
+| 22 | `mock/mock_test.go:1802` `assert.True(..)` | `Test_Mock_AssertCalled_WithArguments_With_Repeatability` | `assert/assertions.go::True` | yes |
+| 23 | `mock/mock_test.go:2093` `assert.Equal(t, 123, args.Int(1))` | `Test_Arguments_Int` | `assert/assertions.go::Equal` | yes |
+| 24 | `require/require.go:1412` `assert.NoFileExistsf(..)` | `NoFileExistsf` | `assert/assertion_format.go::NoFileExistsf` | yes |
+| 25 | `require/require.go:1570` `assert.NotEqualf(..)` | `NotEqualf` | `assert/assertion_format.go::NotEqualf` | yes |
+
+25 of 25 right.

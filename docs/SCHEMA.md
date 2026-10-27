@@ -173,6 +173,19 @@ Python `from pkg import name` records an `IMPORTS_FROM` edge to `pkg/name.py`
 `import pkg.name`. It points at `pkg/__init__.py` only for names that are not
 submodules and for `*`.
 
+A Go import of a package of the importing file's own module
+(`example.com/m/zstd`, under the nearest `go.mod`) records one
+`IMPORTS_FROM` edge to each `.go` file of the package's directory, leaving out
+its `_test.go` files and the files the build ignores (`//go:build ignore`).
+Each edge carries `import_path` and `package_import: true`. An external test
+package (`package zstd_test`) imports the package it tests the same way. Any
+other import (the standard library, a dependency, a directory under a
+`go.mod` of its own, or one with no such file) keeps its import path as the
+target. A package import makes no file's names visible by a bare name: Go
+names another package's symbols only through its qualifier, and that call
+records `import_path`. `importers_of` on a directory (`internal/symbols`)
+reports the importers of its files, one row per importer.
+
 An import that does not run when its module is loaded says so in `extra`:
 Python imports inside a function body carry `import_scope: "function"` and
 those inside an `if TYPE_CHECKING:` body `import_scope: "type_checking"`
