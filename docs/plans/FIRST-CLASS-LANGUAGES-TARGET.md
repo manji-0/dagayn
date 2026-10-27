@@ -161,7 +161,7 @@ these calls with no import at all.
 | C7 | present | the gate is 0.82 / 0.64 / 0.93; measured 0.839 / 0.656 / 0.948, better than Rust's 0.464 / 0.267 / 0.944, but on dagayn's own code only |
 | C8 | present | review 31, architecture 12, flow 11, refactor 6 |
 | C9 | present | decorator, registration, and protocol-method rules (`dead_code_verify.rs`) |
-| C10 | **failed** | 1.16x to 1.40x tokens ([below](#why-python-cost-agents-tokens)) |
+| C10 | **failed** | 1.16x to 1.40x tokens ([below](#why-python-cost-agents-tokens)); M3, on questions a script cannot answer: 1.05x, not significant |
 | C11 | present | PyO3 bridges to Rust (`python/bridges.rs`) |
 
 ### Go
@@ -231,7 +231,7 @@ Each gap is ranked by the measured answers it breaks:
 | 3 | Go imports not bound to packages (C1) | `importers_of`, `import_cycles`, architecture units, `kong.New` from `package kong_test` | 0 of 211 in-module imports reach a file over four modules (kong 12, testify 24, scip-go 48, compress 127) |
 | 4 | TypeScript test reach unmeasured (C7) | review `untested_change`, `tests_for` | unknown: no coverage run yet |
 | 5 | Go dead-code rules (C2, C9) | `dead_code` | kong 0 of 3 right |
-| 6 | Python agent gain not shown (C10) | all | 1.16x to 1.40x tokens |
+| 6 | Python agent gain not shown (C10) | all | 1.16x to 1.40x tokens; M3 1.05x |
 | 7 | TypeScript method receivers (C4) | `callers_of`, review | 1,235 unresolved calls naming a repository method on tstodon; the answer is SCIP, not new inference rules |
 | 8 | TypeScript package imports unmarked (C1) | `importers_of` noise, unit edges | 0.26 of imports on tstodon |
 | 9 | Go and TypeScript eval cases (C8) | every gate | Go 0 cases; TypeScript 0 refactor cases |
@@ -275,6 +275,15 @@ method-call gap.
    Bar: tokens at most 0.85x (Holm p < 0.05) at equal exact matches, the bar
    E12 and E13 cleared for Rust. If it fails, Python stays measured and
    maintained, with no further investment from this plan.
+   **Measured, not met** (2026-10-27,
+   [pre-registration](../../eval/m3_python/PREREG.md),
+   [results](../../eval/m3_python/RESULTS.md)): four questions on dagayn
+   and four on httpx 0.28.1, 160 runs. Tokens 1.05x (Holm p = 0.56), time
+   0.93x (Holm p = 0.30), 80 of 80 exact in both arms. dagayn won where its
+   answer was complete and the question needed the diff (X4: 0.68x tokens)
+   and lost where it was empty or partial (test reach through a callback,
+   calls through a table: 1.26x to 1.38x); agents read the deciding files
+   instead of scripting. Python is maintained, not invested in.
 
 ### Go work
 
@@ -454,4 +463,4 @@ method-call gap.
   after G2b: 0.114, with the scip-go overlay: 0.048). The share over all
   functions is still reported. Reaching 0.15 there needs edges from an
   interface method to its implementations, which no item builds.
-- **Third-party Python.** Chosen when M3 starts.
+- **Third-party Python.** httpx 0.28.1 (b5addb6), chosen when M3 started.
