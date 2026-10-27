@@ -190,6 +190,12 @@ Removed).
 
 ### Fixed
 
+- The bundled TypeScript indexer no longer aborts on a module-level
+  destructuring declaration (`export const { a, b } = ...`,
+  `const [first] = ...`). It named the declaration by its pattern, which the
+  tsrs AST cannot print; the elements are now the declarations, named
+  `a.`, `b.`, and `first.`. `dagayn build --scip`
+  over dagayn's own `tests/fixtures` aborted on one such line.
 - A SCIP symbol with an empty package name gives a call no external target
   (#219). scip-typescript named a package it resolved through a pnpm
   realpath `.`, and the overlay wrote 2,278 CALLS edges to the package `''`
