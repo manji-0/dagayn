@@ -230,10 +230,12 @@ grouped by why the graph has no test path:
 | A call through `dyn Trait` | 1 | `mcp/lib.rs:147` `NoNative.call_tool` | Open |
 | A binary's `main`, run by tests through `CARGO_BIN_EXE_dagayn` | 1 | `cli/main.rs:8` | Open |
 
-Of the 22 trait methods, the step leaves 5: `GraphLock.drop`, whose type
-is used only as another struct's field, and `JsonVisitor`'s three visit
+Of the 22 trait methods, the step left 5: `GraphLock.drop`, whose type
+was used only as another struct's field, and `JsonVisitor`'s three visit
 methods with `JsonObject.insert` under them, a unit struct passed as a
-value (`deserialize_any(JsonVisitor)`) that no edge records.
+value (`deserialize_any(JsonVisitor)`) that no edge records. Since #233 a
+call to an associated function references its type, so
+`GraphLock::acquire_mode` reaches `GraphLock.drop`; the other 4 remain.
 
 ### Steps
 
