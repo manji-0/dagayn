@@ -475,7 +475,9 @@ fn resolves_bare_call_via_shared_namespace() {
 /// The files of a Go package share its import path as their namespace, so a
 /// plain call binds to a function of another file of the package. A call
 /// through a package qualifier or a value (`huff0.Compress()`, `w.Flush()`)
-/// is no plain call, and a plain call never names a method.
+/// is no plain call, and a plain call never names a method. A call through
+/// an import binds to that package's top-level function, never to one of
+/// its test files.
 #[test]
 fn go_plain_calls_bind_within_their_package_only() {
     let path = temp_db("bare-call-go-package");
@@ -545,10 +547,33 @@ fn go_plain_calls_bind_within_their_package_only() {
             ),
         ),
         (
+            "zstd/enc_test.go",
+            "example.com/m/zstd",
+            vec![function_node("newFixture", "zstd/enc_test.go")],
+            vec![],
+        ),
+        (
             "zstd/x_test.go",
             "example.com/m/zstd_test",
             vec![function_node("TestX", "zstd/x_test.go")],
-            calls("zstd/x_test.go", "TestX", &[("encode", 2, json!({}))]),
+            calls(
+                "zstd/x_test.go",
+                "TestX",
+                &[
+                    ("encode", 2, json!({})),
+                    (
+                        "Compress",
+                        3,
+                        json!({"receiver": "zstd", "import_path": "example.com/m/zstd"}),
+                    ),
+                    // Only the package's tests see its test files.
+                    (
+                        "newFixture",
+                        4,
+                        json!({"receiver": "zstd", "import_path": "example.com/m/zstd"}),
+                    ),
+                ],
+            ),
         ),
     ];
     for (file, namespace, mut nodes, edges) in files {
@@ -576,7 +601,11 @@ fn go_plain_calls_bind_within_their_package_only() {
                 "zstd/enc.go::encode".to_string()
             ),
             ("zstd/dec.go".to_string(), 3, "Reset".to_string()),
-            ("zstd/dec.go".to_string(), 4, "Compress".to_string()),
+            (
+                "zstd/dec.go".to_string(),
+                4,
+                "huff0/h.go::Compress".to_string()
+            ),
             ("zstd/dec.go".to_string(), 5, "Flush".to_string()),
             ("zstd/dec.go".to_string(), 6, "Close".to_string()),
             ("zstd/dec.go".to_string(), 7, "Sum".to_string()),
@@ -587,12 +616,18 @@ fn go_plain_calls_bind_within_their_package_only() {
             ),
             // The external test package sees none of the package's names.
             ("zstd/x_test.go".to_string(), 2, "encode".to_string()),
+            (
+                "zstd/x_test.go".to_string(),
+                3,
+                "zstd/enc.go::Compress".to_string()
+            ),
+            ("zstd/x_test.go".to_string(), 4, "newFixture".to_string()),
         ]
     );
     drop(stmt);
     // `callers_of`'s name fallback: the call through `huff0` is a caller of
     // huff0's `Compress`, though zstd's files cannot see it, and none of
-    // zstd's own `Compress`, though they can.
+    // zstd's own `Compress`, which only the call through `zstd` names.
     let callers = |qualified: &str| {
         let node = store.get_node(qualified).unwrap().expect("node");
         store
@@ -606,7 +641,10 @@ fn go_plain_calls_bind_within_their_package_only() {
         callers("huff0/h.go::Compress"),
         vec![("zstd/dec.go".to_string(), 4)]
     );
-    assert_eq!(callers("zstd/enc.go::Compress"), vec![]);
+    assert_eq!(
+        callers("zstd/enc.go::Compress"),
+        vec![("zstd/x_test.go".to_string(), 3)]
+    );
     let _ = std::fs::remove_file(path);
 }
 

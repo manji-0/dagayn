@@ -1,0 +1,23 @@
+description: Renames mathx/twice.go::Twice (untested) to Double, leaving cmd/demo/main.go::main calling it
+  through the import as mathx.Twice.
+negative: false
+commit_change: true
+base:
+  from: go_module
+change:
+  files:
+    mathx/twice.go: |
+      package mathx
+
+      // Double doubles a number through Add.
+      func Double(a int) int {
+      	return Add(a, a)
+      }
+expected_findings:
+- kind: dangling_reference
+  target: mathx/twice.go::Twice
+  also:
+  - cmd/demo/main.go::main
+  - cmd/demo/main.go
+- kind: untested_change
+  target: mathx/twice.go::Double

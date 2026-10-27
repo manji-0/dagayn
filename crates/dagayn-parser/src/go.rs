@@ -31,7 +31,8 @@ pub(super) fn parse_go_with_parser(
         let root = tree.root_node();
         let module = repo_root.and_then(|root| go_module_path(root, &file_path));
         let namespace = go_package_namespace(root, source, &file_path, module.as_ref());
-        let mut stdlib = GoStdlibScope::of_file(root, source, module.map(|(path, _)| path));
+        let mut stdlib =
+            GoStdlibScope::of_file(root, source, module.as_ref().map(|(path, _)| path.clone()));
         stdlib.own_package = namespace
             .as_deref()
             .map(|path| path.strip_suffix("_test").unwrap_or(path).to_string());
@@ -46,6 +47,9 @@ pub(super) fn parse_go_with_parser(
             locals: RefCell::new(HashSet::new()),
         };
         go_walk_children(root, &context, None, &mut nodes, &mut edges);
+        if let (Some(repo_root), Some(module)) = (repo_root, module.as_ref()) {
+            edges = go_bind_package_imports(edges, repo_root, module);
+        }
         let test_file = go_is_test_file(&file_path);
         if test_file {
             go_mark_test_code(&mut nodes);
@@ -283,6 +287,108 @@ fn go_emit_imports(
             }
         }
     }
+}
+
+/// An import of a package of the file's own module targets the files of
+/// that package: one `IMPORTS_FROM` edge per file, each recording the
+/// `import_path` and `package_import`. An import naming no such file
+/// (another module, a directory with no package) keeps its import path as
+/// the target.
+fn go_bind_package_imports(
+    edges: Vec<ParsedEdge>,
+    repo_root: &Path,
+    module: &(String, String),
+) -> Vec<ParsedEdge> {
+    let mut bound = Vec::with_capacity(edges.len());
+    for edge in edges {
+        let files = if edge.kind == crate::core::types::EdgeKind::ImportsFrom
+            && edge.extra.get("external").is_none()
+        {
+            go_package_files(repo_root, module, &edge.target)
+        } else {
+            Vec::new()
+        };
+        if files.is_empty() {
+            bound.push(edge);
+            continue;
+        }
+        for file in files {
+            let mut extra = edge.extra.clone();
+            extra["import_path"] = json!(edge.target);
+            extra["package_import"] = json!(true);
+            bound.push(ParsedEdge {
+                kind: edge.kind,
+                source: edge.source.clone(),
+                target: file,
+                file_path: edge.file_path.clone(),
+                line: edge.line,
+                extra,
+            });
+        }
+    }
+    bound
+}
+
+/// The files an importer of `import_path` sees, sorted: the `.go` files of
+/// the package's directory in `module` (path, directory of its `go.mod`),
+/// leaving out tests (`_test.go`) and files the build ignores. A directory
+/// under a `go.mod` of its own is another module's.
+fn go_package_files(repo_root: &Path, module: &(String, String), import_path: &str) -> Vec<String> {
+    let (module_path, module_dir) = module;
+    let Some(below) = import_path
+        .strip_prefix(module_path.as_str())
+        .filter(|rest| rest.is_empty() || rest.starts_with('/'))
+        .map(|rest| rest.trim_start_matches('/'))
+    else {
+        return Vec::new();
+    };
+    let mut directory = module_dir.clone();
+    for part in below.split('/').filter(|part| !part.is_empty()) {
+        if !directory.is_empty() {
+            directory.push('/');
+        }
+        directory.push_str(part);
+        if repo_root.join(&directory).join("go.mod").is_file() {
+            return Vec::new();
+        }
+    }
+    let Ok(entries) = std::fs::read_dir(repo_root.join(&directory)) else {
+        return Vec::new();
+    };
+    let mut files: Vec<String> = entries
+        .filter_map(|entry| {
+            let entry = entry.ok()?;
+            let name = entry.file_name().into_string().ok()?;
+            if !name.ends_with(".go")
+                || go_is_test_file(&name)
+                || !entry.file_type().ok()?.is_file()
+            {
+                return None;
+            }
+            let text = std::fs::read_to_string(entry.path()).ok()?;
+            if go_header_is_build_ignore(&text) {
+                return None;
+            }
+            Some(if directory.is_empty() {
+                name
+            } else {
+                format!("{directory}/{name}")
+            })
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// Whether a file's constraints above its `package` clause exclude it from
+/// every build (`//go:build ignore`), read from its text.
+fn go_header_is_build_ignore(text: &str) -> bool {
+    let header = text
+        .lines()
+        .take_while(|line| !line.trim_start().starts_with("package "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    go_is_build_ignore(&header)
 }
 
 fn go_emit_types(
