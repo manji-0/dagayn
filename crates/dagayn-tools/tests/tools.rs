@@ -3329,6 +3329,49 @@ fn a_rust_test_that_uses_a_type_reaches_the_trait_methods_the_runtime_calls() {
 }
 
 #[test]
+fn a_rust_test_that_builds_a_derived_default_reaches_the_trait_methods_of_its_type() {
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::nearest_test
+    // dagayn: tests crates/dagayn-parser/src/rust_lang/mod.rs::rust_collect_type_references
+    let repo = Repo::new("derived-default", true);
+    let guard = |value: i64| {
+        format!(
+            "#[derive(Default)]\npub struct Guard {{\n    pub value: i64,\n}}\n\nimpl Guard {{\n    pub fn grow(&mut self) {{\n        self.value += {value};\n    }}\n}}\n\nimpl Drop for Guard {{\n    fn drop(&mut self) {{\n        self.value -= {value};\n    }}\n}}\n"
+        )
+    };
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "mod guard;\n\npub fn make() -> i64 {\n    guard::Guard::default().value\n}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn make() {\n        assert_eq!(super::make(), 0);\n    }\n}\n",
+    );
+    repo.write("src/guard.rs", &guard(1));
+    commit_all(&repo, "guard");
+    repo.build();
+    repo.write("src/guard.rs", &guard(2));
+    commit_all(&repo, "edit");
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let changes = answer(&context, "review_tool", json!({}));
+    let mut untested: Vec<&str> = changes["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|f| f["kind"] == "untested_change")
+        .flat_map(|f| f["targets"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .collect();
+    untested.sort_unstable();
+    // `Guard::default()` builds a `Guard`, which `make` drops; nothing
+    // calls `grow`.
+    assert_eq!(untested, ["src/guard.rs::Guard.grow"], "{changes}");
+}
+
+#[test]
 fn a_rust_test_any_number_of_hops_away_counts_and_a_python_one_does_not() {
     // dagayn: tests crates/dagayn-tools/src/review.rs::review
     // dagayn: tests crates/dagayn-tools/src/findings.rs::caller_test_depth

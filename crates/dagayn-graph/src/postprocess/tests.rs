@@ -978,6 +978,92 @@ fn resolves_bare_call_via_declaring_class() {
 }
 
 #[test]
+fn a_type_call_binds_to_the_same_named_type_the_caller_sees() {
+    let path = temp_db("bare-call-same-named-types");
+    let mut store = GraphStore::open(&path).expect("open");
+    // Two crates each declare a `Namer` with a `new`.
+    for file in ["crates/a/src/namer.rs", "crates/b/src/lib.rs"] {
+        store
+            .store_file_nodes_edges(
+                file,
+                &[
+                    file_node(file),
+                    class_node("Namer", file),
+                    method_node("new", file, "Namer"),
+                ],
+                &[],
+                "",
+                0,
+            )
+            .expect("store type");
+    }
+    let call = |caller: &str| EdgeInput {
+        kind: "CALLS".to_string(),
+        source: format!("{caller}::run"),
+        target: "new".to_string(),
+        file_path: caller.to_string(),
+        line: 3,
+        extra: json!({"receiver_type": "Namer"}),
+    };
+    // `use namer::Namer;` in crate a, and a file that imports neither.
+    store
+        .store_file_nodes_edges(
+            "crates/a/src/lib.rs",
+            &[
+                file_node("crates/a/src/lib.rs"),
+                function_node("run", "crates/a/src/lib.rs"),
+            ],
+            &[
+                edge(
+                    "IMPORTS_FROM",
+                    "crates/a/src/lib.rs",
+                    "crates/a/src/namer.rs",
+                    "crates/a/src/lib.rs",
+                    1,
+                ),
+                call("crates/a/src/lib.rs"),
+            ],
+            "",
+            0,
+        )
+        .expect("store caller");
+    store
+        .store_file_nodes_edges(
+            "crates/c/src/lib.rs",
+            &[
+                file_node("crates/c/src/lib.rs"),
+                function_node("run", "crates/c/src/lib.rs"),
+            ],
+            &[call("crates/c/src/lib.rs")],
+            "",
+            0,
+        )
+        .expect("store blind caller");
+    store.resolve_bare_call_targets().unwrap();
+    let targets: Vec<(String, String)> = store
+        .conn
+        .prepare(
+            "SELECT source_qualified, target_qualified FROM edges WHERE kind='CALLS' ORDER BY 1",
+        )
+        .unwrap()
+        .query_map([], |row| <(String, String)>::try_from(row))
+        .unwrap()
+        .collect::<std::result::Result<_, _>>()
+        .unwrap();
+    assert_eq!(
+        targets,
+        [
+            (
+                "crates/a/src/lib.rs::run".to_string(),
+                "crates/a/src/namer.rs::Namer.new".to_string()
+            ),
+            ("crates/c/src/lib.rs::run".to_string(), "new".to_string()),
+        ]
+    );
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn resolves_bare_call_via_import() {
     let path = temp_db("bare-call");
     let mut store = GraphStore::open(&path).expect("open");
