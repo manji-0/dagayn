@@ -980,6 +980,7 @@ fn _core(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(discover_manifest_bridges_json, module)?)?;
     module.add_function(wrap_pyfunction!(resolve_manifest_path, module)?)?;
     module.add_function(wrap_pyfunction!(run_cli, module)?)?;
+    module.add_function(wrap_pyfunction!(scip_index_python, module)?)?;
     module.add_function(wrap_pyfunction!(scip_index_typescript, module)?)?;
     module.add_function(wrap_pyfunction!(serve_mcp, module)?)?;
     module.add_function(wrap_pyfunction!(call_tool, module)?)?;
@@ -1147,6 +1148,24 @@ fn run_cli(py: Python<'_>, argv: Vec<std::ffi::OsString>) -> Option<u8> {
         dagayn_cli::Outcome::Exit(code) => Some(code),
         dagayn_cli::Outcome::Fallback(_) => None,
     }
+}
+
+/// Writes the SCIP index of the Python project at `project` to `output`,
+/// resolving installed packages in `python` (a virtual environment or an
+/// interpreter; `None` lets ty find one), and returns the indexer's report as
+/// JSON. Run in a child process by `dagayn.scip_python`; see that module.
+#[pyfunction]
+#[pyo3(signature = (project, python, output))]
+fn scip_index_python(
+    py: Python<'_>,
+    project: std::path::PathBuf,
+    python: Option<std::path::PathBuf>,
+    output: std::path::PathBuf,
+) -> PyResult<String> {
+    let report = py
+        .detach(|| dagayn_scip_python::index(&project, python.as_deref(), &output))
+        .map_err(|err| PyRuntimeError::new_err(err.to_string()))?;
+    serde_json::to_string(&report).map_err(|err| PyRuntimeError::new_err(err.to_string()))
 }
 
 /// Writes the SCIP index of the TypeScript projects `tsconfigs` (relative to
