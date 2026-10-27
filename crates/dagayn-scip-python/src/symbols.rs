@@ -63,7 +63,6 @@ impl FileBindings {
     }
 }
 
-#[derive(Default)]
 struct Collector {
     scopes: Vec<Scope>,
     next_scope: usize,
@@ -208,7 +207,12 @@ impl<'a> SourceOrderVisitor<'a> for Collector {
 pub(crate) fn file_bindings(db: &ProjectDatabase, file: File) -> FileBindings {
     let program_file = db.program_file(file);
     let parsed = parsed_module(db, program_file.python_file(db)).load(db);
-    let mut collector = Collector::default();
+    let mut collector = Collector {
+        scopes: Vec::new(),
+        next_scope: 0,
+        locals: FxHashMap::default(),
+        bindings: FileBindings::default(),
+    };
     collector.visit_body(&parsed.syntax().body);
     collector.bindings
 }
@@ -311,7 +315,7 @@ pub(crate) struct Project {
 
 /// Names the binding sites of every file a document references; one per
 /// worker thread.
-pub(crate) struct SymbolNamer<'p> {
+pub(crate) struct BindingNamer<'p> {
     project: &'p Project,
     files: FxHashMap<File, (Option<String>, FileBindings)>,
     /// Local key -> `local N` of the current document.
@@ -319,7 +323,7 @@ pub(crate) struct SymbolNamer<'p> {
     document: Option<File>,
 }
 
-impl<'p> SymbolNamer<'p> {
+impl<'p> BindingNamer<'p> {
     pub(crate) fn new(project: &'p Project) -> Self {
         Self {
             project,

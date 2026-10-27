@@ -28,7 +28,7 @@ use ty_project::metadata::value::RelativePathBuf;
 use ty_project::{Db as _, ProjectDatabase, ProjectMetadata};
 
 use occurrences::Counts;
-use symbols::{Project, SymbolNamer};
+use symbols::{BindingNamer, Project};
 
 /// The ruff commit `[workspace.dependencies]` pins; a test checks they agree.
 pub const RUFF_REV: &str = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456";
@@ -144,7 +144,7 @@ pub fn index(
                     .name(format!("dagayn-scip-python-{t}"))
                     .stack_size(ruff_db::STACK_SIZE)
                     .spawn_scoped(scope, move || {
-                        let mut namer = SymbolNamer::new(info);
+                        let mut namer = BindingNamer::new(info);
                         let mut counts = Counts::default();
                         let documents: Vec<(String, Document)> = mine
                             .into_iter()
