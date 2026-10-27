@@ -14,7 +14,7 @@ use ruff_text_size::{Ranged, TextRange, TextSize};
 use scip::types::{Document, Occurrence, PositionEncoding};
 use ty_project::{ProjectDatabase, SemanticDb as _};
 
-use crate::symbols::BindingNamer;
+use crate::symbols::SymbolNamer;
 
 const ROLE_DEFINITION: i32 = 1;
 const ROLE_IMPORT: i32 = 2;
@@ -40,6 +40,7 @@ impl Counts {
 
 /// Every name of a file in source order, and whether an import statement
 /// holds it.
+#[derive(Default)]
 struct Names {
     ranges: Vec<(TextRange, bool)>,
     import_depth: usize,
@@ -108,7 +109,7 @@ pub(crate) fn document(
     db: &ProjectDatabase,
     file: File,
     relative_path: String,
-    namer: &mut BindingNamer<'_>,
+    namer: &mut SymbolNamer<'_>,
     counts: &mut Counts,
 ) -> Document {
     namer.start_document(file);
@@ -117,10 +118,7 @@ pub(crate) fn document(
     let index = LineIndex::from_source_text(text);
     let program_file = db.program_file(file);
     let parsed = parsed_module(db, program_file.python_file(db)).load(db);
-    let mut names = Names {
-        ranges: Vec::new(),
-        import_depth: 0,
-    };
+    let mut names = Names::default();
     names.visit_body(&parsed.syntax().body);
 
     let mut occurrences: Vec<Occurrence> = Vec::new();
