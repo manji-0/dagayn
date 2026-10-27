@@ -144,6 +144,9 @@ def make_target(
         subprocess.run(["git", "apply", str(change.resolve())], cwd=src, check=True)
         subprocess.run(["git", "add", "-A"], cwd=src, check=True)
         subprocess.run([*git, "commit", "-q", "-m", change_message], cwd=src, check=True)
+    # Packed now: a commit of many loose objects starts `git gc --auto` in the
+    # background, which deletes them while the first runs clone the target.
+    subprocess.run(["git", "gc", "-q"], cwd=src, check=True)
     return src
 
 
