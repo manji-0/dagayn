@@ -13,7 +13,8 @@ use super::qualify;
 use super::types::{ParsedEdge, ParsedNode};
 use super::util::{line_of, node_text};
 
-/// A function-valued or nested-container member of an object literal.
+/// A function-valued, call-valued, or nested-container member of an object
+/// literal.
 enum JavaScriptObjectMember<'tree> {
     /// `k() {}`, `k: () => {}`, `k: function () {}`; `value` is the
     /// function literal (the method itself for `method_definition`).
@@ -21,6 +22,12 @@ enum JavaScriptObjectMember<'tree> {
         name: String,
         member: tree_sitter::Node<'tree>,
         value: tree_sitter::Node<'tree>,
+    },
+    /// `k: make(x)`: the call's result is bound to `k` and may be a function
+    /// (`parse: schemaResult(schema)`); nothing static says it is not.
+    CallResult {
+        name: String,
+        member: tree_sitter::Node<'tree>,
     },
     /// `k: { ... }` whose object has function-valued members of its own.
     Container {
@@ -30,19 +37,25 @@ enum JavaScriptObjectMember<'tree> {
     },
 }
 
-/// Strips `( ... )`, `as T` / `as const`, and `satisfies T` around an object
-/// literal.
-fn javascript_unwrap_object(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+/// Strips `( ... )`, `as T` / `as const`, `satisfies T`, and `!` around an
+/// expression.
+fn javascript_unwrap_expression(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
     let mut current = node;
-    loop {
-        match current.kind() {
-            "object" => return Some(current),
-            "parenthesized_expression" | "as_expression" | "satisfies_expression" => {
-                current = current.named_child(0)?;
-            }
-            _ => return None,
-        }
+    while matches!(
+        current.kind(),
+        "parenthesized_expression"
+            | "as_expression"
+            | "satisfies_expression"
+            | "non_null_expression"
+    ) {
+        current = current.named_child(0)?;
     }
+    Some(current)
+}
+
+/// The object literal `node` is, through [`javascript_unwrap_expression`].
+fn javascript_unwrap_object(node: tree_sitter::Node<'_>) -> Option<tree_sitter::Node<'_>> {
+    javascript_unwrap_expression(node).filter(|node| node.kind() == "object")
 }
 
 fn javascript_object_key_name(key: tree_sitter::Node<'_>, source: &[u8]) -> Option<String> {
@@ -53,31 +66,28 @@ fn javascript_object_key_name(key: tree_sitter::Node<'_>, source: &[u8]) -> Opti
 /// (`api.a.b.c` is depth 3); deeper objects are walked without nodes.
 pub(super) const JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH: usize = 6;
 
-/// Function-valued members of `object`, plus (when `allow_nested`) nested
-/// objects that have function-valued members at some depth below them, up to
-/// [`JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH`].
-fn javascript_object_members<'tree>(
-    object: tree_sitter::Node<'tree>,
-    source: &[u8],
-    allow_nested: bool,
-) -> Vec<JavaScriptObjectMember<'tree>> {
-    javascript_object_members_at(
-        object,
-        source,
-        if allow_nested {
-            JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH
-        } else {
-            1
-        },
-    )
+/// A module-scope object literal that is a container: `const X = { ... }`
+/// (`name` is `X`) or `export default { ... }` (`default`), or one nested in
+/// it (`nested: { ... }`).
+pub(super) struct JavaScriptObjectContainer<'tree> {
+    pub(super) name: String,
+    pub(super) object: tree_sitter::Node<'tree>,
+    /// Whether call-valued members are nodes: only in a named export
+    /// (`export const X`, `export { X }`) and the objects nested in it. A
+    /// module-private object or a default-exported configuration holds data
+    /// (`{ id: z.string() }`, `{ preprocess: vitePreprocess() }`).
+    pub(super) call_results: bool,
 }
 
-/// Members of `object` when containers may nest `depth` more levels (1: this
-/// object only).
+/// Function-valued members of `object` (call-valued ones too when
+/// `call_results`), plus nested objects that have such members at some depth
+/// below them, when containers may nest `depth` more levels (1: this object
+/// only, [`JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH`] at the module's binding).
 fn javascript_object_members_at<'tree>(
     object: tree_sitter::Node<'tree>,
     source: &[u8],
     depth: usize,
+    call_results: bool,
 ) -> Vec<JavaScriptObjectMember<'tree>> {
     let allow_nested = depth > 1;
     let mut members = Vec::new();
@@ -111,9 +121,15 @@ fn javascript_object_members_at<'tree>(
                         member,
                         value,
                     });
+                } else if call_results
+                    && javascript_unwrap_expression(value)
+                        .is_some_and(javascript_may_return_function)
+                {
+                    members.push(JavaScriptObjectMember::CallResult { name, member });
                 } else if allow_nested
                     && let Some(nested) = javascript_unwrap_object(value)
-                    && !javascript_object_members_at(nested, source, depth - 1).is_empty()
+                    && !javascript_object_members_at(nested, source, depth - 1, call_results)
+                        .is_empty()
                 {
                     members.push(JavaScriptObjectMember::Container {
                         name,
@@ -126,6 +142,18 @@ fn javascript_object_members_at<'tree>(
         }
     }
     members
+}
+
+/// A call other than `import(..)` (a promise) and a tagged template
+/// (``css`...` ``, ``gql`...` ``: a style or query value).
+fn javascript_may_return_function(value: tree_sitter::Node<'_>) -> bool {
+    value.kind() == "call_expression"
+        && value
+            .child_by_field_name("function")
+            .is_some_and(|callee| callee.kind() != "import")
+        && value
+            .child_by_field_name("arguments")
+            .is_some_and(|arguments| arguments.kind() != "template_string")
 }
 
 /// Declaration-scope statements only: a child of the `program` or of a
@@ -157,15 +185,24 @@ fn javascript_is_declaration_scope(node: tree_sitter::Node<'_>) -> bool {
     }
 }
 
-/// Module-scope object containers: `(binding name, object literal)` for
-/// `const X = { ... }` and `("default", object)` for `export default { ... }`.
+/// Module-scope object containers of `statement`: `const X = { ... }` and
+/// `export default { ... }`; `exported_names` are the file's
+/// `export { X }` names.
 pub(super) fn javascript_module_object_containers<'tree>(
     statement: tree_sitter::Node<'tree>,
     source: &[u8],
-) -> Vec<(String, tree_sitter::Node<'tree>)> {
+    exported_names: &HashSet<String>,
+) -> Vec<JavaScriptObjectContainer<'tree>> {
     let mut containers = Vec::new();
     match statement.kind() {
         "lexical_declaration" | "variable_declaration" if javascript_is_module_scope(statement) => {
+            let export_statement = statement
+                .parent()
+                .is_some_and(|parent| parent.kind() == "export_statement");
+            // `export { X }` names the program's bindings, not a namespace's.
+            let in_program = statement
+                .parent()
+                .is_some_and(|parent| parent.kind() == "program");
             let mut cursor = statement.walk();
             for declarator in statement.named_children(&mut cursor) {
                 if declarator.kind() != "variable_declarator" {
@@ -181,8 +218,22 @@ pub(super) fn javascript_module_object_containers<'tree>(
                 ) else {
                     continue;
                 };
-                if !javascript_object_members(object, source, true).is_empty() {
-                    containers.push((node_text(name, source), object));
+                let name = node_text(name, source);
+                let call_results =
+                    export_statement || (in_program && exported_names.contains(&name));
+                if !javascript_object_members_at(
+                    object,
+                    source,
+                    JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH,
+                    call_results,
+                )
+                .is_empty()
+                {
+                    containers.push(JavaScriptObjectContainer {
+                        name,
+                        object,
+                        call_results,
+                    });
                 }
             }
         }
@@ -195,9 +246,21 @@ pub(super) fn javascript_module_object_containers<'tree>(
                 .child_by_field_name("value")
                 .and_then(javascript_unwrap_object)
                 .filter(|_| is_default)
-                .filter(|object| !javascript_object_members(*object, source, true).is_empty())
+                .filter(|object| {
+                    !javascript_object_members_at(
+                        *object,
+                        source,
+                        JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH,
+                        false,
+                    )
+                    .is_empty()
+                })
             {
-                containers.push(("default".to_string(), object));
+                containers.push(JavaScriptObjectContainer {
+                    name: "default".to_string(),
+                    object,
+                    call_results: false,
+                });
             }
         }
         _ => {}
@@ -256,7 +319,8 @@ pub(super) fn collect_javascript_member_paths(
         members: HashSet::new(),
         namespaces: HashSet::new(),
     };
-    collect_javascript_scope_member_paths(root, source, None, &mut paths);
+    let exported = collect_javascript_local_exports(root, source);
+    collect_javascript_scope_member_paths(root, source, &exported, None, &mut paths);
     paths
 }
 
@@ -265,6 +329,7 @@ pub(super) fn collect_javascript_member_paths(
 fn collect_javascript_scope_member_paths(
     scope: tree_sitter::Node<'_>,
     source: &[u8],
+    exported: &HashSet<String>,
     owner: Option<&str>,
     paths: &mut JavaScriptMemberPaths,
 ) {
@@ -276,13 +341,14 @@ fn collect_javascript_scope_member_paths(
                 .unwrap_or(statement),
             _ => statement,
         };
-        collect_javascript_statement_member_paths(statement, source, owner, paths);
+        collect_javascript_statement_member_paths(statement, source, exported, owner, paths);
     }
 }
 
 fn collect_javascript_statement_member_paths(
     statement: tree_sitter::Node<'_>,
     source: &[u8],
+    exported: &HashSet<String>,
     owner: Option<&str>,
     paths: &mut JavaScriptMemberPaths,
 ) {
@@ -301,13 +367,19 @@ fn collect_javascript_statement_member_paths(
                     let path = member("global");
                     paths.namespaces.insert(path.clone());
                     paths.members.insert(path.clone());
-                    collect_javascript_scope_member_paths(body, source, Some(&path), paths);
+                    collect_javascript_scope_member_paths(
+                        body,
+                        source,
+                        exported,
+                        Some(&path),
+                        paths,
+                    );
                 }
                 return;
             }
             let mut cursor = statement.walk();
             for inner in statement.named_children(&mut cursor) {
-                collect_javascript_statement_member_paths(inner, source, owner, paths);
+                collect_javascript_statement_member_paths(inner, source, exported, owner, paths);
             }
         }
         "internal_module" | "module" => {
@@ -322,17 +394,18 @@ fn collect_javascript_statement_member_paths(
                 path = Some(next);
             }
             if let (Some(body), Some(path)) = (statement.child_by_field_name("body"), path) {
-                collect_javascript_scope_member_paths(body, source, Some(&path), paths);
+                collect_javascript_scope_member_paths(body, source, exported, Some(&path), paths);
             }
         }
         _ => {
-            for (name, object) in javascript_module_object_containers(statement, source) {
-                let path = member(&name);
+            for container in javascript_module_object_containers(statement, source, exported) {
+                let path = member(&container.name);
                 collect_javascript_object_member_paths(
-                    object,
+                    container.object,
                     source,
                     &path,
                     JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH,
+                    container.call_results,
                     &mut paths.members,
                 );
                 if owner.is_some() {
@@ -382,16 +455,25 @@ fn collect_javascript_object_member_paths(
     source: &[u8],
     owner: &str,
     depth: usize,
+    call_results: bool,
     paths: &mut HashSet<String>,
 ) {
-    for member in javascript_object_members_at(object, source, depth) {
+    for member in javascript_object_members_at(object, source, depth, call_results) {
         match member {
-            JavaScriptObjectMember::Function { name, .. } => {
+            JavaScriptObjectMember::Function { name, .. }
+            | JavaScriptObjectMember::CallResult { name, .. } => {
                 paths.insert(format!("{owner}.{name}"));
             }
             JavaScriptObjectMember::Container { name, object, .. } => {
                 let path = format!("{owner}.{name}");
-                collect_javascript_object_member_paths(object, source, &path, depth - 1, paths);
+                collect_javascript_object_member_paths(
+                    object,
+                    source,
+                    &path,
+                    depth - 1,
+                    call_results,
+                    paths,
+                );
                 paths.insert(path);
             }
         }
@@ -399,14 +481,15 @@ fn collect_javascript_object_member_paths(
 }
 
 /// Emits `Class <name>` (`type_role: "object"`) for an object literal and
-/// its function-valued members under the container's owner path. Other
+/// its function- and call-valued members under the container's owner path.
+/// A call-valued member is a `Function` node (`member_role: "call_result"`)
+/// whose call stays the module's: it runs when the module loads. Other
 /// members (data, shorthand references, deeper objects) are walked for
 /// edges with the container's own caller, without creating nodes.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn javascript_emit_object_container(
     declaration: tree_sitter::Node<'_>,
-    object: tree_sitter::Node<'_>,
-    name: &str,
+    container: &JavaScriptObjectContainer<'_>,
     additions: Value,
     depth: usize,
     context: &JavaScriptParseContext<'_>,
@@ -414,6 +497,7 @@ pub(super) fn javascript_emit_object_container(
     nodes: &mut Vec<ParsedNode>,
     edges: &mut Vec<ParsedEdge>,
 ) {
+    let name = container.name.as_str();
     let mut extra = json!({"type_role": "object"});
     if let (Some(map), Value::Object(additions)) = (extra.as_object_mut(), additions) {
         map.extend(additions);
@@ -446,7 +530,12 @@ pub(super) fn javascript_emit_object_container(
     ));
     let owner = javascript_member_owner(owner_path, name);
     let mut handled = HashSet::new();
-    for member in javascript_object_members_at(object, context.source, depth) {
+    for member in javascript_object_members_at(
+        container.object,
+        context.source,
+        depth,
+        container.call_results,
+    ) {
         match member {
             JavaScriptObjectMember::Function {
                 name,
@@ -465,6 +554,9 @@ pub(super) fn javascript_emit_object_container(
                     edges,
                 );
             }
+            JavaScriptObjectMember::CallResult { name, member } => {
+                javascript_emit_call_result_member(member, &name, context, &owner, nodes, edges);
+            }
             JavaScriptObjectMember::Container {
                 name,
                 member,
@@ -473,8 +565,11 @@ pub(super) fn javascript_emit_object_container(
                 handled.insert(member.id());
                 javascript_emit_object_container(
                     member,
-                    object,
-                    &name,
+                    &JavaScriptObjectContainer {
+                        name,
+                        object,
+                        call_results: container.call_results,
+                    },
                     json!({}),
                     depth - 1,
                     context,
@@ -485,12 +580,48 @@ pub(super) fn javascript_emit_object_container(
             }
         }
     }
-    let mut cursor = object.walk();
-    for member in object.named_children(&mut cursor) {
+    let mut cursor = container.object.walk();
+    for member in container.object.named_children(&mut cursor) {
         if !handled.contains(&member.id()) {
-            javascript_walk_node(member, object, context, None, None, nodes, edges);
+            javascript_walk_node(member, container.object, context, None, None, nodes, edges);
         }
     }
+}
+
+fn javascript_emit_call_result_member(
+    member: tree_sitter::Node<'_>,
+    name: &str,
+    context: &JavaScriptParseContext<'_>,
+    owner: &str,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    javascript_push_node(
+        context,
+        nodes,
+        member,
+        ParsedNode {
+            kind: crate::core::types::NodeKind::Function,
+            name: name.to_string(),
+            file_path: context.file_path.clone(),
+            line_start: member.start_position().row as i64 + 1,
+            line_end: member.end_position().row as i64 + 1,
+            language: context.language.to_string(),
+            parent_name: Some(owner.to_string()),
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: json!({"member_role": "call_result"}),
+        },
+    );
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        javascript_container_qn(context, Some(owner)),
+        qualify(&context.file_path, name, Some(owner)),
+        context.file_path.clone(),
+        line_of(member),
+    ));
 }
 
 /// Whether `node` is `declarator` or one of the wrappers between the

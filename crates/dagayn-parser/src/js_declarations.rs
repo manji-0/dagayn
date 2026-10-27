@@ -323,14 +323,14 @@ pub(super) fn javascript_emit_default_export(
     let Some(value) = node.child_by_field_name("value") else {
         return false;
     };
-    if let Some((name, object)) = javascript_module_object_containers(node, context.source)
-        .into_iter()
-        .next()
+    if let Some(container) =
+        javascript_module_object_containers(node, context.source, context.exported_names)
+            .into_iter()
+            .next()
     {
         javascript_emit_object_container(
             node,
-            object,
-            &name,
+            &container,
             json!({"export_default": true, "anonymous": true}),
             JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH,
             context,
@@ -656,7 +656,8 @@ pub(super) fn javascript_emit_variable_functions(
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
     let mut handled = false;
-    let containers = javascript_module_object_containers(node, context.source);
+    let containers =
+        javascript_module_object_containers(node, context.source, context.exported_names);
     let mut cursor = node.walk();
     for declarator in node.children(&mut cursor) {
         if declarator.kind() != "variable_declarator" {
@@ -676,16 +677,16 @@ pub(super) fn javascript_emit_variable_functions(
                 );
             }
         };
-        if let Some((name, object)) = containers.iter().find(|(_, object)| {
-            object
+        if let Some(container) = containers.iter().find(|container| {
+            container
+                .object
                 .parent()
                 .is_some_and(|parent| javascript_declarator_owns(declarator, parent))
         }) {
-            annotate(name, edges);
+            annotate(&container.name, edges);
             javascript_emit_object_container(
                 node,
-                *object,
-                name,
+                container,
                 json!({}),
                 JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH,
                 context,
