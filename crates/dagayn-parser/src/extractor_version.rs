@@ -289,8 +289,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // Another package's type (`*zstd.Decoder`) records `receiver_type`
         // with that package's import path (`receiver_package`) instead of
         // typing the receiver as the caller package's type of the name.
+        // 12: an import of a package of the file's own module targets the
+        // package's files (one edge each, `import_path` and
+        // `package_import`), leaving out its tests and ignored files.
         extractor: "go",
-        version: 11,
+        version: 12,
         languages: &["go"],
     },
     ExtractorVersion {

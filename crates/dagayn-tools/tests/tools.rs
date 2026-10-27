@@ -3479,3 +3479,62 @@ fn importing_a_module_reaches_its_top_level_calls_only() {
         "{changes}"
     );
 }
+
+#[test]
+fn go_packages_are_imported_through_their_files() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("go-package-imports", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "mathx/math.go",
+        "package mathx\n\n// Add adds.\nfunc Add(a, b int) int {\n\treturn a + b\n}\n",
+    );
+    repo.write(
+        "mathx/twice.go",
+        "package mathx\n\n// Twice doubles.\nfunc Twice(a int) int {\n\treturn Add(a, a)\n}\n",
+    );
+    repo.write(
+        "mathx/math_test.go",
+        "package mathx_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/demo/mathx\"\n)\n\n\
+         func TestTwice(t *testing.T) {\n\tif mathx.Twice(2) != 4 {\n\t\tt.Fatal(\"Twice\")\n\t}\n}\n",
+    );
+    repo.write(
+        "cmd/demo/main.go",
+        "package main\n\nimport \"example.com/demo/mathx\"\n\nfunc main() {\n\t_ = mathx.Twice(21)\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let query = |pattern: &str, target: &str| {
+        answer(
+            &context,
+            "query_graph_tool",
+            json!({"pattern": pattern, "target": target}),
+        )
+    };
+    let importers = |reply: &Value| -> Vec<String> {
+        let mut files: Vec<String> = reply["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .filter_map(|row| row["file"].as_str().map(str::to_string))
+            .collect();
+        files.sort();
+        files
+    };
+    // The package's directory and each of its files: one row per importer,
+    // the external test package among them.
+    for target in ["mathx", "mathx/", "mathx/twice.go"] {
+        let reply = query("importers_of", target);
+        assert_eq!(
+            importers(&reply),
+            ["cmd/demo/main.go", "mathx/math_test.go"],
+            "{target}: {reply}"
+        );
+    }
+    // A call through the import binds, so the external test reaches Twice.
+    let tests = query("tests_for", "mathx/twice.go::Twice");
+    assert_eq!(
+        tests["test_reach"]["nearest_test"], "mathx/math_test.go::TestTwice",
+        "{tests}"
+    );
+}
