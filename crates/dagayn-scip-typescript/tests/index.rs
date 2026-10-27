@@ -302,3 +302,19 @@ fn an_unwritable_output_is_a_write_error() {
         other => panic!("{other:?}"),
     }
 }
+
+#[test]
+fn a_destructured_module_binding_is_named_by_its_element() {
+    const PAIRS: &str = "export const { a, b } = { a: () => 1, b: 2 };\nexport const [first] = [a];\nexport const total = a() + b + first();\n";
+    let shop = Shop::new(true);
+    std::fs::write(shop.root.join("src/pairs.ts"), PAIRS).unwrap();
+    let (_, index) = shop.index(&["tsconfig.json"]).unwrap();
+    let pairs = document(&index, "src/pairs.ts");
+    let a = "scip-typescript npm shop 1.2.3 src/`pairs.ts`/a.";
+    assert_eq!(symbols(&occurrences_at(pairs, PAIRS, 0, "a")), vec![a]);
+    assert_eq!(
+        symbols(&occurrences_at(pairs, PAIRS, 1, "first")),
+        vec!["scip-typescript npm shop 1.2.3 src/`pairs.ts`/first."]
+    );
+    assert_eq!(symbols(&occurrences_at(pairs, PAIRS, 2, "a()")), vec![a]);
+}
