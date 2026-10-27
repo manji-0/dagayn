@@ -1123,7 +1123,11 @@ fn returned_by(graph: &Graph, function: &str, unwrap: bool, element: bool) -> Op
     let (return_type, owner) = graph.returns.get(function)?;
     let file = function.split_once("::").map(|(file, _)| file)?;
     let family = language_family(file)?;
-    let (mut base, mut arguments) = parse_type(return_type)?;
+    let (mut base, mut arguments) = if family == "go" {
+        parse_type(&go_first_result(return_type))?
+    } else {
+        parse_type(return_type)?
+    };
     let last = |base: &str| base.rsplit(['.', ':']).next().unwrap_or(base).to_string();
     if unwrap && UNWRAPPED_WRAPPERS.contains(&last(&base).as_str()) {
         (base, arguments) = parse_type(arguments.first()?)?;
@@ -1143,6 +1147,30 @@ fn returned_by(graph: &Graph, function: &str, unwrap: bool, element: bool) -> Op
     }
     drop(arguments);
     resolve_type(graph, &base, file, family, owner.as_deref())
+}
+
+/// The type of a Go function's first result, without its name:
+/// `io.ReadCloser` for `(rc io.ReadCloser, err error)`, which read whole
+/// names no type (`rc io` is no package).
+fn go_first_result(return_type: &str) -> String {
+    let text = return_type.trim();
+    let Some(inner) = text
+        .strip_prefix('(')
+        .and_then(|rest| rest.strip_suffix(')'))
+    else {
+        return text.to_string();
+    };
+    let Some(first) = split_arguments(inner).into_iter().next() else {
+        return text.to_string();
+    };
+    match first.trim().split_once(char::is_whitespace) {
+        Some((name, ty))
+            if name.chars().all(|c| c.is_alphanumeric() || c == '_') && !ty.trim().is_empty() =>
+        {
+            ty.trim().to_string()
+        }
+        _ => first.trim().to_string(),
+    }
 }
 
 type PendingCall = (i64, String, String, String, Value);
@@ -2021,5 +2049,17 @@ mod tests {
             parse_type("Promise<User>").map(|(_, arguments)| arguments),
             Some(vec!["User".to_string()])
         );
+    }
+
+    #[test]
+    fn go_named_results_name_their_type() {
+        for (text, expected) in [
+            ("(rc io.ReadCloser, size int64)", "io.ReadCloser"),
+            ("(s *Store, err error)", "*Store"),
+            ("(*Store, error)", "*Store"),
+            ("*Store", "*Store"),
+        ] {
+            assert_eq!(super::go_first_result(text), expected, "{text}");
+        }
     }
 }
