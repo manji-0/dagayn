@@ -121,13 +121,84 @@ On the v7.0.0 sources, the overlay leaves 1,126 calls unresolved (`LOW`),
 against 2,597 without it: Rust 1,167 → 14, TypeScript 483 → 194; the
 whole `build --scip` takes about 15 s.
 
-When SCIP and dagayn disagree, SCIP wins for Rust and TypeScript. Every
-other indexer (Go, Python, Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, R) only
-fills: it keeps what the extractor resolved and settles the rest before the
-inference passes. With Python wired this way, the v7.0.0 sources drop to 926
+When SCIP and dagayn disagree, SCIP wins for Rust, TypeScript, and Python
+(Python since dagayn's own indexer, below). Every other indexer (Go,
+Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, R) only fills: it keeps what the
+extractor resolved and settles the rest before the inference passes. With
+Python filling through scip-python, the v7.0.0 sources dropped to 926
 unresolved calls (Python 807 → 607), and the 1,482 Python calls into the Rust
-extension are kept. A project whose indexer is not installed gets an install
+extension were kept. A project whose indexer is not installed gets an install
 hint and keeps dagayn's own resolution.
+
+### The Python indexer
+
+<!-- derived-from #where-scip-edges-enter -->
+
+`crates/dagayn-scip-python` replaces scip-python. It resolves every name of
+a project file with goto-definition from the ty checker (the `ty_*` crates of
+the ruff repository) and writes scip-python's symbol grammar, so the overlay
+reads it as it read scip-python's. The ty and ruff crates are pinned to one
+ruff revision in `[workspace.dependencies]`, the same one the Python
+extractor's `ruff_python_parser` comes from, so one copy of ruff is built.
+`dagayn.scip_python` runs it as `python -P -m dagayn.scip_python index
+--output OUT [--python ENV]` in a child process. The overlay passes the
+project's environment explicitly: the `.venv` holding a `pyvenv.cfg` in the
+project or an ancestor up to the repository root, else `VIRTUAL_ENV`.
+Without either, the project is indexed with a hint; ty then looks for an
+environment itself and falls back to the site-packages of the interpreter
+that runs dagayn. The shim drops dagayn's own directory from `PYTHONPATH`:
+`child_env` adds it so the child can import dagayn, and ty would otherwise
+search it before the project.
+
+Where the index differs from scip-python's:
+
+- The project's package is the directory name with version `.`, not the
+  `pyproject.toml` name and version. An installed package is its top-level
+  module with version `.`, not its distribution name and version. The
+  overlay reads only the module of a symbol, so neither changes an edge.
+- Standard-library modules are named as typeshed names them (`_io`,
+  `_hashlib`) where scip-python names the public module (`io`, `hashlib`).
+- A name with several definitions (a `try`/`except ImportError` import, a
+  name bound in two branches) gets one occurrence per definition at the
+  same range, so the overlay counts the call `ambiguous` and leaves it.
+  scip-python picks one.
+- Import statements carry the `Import` role; scip-python marks them
+  `ReadAccess`.
+- A name ty cannot resolve (an import of a module that is not installed)
+  gets no occurrence.
+
+Measured with `dagayn build --scip` on this repository (`e3ba931f`) and on
+httpx (`b5addb6`), with the Rust and TypeScript indexers disabled
+(`DAGAYN_SCIP_RUST=/usr/bin/false`, `DAGAYN_SCIP_TYPESCRIPT=/usr/bin/false`),
+on an Apple M5 Max; scip-python is 0.6.8, and time and peak memory are
+`/usr/bin/time -l` of the whole build:
+
+| | dagayn: scip-python | dagayn: ty | httpx: scip-python | httpx: ty |
+| --- | --- | --- | --- | --- |
+| `CALLS` settled (`resolved_by: "scip"`) | 18,642 | 21,021 | 3,238 | 3,843 |
+| `HIGH` `CALLS` (4,835 and 1,064 without `--scip`) | 13,638 | 15,974 | 2,749 | 3,341 |
+| Build time | 16.2 s | 6.2 s | 3.7 s | 0.8 s |
+| Peak memory | 1.17 GB | 646 MB | 430 MB | 228 MB |
+
+The ty indexer alone takes 0.4 to 0.8 s and about 500 MB on this repository,
+against about 9.4 s and 1 GB for scip-python. The target differs between
+the two graphs on 212 edges here and 658 on httpx (593 of them a class
+re-exported with `from ._models import *`). Of 25 of those checked by hand,
+ty was right on 22 (the httpx re-exports, pydantic `model_*` calls,
+`concurrent.futures.Executor.map` that scip-python took for `builtins.map`).
+On the other 3, ty resolved nothing where scip-python did:
+`Path.cwd().resolve()` in `task_queue.py`, `executemany` on the result of an
+unannotated function, and a method on an `async with ... as` target.
+
+On a project whose pydantic is installed only in its `.venv`, the ty index
+resolves 60 of 60 pydantic references (27 of 27 calls); scip-python, run as
+the overlay ran it, resolved 35 (12 calls). In `dagayn build --scip` of that
+project, scip-python settles no call into pydantic and ty settles 37.
+
+Taking the indexer's answer over the extractor's moves 13 more edges than
+filling does (4 here, 9 on httpx, such as `httpcore.Request` taken for
+httpx's own, and `time.sleep`); all 13 were checked and are right. The
+calls into the Rust extension are not among them.
 
 ### Incremental updates
 
@@ -154,8 +225,8 @@ failed run or a project without its prerequisites (no
 TypeScript project without `node_modules` (in the project or up to the
 repository root) is still indexed, with a hint: its own symbols resolve and
 calls into packages stay unsettled. scip-java runs the project's build with
-`clean`, so it also needs `DAGAYN_SCIP_ALLOW_BUILD=1`. TypeScript's indexer
-ships with dagayn; the others are run, not bundled. The per-language table is
+`clean`, so it also needs `DAGAYN_SCIP_ALLOW_BUILD=1`. TypeScript's and
+Python's indexers ship with dagayn; the others are run, not bundled. The per-language table is
 in [COMMANDS.md](../COMMANDS.md#scip-call-resolution).
 
 ### Freezing the inference layer
@@ -207,7 +278,14 @@ effect on them can be measured on any graph before deletion.
   new ones changes edge counts that tools and tests rely on.
 - **Cost.** 26 s and 2.1 GB for Rust on this repository is fine for an
   explicit `build`, not for a hook. Larger workspaces need measuring.
-- **Python environment.** Discovery needs the venv's distributions passed
-  explicitly; the overlay generates the `--environment` file from the
-  project's `.venv`, the active virtualenv, or dagayn's own interpreter, in
-  that order.
+- **Python environment.** The overlay passes the project's `.venv` or the
+  active virtualenv to the ty indexer. Without either, ty falls back to the
+  site-packages of dagayn's own interpreter, which can resolve a call into a
+  package the project does not install.
+- **Python names declared `Any`.** `dagayn/server/main.py` binds
+  `FastMCP: Any` to fastmcp's class in a `try` and to `_FallbackFastMCP` in
+  its `except`. ty resolves methods of `FastMCP(...)` to the fallback
+  class's and confirms, at `HIGH`, the edges the extractor drew there. On this
+  repository test reach with `--scip` drops from 0.638 recall
+  (scip-python) to 0.605, through 5 methods of `_FallbackFastMCP` that
+  never run.
