@@ -221,6 +221,50 @@ fn build(edge: types::Edge) -> Vec<ParsedNode> {\n\
 }
 
 #[test]
+fn an_associated_function_call_references_its_type() {
+    let root = repo(
+        "associated",
+        &[
+            ("Cargo.toml", "[package]\nname = \"app\"\n"),
+            (
+                "src/lib.rs",
+                "mod names;\nuse names::Namer;\n\
+#[derive(Default)]\nstruct Local;\n\
+fn run() {\n\
+    let _local = Local::default();\n\
+    let _names = names::Names::<u8>::default();\n\
+    let _namer = Namer::new();\n\
+    let _text = String::new();\n\
+}\n",
+            ),
+            (
+                "src/names.rs",
+                "#[derive(Default)]\npub struct Names<T>(T);\npub struct Namer;\n",
+            ),
+        ],
+    );
+    let mut parser = RustOwnedParser::new();
+    let source = std::fs::read(root.join("src/lib.rs")).unwrap();
+    let (_, edges) = parser.parse_file_in_repo(Some(&root), "src/lib.rs", &source);
+    let mut references: Vec<(&str, &serde_json::Value)> = edges
+        .iter()
+        .filter(|edge| edge.kind == "REFERENCES" && edge.source == "src/lib.rs::run")
+        .map(|edge| (edge.target.as_str(), &edge.extra["module_file"]))
+        .collect();
+    references.sort_by_key(|(target, _)| *target);
+    let names_rs = serde_json::json!("src/names.rs");
+    assert_eq!(
+        references,
+        vec![
+            ("Namer", &names_rs),
+            ("Names", &names_rs),
+            ("src/lib.rs::Local", &serde_json::Value::Null),
+        ],
+        "{edges:#?}"
+    );
+}
+
+#[test]
 fn supertraits_are_inherits() {
     let mut parser = RustOwnedParser::new();
     let (_, edges) = parser.parse_file(
