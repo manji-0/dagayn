@@ -116,3 +116,7 @@ SCALING_AND_TOKEN_EFFICIENCY_PLAN.md
 .direnv/
 result
 result-*
+
+# Coverage reports the test-reach eval reads (CI writes them)
+coverage.json
+rust-coverage.json
