@@ -190,6 +190,8 @@ def run_one(item: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     work: Path = ctx["work"]
     repo = work / "runs" / item["id"]
     shutil.rmtree(repo, ignore_errors=True)
+    # Concurrent clones that each create `runs/` lose files to each other.
+    repo.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "clone", "-q", str(ctx["src"]), str(repo)], check=True)
     command = ctx["setups"][item["setup"]]
     graph = command != "none"
@@ -199,6 +201,9 @@ def run_one(item: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
         built = subprocess.run(
             [*shlex.split(command), "build", *shlex.split(ctx["build_args"])],
             cwd=repo,
+            # The harness runs under `uv run`; its VIRTUAL_ENV is not the
+            # target's environment, and the Python indexer would use it.
+            env={k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"},
             capture_output=True,
             text=True,
             check=True,
