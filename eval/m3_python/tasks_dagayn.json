@@ -1,0 +1,65 @@
+{
+ "_about": "M3 (docs/plans/FIRST-CLASS-LANGUAGES-TARGET.md): four Python questions on dagayn 8827f986 with the change in dagayn-change.patch as the last commit. Keys were built without dagayn; eval/m3_python/PREREG.md says how.",
+ "source_commit": "8827f986658e28b43aa244053233037860a124cf",
+ "change": {
+  "patch": "dagayn-change.patch",
+  "message": "Let WorkerLock.acquire wait for a lock that is being released"
+ },
+ "preamble": "このリポジトリ (カレントディレクトリ。dagayn のチェックアウト) について、次の質問に答えてください。\n- リポジトリのファイルは変更しないこと。一時ファイルが必要なら /tmp の下に作ること。\n- テストスイートやリポジトリのコードは実行しないこと (読む・検索する・解析用のスクリプトを書いて実行するのはよい)。\n- 回答の最後に、次の形式の JSON コードブロックを 1 つだけ置くこと: ```json\n{\"answer\": [...]}\n```\n\n質問: ",
+ "condition_line": {
+  "graph": "- dagayn の MCP ツール (サーバ名 dagayn) が使える。まずそれで調べ、必要なら他の道具で確かめること。\n",
+  "none": "- dagayn の MCP ツールは使えない。標準の道具 (検索・ファイルの読み込み・シェル) で調べること。\n"
+ },
+ "tasks": {
+  "D1": {
+   "prompt": "`dagayn/scip_overlay.py` の関数 `_timeout` の本体は、どのテストを実行したときに実行されるか。`tests/` 配下のテスト関数・テストメソッドのうち、そのテストを 1 つだけ実行したとき (フィクスチャの準備と後始末を含む) に `_timeout` の本体が実行されるものをすべて挙げてください。パラメータ化されたテストは 1 つとして数える。形式は \"ファイルパス::テスト関数名\"、テストクラスのメソッドなら \"ファイルパス::クラス名.メソッド名\" (ファイルパスはリポジトリルートから)。",
+   "kind": "symbols",
+   "truth": [
+    "tests/test_scip_overlay.py::test_a_languages_indexes_are_applied_together",
+    "tests/test_scip_overlay.py::test_a_store_without_the_overlay_is_a_warning",
+    "tests/test_scip_overlay.py::test_an_indexer_killed_by_a_signal_names_it",
+    "tests/test_scip_overlay.py::test_an_indexer_writing_a_fixed_file_has_it_moved",
+    "tests/test_scip_overlay.py::test_indexes_are_applied_and_failures_reported",
+    "tests/test_scip_python.py::test_calls_into_a_package_of_the_project_venv_settle_through_the_real_core",
+    "tests/test_scip_python.py::test_without_a_venv_the_project_is_still_indexed_with_a_hint",
+    "tests/test_scip_typescript.py::test_the_bundled_indexer_settles_calls_through_the_real_core",
+    "tests/test_scip_typescript.py::test_without_node_modules_the_project_is_still_indexed_with_a_hint"
+   ]
+  },
+  "D2": {
+   "prompt": "`dagayn/embeddings_store.py` で定義されている `EmbeddingStore` のメソッド `close` を直接呼んでいる関数・メソッドをすべて挙げてください。対象は `dagayn/` 配下の .py ファイル (`tests/` は対象外)。同じ名前の別のクラスのメソッドや、標準ライブラリ・外部パッケージの関数・メソッドの呼び出しは数えない。import の行や、文字列・コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::クラス名.メソッド名\" (ファイルパスはリポジトリルートから。呼び出しを直接囲む最も内側の関数・メソッド)。",
+   "kind": "symbols",
+   "truth": [
+    "dagayn/embeddings_store.py::EmbeddingStore.__exit__",
+    "dagayn/eval/benchmarks/embedding_text_modes.py::run",
+    "dagayn/search.py::_get_cached_emb_store",
+    "dagayn/tools/build.py::_prune_orphaned_embeddings",
+    "dagayn/tools/docs.py::embed_graph",
+    "dagayn/tools/docs.py::scan_embed_work",
+    "dagayn/tools/docs.py::write_embed_work"
+   ]
+  },
+  "D3": {
+   "prompt": "`dagayn/tools/queue_worker.py` の関数 `_execute_embed` を直接呼んでいる関数・メソッドをすべて挙げてください。対象は `dagayn/` と `tests/` の .py ファイル。辞書などの表から取り出した関数や、変数・引数に入れた関数を呼ぶ式も、実行時にそこで `_execute_embed` が呼ばれ得るなら、`_execute_embed` の呼び出しとして数える (テストが表を差し替えて入れた別の関数しか呼ばれない式は数えない)。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::クラス名.メソッド名\" (ファイルパスはリポジトリルートから。呼び出しを直接囲む最も内側の関数・メソッド)。",
+   "kind": "symbols",
+   "truth": [
+    "dagayn/tools/queue_worker.py::run_worker",
+    "tests/test_task_queue.py::TestEmbedTaskStructure._run"
+   ]
+  },
+  "D4": {
+   "prompt": "最後のコミットは `dagayn/task_queue.py` の `WorkerLock.acquire` の引数と振る舞いを変えた。このコミットの時点で `WorkerLock.acquire` を直接呼んでいる関数・メソッドのうち、このコミットで変更されていないものをすべて挙げてください。対象は `dagayn/` と `tests/` の .py ファイル。「変更された」は、コミットの差分が、その関数・メソッドの定義 (デコレータと def の行から本体の最後の行まで) の中の行を変えた・足した・消したこと。同じ名前の別のクラスのメソッドや、標準ライブラリ・外部パッケージの関数・メソッドの呼び出しは数えない。import の行や、文字列・コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::クラス名.メソッド名\" (ファイルパスはリポジトリルートから。呼び出しを直接囲む最も内側の関数・メソッド)。",
+   "kind": "symbols",
+   "truth": [
+    "dagayn/task_queue.py::WorkerLock.__enter__",
+    "dagayn/task_queue.py::ensure_worker",
+    "tests/test_task_queue.py::TestEnsureWorker.test_no_spawn_when_lock_held",
+    "tests/test_task_queue.py::TestRunWorker.test_second_worker_exits_immediately",
+    "tests/test_task_queue.py::TestRunWorker.test_worker_releases_lock_on_exit",
+    "tests/test_task_queue.py::TestWorkerLock.test_acquire_and_release",
+    "tests/test_task_queue.py::TestWorkerLock.test_context_manager_raises_when_held",
+    "tests/test_task_queue.py::TestWorkerLock.test_lock_file_contains_pid"
+   ]
+  }
+ }
+}

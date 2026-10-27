@@ -10,6 +10,20 @@ Removed).
 
 ### Added
 
+- M3, the pre-registered Python agent experiment of the first-class
+  languages plan (`eval/m3_python/`): eight questions a short script cannot
+  answer (test reach, callers on an unnamed receiver type, callers through
+  a table, what a change left unedited), on dagayn and httpx 0.28.1, with
+  answer keys built from coverage contexts, a runtime call trace, and a
+  hand-read sweep of every call site. Over 160 runs (Claude Haiku 5.5),
+  agents with dagayn used 1.05x the tokens of agents without it (Holm p =
+  0.56) at 80 of 80 exact in both arms, so the bar (0.85x) is not met and
+  Python is maintained, not invested in (eval/m3_python/RESULTS.md).
+  `eval/run_agent_tokens_eval.py` gains a change commit on top of the
+  archived target (`change` in the tasks file), the `symbols` answer kind,
+  `--build-args`, `--serve-args`, and `--keep-home`, records graph metadata
+  before and after each run, and no longer fails to find `claude` when it
+  shares a directory with `dagayn`.
 - The test-reach eval (`eval/run_test_reach_eval.py`) reads a
   `go tool cover -func` listing as Go coverage, and `--repo` points it at
   another repository's graph. On testify v1.12.1 it reproduces the
