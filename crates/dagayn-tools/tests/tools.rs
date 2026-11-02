@@ -3634,12 +3634,14 @@ fn go_packages_are_units_and_required_modules_are_declared() {
             .any(|(from, _, _)| *from == "example.com/demo/mathx"),
         "{edges:?}"
     );
-    let cycles = answer(
-        &context,
-        "architecture_analysis_tool",
-        json!({"mode": "import_cycles", "scope_kind": "package"}),
-    );
-    assert_eq!(cycles["cycle_count"], 0, "{cycles}");
+    for scope_kind in ["package", "directory"] {
+        let cycles = answer(
+            &context,
+            "architecture_analysis_tool",
+            json!({"mode": "import_cycles", "scope_kind": scope_kind}),
+        );
+        assert_eq!(cycles["cycle_count"], 0, "{scope_kind}: {cycles}");
+    }
     // example.com/other requires nothing of this repository: the call still
     // binds, but no manifest declares the dependency.
     assert!(

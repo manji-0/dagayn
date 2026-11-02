@@ -562,13 +562,15 @@ its import path as the target (G3); the map counts it as a dependency, with
 module. A `require` alone draws no edge, since it names a module and not one
 of its packages.
 
-`import_cycles` with `scope_kind="package"` leaves out imports made by test
-files. A test is counted for the unit it tests, but nothing imports it, so
-its imports close no cycle between units. Without this, an external test
+`import_cycles` with `scope_kind="package"` or `"directory"` leaves out
+imports made by test files. A test is counted for the unit or directory it
+tests, but nothing imports it, so its imports close no cycle between them.
+The rule is not specific to Go. Without this, an external test
 package (`package a_test`, in `a`'s directory) importing `b`, which imports
 `a`, read as the cycle `a` ↔ `b`, which Go permits (the tree of
 `neg_go_test_package_imports_its_importer`, with package units and without
-this rule).
+this rule). At `scope_kind="directory"` main reports that cycle too, since
+G3.
 
 The graphs are full builds at go 12 (main at `3b5e1f13`) of kong v1.15.0,
 testify v1.12.1, scip-go v0.2.7, and compress v1.20.1, all copies of the Go

@@ -98,8 +98,8 @@ Removed).
   overview goes from 1 unit and 0 edges to 15 packages and 33 dependency
   pairs, which match the source's 32 import pairs plus one call; compress
   v1.20.1 gets 36 units, 41 pairs, and one `unstable_dependency` (`zstd` on
-  `huff0`). `import_cycles` with `scope_kind="package"` leaves out the
-  imports of test files, which nothing imports, so an external test package
+  `huff0`). `import_cycles` with `scope_kind="package"` or `"directory"`
+  leaves out the imports of test files, which nothing imports, so an external test package
   (`package a_test`) importing a package that imports `a` is no cycle. New
   architecture cases `neg_layered_go_packages` and
   `pos_unstable_dependency_go` (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
