@@ -142,7 +142,7 @@ these calls with no import at all.
 | C4 | partial | `member_shape` and heritage edges; on tstodon, 1,235 unresolved method calls name a repository method. On Hono, method-call precision 0.95 and recall 0.70 ([E14 and E15](./AGENT-WORKFLOW-TARGET.md#order-of-work)). Lazy `await import()` routes and anonymous route arrows are not resolved ([open measurements](./OPEN-MEASUREMENTS.md#flow-entry-points)) |
 | C5 | present | npm `dependencies` / `peerDependencies` (`units.rs:209-221`) |
 | C6 | present | authoritative; 73 of 89 node edges agree, 13 where SCIP shows dagayn wrong |
-| C7 | **missing** | no coverage harness and no gate |
+| C7 | partial | the harness reads vitest's istanbul JSON (M1): 0.091 / 0.964 / 0.995 on tstodon, 0.842 / 0.468 / 0.765 on web-ui; no gate |
 | C8 | partial | review 4, architecture 2, flow 1, refactor 0 |
 | C9 | present | export markers (`dead_code.rs:285-306`); tstodon 4 of 5 right |
 | C10 | partial | E15: time 0.65x at equal accuracy, tokens not different |
@@ -229,7 +229,7 @@ Each gap is ranked by the measured answers it breaks:
 | 1 | Go test functions are not tests in the graph (C3) | review `untested_change`, `tests_to_run`; `tests_for` | 0 `TESTED_BY`; 277 of 292 functions that ran called untested on testify |
 | 2 | Go same-package calls unresolved (C1) | `callers_of` (name match only), review `unchanged_caller`, test reach, `dead_code` | 3,098 calls on compress; 0.28 to 0.52 of functions with no caller |
 | 3 | Go imports not bound to packages (C1) | `importers_of`, `import_cycles`, architecture units, `kong.New` from `package kong_test` | 0 of 211 in-module imports reach a file over four modules (kong 12, testify 24, scip-go 48, compress 127) |
-| 4 | TypeScript test reach unmeasured (C7) | review `untested_change`, `tests_for` | unknown: no coverage run yet |
+| 4 | TypeScript test reach (C7) | review `untested_change`, `tests_for` | measured by M1: 538 of 978 functions that ran called untested on tstodon; tested precision 0.765 on web-ui |
 | 5 | Go dead-code rules (C2, C9) | `dead_code` | kong 0 of 3 right |
 | 6 | Python agent gain not shown (C10) | all | 1.16x to 1.40x tokens; M3 1.05x |
 | 7 | TypeScript method receivers (C4) | `callers_of`, review | 1,235 unresolved calls naming a repository method on tstodon; the answer is SCIP, not new inference rules |
@@ -263,6 +263,16 @@ method-call gap.
    Bar: the three numbers and the cause table recorded here, and a floor
    file if tested precision is at least 0.90. Below that, the causes
    decide the next TypeScript item, not the floor.
+   **Measured** (2026-11-03,
+   [TypeScript measurements](./TYPESCRIPT-SUPPORT-MEASUREMENTS.md#m1-test-reach-against-coverage)):
+   untested precision, recall, and tested precision are 0.091 / 0.964 /
+   0.995 on tstodon (1,034 functions, 538 of the 978 that ran called
+   untested) and 0.842 / 0.468 / 0.765 on cfwdon's web-ui (483, 15 of
+   312). 470 of tstodon's 538 sit under a Hono route handler that tests
+   reach only through a `SELF.fetch` request; 54 of web-ui's 91 functions
+   called tested that did not run are called only from event handlers the
+   tests never fire. No floor: M1 is report only, and neither repository
+   has a coverage run in CI.
 2. **M2, Go test reach against coverage.** A reader for
    `go tool cover -func` output, same harness. The baseline is above: 720
    of 735 called untested on testify.
@@ -347,10 +357,21 @@ method-call gap.
     as the Rust steps table did.
     Bar: the numbers recorded. Whether to gate `--scip` follows the Rust
     decision.
+    **Measured** with M1: tstodon 0.092 / 0.964 / 0.996 (535 ran and
+    called untested, 3 fewer: Durable Object stub calls), web-ui
+    unchanged.
 13. **T3, the causes M1 finds.** Lazy `await import()` routes and anonymous
     route arrows, only if M1's cause table attributes at least 10 wrong
     answers to them.
     Bar: those answers fixed, and tested precision no lower.
+    M1's table gives them 0 such answers on tstodon: it has no lazy
+    `await import()`, and its 457 answers under anonymous route arrows
+    stay wrong with an arrow node, because no test reaches a route file
+    by any edge. web-ui's 20 lazy pages are wrong the other way (called
+    tested, not run). The causes with 10 or more answers are the request
+    boundary (470), the hop limit (55 on tstodon, none of them unrun), and
+    call-valued module constants (#239, 10 on web-ui)
+    ([table](./TYPESCRIPT-SUPPORT-MEASUREMENTS.md#tstodon-why-the-functions-that-ran-are-called-untested)).
 14. **T4, eval coverage.** A refactor `pos_unused_typescript_export` case,
     and flow and architecture cases from the causes M1 finds.
 

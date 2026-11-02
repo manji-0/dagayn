@@ -19,4 +19,5 @@ This directory stores design notes and implementation plans that are more detail
 - `SCIP-CALL-RESOLUTION.md` — taking call targets from SCIP indexers and freezing the type-inference layer above Tree-sitter
 - `STABILITY-FINDING-TARGET.md` — SDP as the finding `unstable_dependency` (every one in the architecture overview, the ones a change introduced in a review), SAP as its evidence, and the eval cases that gate it
 - `TEST-REACH-TARGET.md` — tests the call graph cannot see: why a deeper caller walk is wrong (the dispatch hub), the `dagayn: tests` declaration that replaces it, and dispatch-aware reach, measured and not shipped
+- `TYPESCRIPT-SUPPORT-MEASUREMENTS.md` — TypeScript test reach against vitest coverage (tstodon, cfwdon's web-ui), with and without `--scip`, and the cause of every wrong answer
 - `TREESITTER-TERRAFORM-INTEGRATION.md` — Terraform grammar integration plan for the fork

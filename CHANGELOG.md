@@ -10,6 +10,15 @@ Removed).
 
 ### Added
 
+- The test-reach eval (`eval/run_test_reach_eval.py`) reads an istanbul
+  `coverage-final.json`, which vitest's `json` reporter writes from either
+  coverage provider, as TypeScript and JavaScript coverage (M1 of the
+  first-class languages plan). On tstodon 538 of the 978 functions that ran
+  are called untested (untested precision 0.091, recall 0.964, tested
+  precision 0.995), 470 of them under Hono route handlers that tests reach
+  only through `SELF.fetch`; on cfwdon's web-ui tested precision is 0.765,
+  mostly calls inside event handlers the tests never fire
+  (docs/plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md). No floor is set.
 - M3, the pre-registered Python agent experiment of the first-class
   languages plan (`eval/m3_python/`): eight questions a short script cannot
   answer (test reach, callers on an unnamed receiver type, callers through
