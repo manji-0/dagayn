@@ -237,7 +237,9 @@ pub(crate) fn symbol_visibility(conn: &rusqlite::Connection) -> Result<SymbolVis
 /// `re_export` on the edge, and whatever a Python package's `__init__.py`
 /// imports, which its importers reach as the package's attributes),
 /// transitively, and everything a module it glob-imports (`use super::*`,
-/// `glob`) itself imports.
+/// `glob`) itself imports. A Go package import (`package_import`) is not
+/// one: Go code names another package's symbols only through its
+/// qualifier (`import_path` on the call), never by a bare name.
 fn import_targets_conn(conn: &rusqlite::Connection) -> Result<HashMap<String, HashSet<String>>> {
     let mut direct: HashMap<String, HashSet<String>> = HashMap::new();
     let mut re_exports: HashMap<String, HashSet<String>> = HashMap::new();
@@ -248,7 +250,8 @@ fn import_targets_conn(conn: &rusqlite::Connection) -> Result<HashMap<String, Ha
                     OR file_path LIKE '%/__init__.py' OR file_path = '__init__.py', \
                 COALESCE(json_extract(extra, '$.glob'), 0) \
          FROM edges WHERE kind = 'IMPORTS_FROM' \
-           AND COALESCE(json_extract(extra, '$.path_use'), 0) = 0",
+           AND COALESCE(json_extract(extra, '$.path_use'), 0) = 0 \
+           AND COALESCE(json_extract(extra, '$.package_import'), 0) = 0",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok((
@@ -436,7 +439,8 @@ fn bind_bare_call_targets(
                     json_extract(extra, '$.receiver_type'), \
                     json_extract(extra, '$.module_file'), \
                     COALESCE(json_extract(extra, '$.receiver_unknown'), 0), \
-                    json_extract(extra, '$.receiver') IS NOT NULL \
+                    json_extract(extra, '$.receiver') IS NOT NULL, \
+                    json_extract(extra, '$.import_path') \
              FROM edges \
              WHERE (kind = 'CALLS' \
                     OR (kind = 'REFERENCES' \
@@ -457,6 +461,7 @@ fn bind_bare_call_targets(
                 row.get::<_, Option<String>>(5)?,
                 row.get::<_, i64>(6)? != 0,
                 row.get::<_, bool>(7)?,
+                row.get::<_, Option<String>>(8)?,
             ))
         })?;
         mapped.collect::<std::result::Result<Vec<_>, _>>()?
@@ -471,6 +476,7 @@ fn bind_bare_call_targets(
         module_file,
         receiver_unknown,
         named_receiver,
+        import_path,
     ) in edges
     {
         if looks_like_file_target(&target_qualified) {
@@ -490,8 +496,23 @@ fn bind_bare_call_targets(
         // Go `huff0.Compress()` or `cfg.Load()` (`receiver`: a package
         // qualifier, or a variable or type of the package): its target is
         // in that package or on that value's type, never the same-named
-        // function the caller's package makes visible.
+        // function the caller's package makes visible. Through an import
+        // (`import_path`) it is a top-level function or type of that
+        // package.
         if go && named_receiver {
+            let member = import_path.as_deref().and_then(|path| {
+                go_package_member(index.get(&target_qualified)?, path, visibility)
+            });
+            if let Some(qualified) = member {
+                set_call_target(
+                    tx,
+                    edge_id,
+                    &qualified,
+                    DIRECT_IMPORT_CONFIDENCE,
+                    ConfidenceTier::High,
+                )?;
+                resolved += 1;
+            }
             continue;
         }
         // JavaScript `x.get(..)` on a receiver of unknown type: the standard
@@ -567,20 +588,62 @@ fn bind_bare_call_targets(
         let Some((qualified, confidence, tier)) = resolution else {
             continue;
         };
-        tx.execute(
-            "UPDATE edges SET target_qualified = ?, target_name = ?, \
-             confidence = ?, confidence_tier = ? WHERE id = ?",
-            params![
-                qualified,
-                edge_target_name(&qualified),
-                confidence,
-                tier.as_str(),
-                edge_id
-            ],
-        )?;
+        set_call_target(tx, edge_id, &qualified, confidence, tier)?;
         resolved += 1;
     }
     Ok(resolved)
+}
+
+fn set_call_target(
+    tx: &Transaction<'_>,
+    edge_id: i64,
+    qualified: &str,
+    confidence: f64,
+    tier: ConfidenceTier,
+) -> Result<()> {
+    tx.execute(
+        "UPDATE edges SET target_qualified = ?, target_name = ?, \
+         confidence = ?, confidence_tier = ? WHERE id = ?",
+        params![
+            qualified,
+            edge_target_name(qualified),
+            confidence,
+            tier.as_str(),
+            edge_id
+        ],
+    )?;
+    Ok(())
+}
+
+/// The one top-level function or type of the Go package `import_path`
+/// among `candidates`: declared by a file of that package that is not a
+/// test (`_test.go` files are not part of what an importer sees). Two
+/// (the same function under two build tags) bind nothing.
+fn go_package_member(
+    candidates: &[String],
+    import_path: &str,
+    visibility: &SymbolVisibility,
+) -> Option<String> {
+    let namespace = normalize_namespace(import_path);
+    let members: Vec<&String> = candidates
+        .iter()
+        .filter(|qn| {
+            let Some((file, symbol)) = qn.split_once("::") else {
+                return false;
+            };
+            !symbol.contains('.')
+                && language_family(file) == Some("go")
+                && !file.ends_with("_test.go")
+                && visibility
+                    .declared
+                    .get(file)
+                    .is_some_and(|declared| declared.contains(&namespace))
+        })
+        .collect();
+    let [only] = members.as_slice() else {
+        return None;
+    };
+    Some((*only).clone())
 }
 
 fn load_bare_name_index(

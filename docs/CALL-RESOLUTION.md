@@ -48,7 +48,7 @@ parser; "post-processing" means the passes in
 | `inferred_from` | post-processing | `"observed_method"` when the package was inferred from typed calls of the same method name; `"return_table"` when the receiver was typed by a table of package return types (`re.match(..)` a `re.Match`). |
 | `resolved_by` | SCIP overlay | `"scip"` when a SCIP index settled the edge: it moved it to the definition's node or the symbol's package, or agreed with it. |
 | `callee_local` | SCIP overlay, Go extractor | `true` on an unresolved call whose callee the index reports as a local, a parameter, or a type parameter (a closure, a callback): nothing static names it. The Go extractor sets it on a plain call of a name the calling function declares (`f()` for a parameter `f func()`). |
-| `receiver`, `import_path` | extractor | `receiver`: the module or package a call goes through, or the value it is made on, as written (Python `query.run()`, Go `huff0.Compress()` and `cfg.Load()`, cgo `C.f()`). Never bound to a same-named symbol of the file, and in Go never by name at all. Go's `import_path` is the import the qualifier names (`example.com/m/huff0`); the `callers_of` name fallback counts the call as a caller only of a function of that package. |
+| `receiver`, `import_path` | extractor | `receiver`: the module or package a call goes through, or the value it is made on, as written (Python `query.run()`, Go `huff0.Compress()` and `cfg.Load()`, cgo `C.f()`). Never bound to a same-named symbol of the file, and in Go never by name at all. Go's `import_path` is the import the qualifier names (`example.com/m/huff0`): post-processing binds the call to the one top-level function or type of that package (no test file's), and the `callers_of` name fallback counts it as a caller only of a function of that package. |
 | `receiver_type` | extractor, post-processing | The receiver's type when it is a class of another file (`store: GraphStore`). The target is the bare method name until resolution binds it. |
 | `receiver_unknown` | extractor | The receiver's type is unknown (`x.m()` with `x` untyped). The call is never bound to a same-named function of the file. |
 | `receiver_from` | extractor | `{"call": name, "line": L, "unwrap": bool}`: the receiver is the result of the call `name` on line `L` of the same caller (`store_conn(s).execute()`, or a variable assigned from it). `unwrap` is set when the result was taken out of a wrapper (`?`, `.unwrap()`, `await`, `try`, Go's first of several results). |
@@ -216,7 +216,11 @@ transaction:
    (`this.item.show()` is not the caller class's `show`). Go: the files of a
    package share its import path as their namespace, a plain call binds only
    to a top-level function or type, a call with `receiver` (a package
-   qualifier or a value of the package) is never bound by name, and a typed
+   qualifier or a value of the package) is never bound by name, a call
+   through an import (`import_path`) binds to the one top-level function or
+   type of that package, found through the File nodes' namespaces and never
+   in a `_test.go` file (two, under different build tags, bind nothing),
+   `HIGH`; a typed
    receiver's method is looked up in its type's directory, whose files are
    its package ([SCHEMA.md](./SCHEMA.md#edges)); a call on another
    package's type (`receiver_package`) is left to step 4. For a call on a
@@ -250,7 +254,9 @@ transaction:
      "return_table"`; a method on what any other package call returned is
      left to the passes below, since it is often a builtin's
      (`path.read_text().splitlines()`, `fs.readFileSync(p).toString()`).
-     In Go, a qualified return type (`io.ReadCloser`) is the imported
+     In Go, the first result's type is read without its name (`io.ReadCloser`
+     of `(rc io.ReadCloser, err error)`); a qualified return type
+     (`io.ReadCloser`) is the imported
      package's, never a repository class of the same name; an unqualified
      one (`*Reader`) is a class of the function's own directory; and the
      method may be declared in any file of that directory. `MEDIUM`.
@@ -373,10 +379,12 @@ edges, not from `TESTED_BY`.
   receiver.
 - Go: package-level untyped variables are never marked, and a method of
   a value an interface declares (`r io.Reader`, an embedded interface) is
-  dispatch, which binds to no implementation. A call into another package
-  of the repository (`huff0.Compress()`) stays unbound: imports are not
-  yet bound to packages; only a method of a value of that package's
-  declared type (`d *zstd.Decoder`) is. Two files of one
+  dispatch, which binds to no implementation. A call into a package of
+  another module of the repository binds when the package's files declare
+  its import path, but the import itself keeps the path as its target
+  (only the importing file's own module is read). A dot import
+  (`. "example.com/m/zstd"`) binds no name, so its calls look plain and stay
+  unbound. Two files of one
   package declaring the same function under different build tags
   (`_amd64.go` and `_generic.go`) leave a plain call of it unbound. A
   default import name is guessed from the path (`go-isatty` gives

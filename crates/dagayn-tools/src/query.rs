@@ -1251,11 +1251,17 @@ fn run_pattern(
             }
         }
         "importers_of" => {
-            let file = node?.file_path.clone();
-            for edge in store.get_edges_by_target(&file).ok()? {
-                if edge.kind == "IMPORTS_FROM" && import_kind_matches(&edge, import_kind) {
-                    found.rows.push(importer_row(&edge));
-                    found.edges.push(edge_dict(&edge));
+            // A directory (a Go package) is imported through its files.
+            let files = match node {
+                Some(node) => vec![node.file_path.clone()],
+                None => store.files_in_directory(target).ok()?,
+            };
+            for file in &files {
+                for edge in store.get_edges_by_target(file).ok()? {
+                    if edge.kind == "IMPORTS_FROM" && import_kind_matches(&edge, import_kind) {
+                        found.rows.push(importer_row(&edge));
+                        found.edges.push(edge_dict(&edge));
+                    }
                 }
             }
             if depth > 1 {
@@ -1621,6 +1627,12 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
                 && is_external_package_target(store, target)?
             {
                 (None, Resolution::ExternalPackage)
+            } else if pattern == "importers_of"
+                && !named_exists()?
+                && !store.files_in_directory(target).ok()?.is_empty()
+            {
+                // A directory (a Go package): `run_pattern` reads its files.
+                (None, Resolution::Exact)
             } else if pattern == "file_summary" && looks_like_file_target(target) {
                 let candidates = file_path_candidates(&root, target)?;
                 if !file_is_indexed(store, &candidates)? {
