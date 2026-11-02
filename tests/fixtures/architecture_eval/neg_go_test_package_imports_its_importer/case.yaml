@@ -1,0 +1,40 @@
+description: 'Package b imports package a, and a''s external test package (package a_test, in a''s
+  directory) imports b: legal Go, since a test package is a package of its own that nothing imports.
+  No file imports one that imports it back, so there is no import cycle to report.'
+negative: true
+files:
+  go.mod: |
+    module example.com/demo
+
+    go 1.22
+  a/a.go: |
+    package a
+
+    // Value is the base value.
+    func Value() int {
+    	return 1
+    }
+  b/b.go: |
+    package b
+
+    import "example.com/demo/a"
+
+    // Twice doubles a's value.
+    func Twice() int {
+    	return 2 * a.Value()
+    }
+  a/a_test.go: |
+    package a_test
+
+    import (
+    	"testing"
+
+    	"example.com/demo/a"
+    	"example.com/demo/b"
+    )
+
+    func TestValue(t *testing.T) {
+    	if b.Twice() != 2*a.Value() {
+    		t.Fatal("Twice")
+    	}
+    }

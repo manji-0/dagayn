@@ -569,6 +569,102 @@ fn go_files_declare_their_package_import_path_as_namespace() {
 }
 
 #[test]
+fn go_imports_of_the_module_target_the_files_of_the_package() {
+    let mut root = std::env::temp_dir();
+    root.push(format!("dagayn-go-package-imports-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let main = r#"package main
+
+import (
+	"fmt"
+
+	"example.com/m"
+	"example.com/m/missing"
+	"example.com/m/tools/lint"
+	"example.com/other/pkg"
+	z "example.com/m/zstd"
+)
+
+func main() { fmt.Println(z.Compress(), m.Version()) }
+"#;
+    let files: &[(&str, &str)] = &[
+        ("go.mod", "module example.com/m\n\ngo 1.22\n"),
+        (
+            "version.go",
+            "package m\n\nfunc Version() string { return \"1\" }\n",
+        ),
+        ("cmd/demo/main.go", main),
+        (
+            "zstd/enc.go",
+            "package zstd\n\nfunc Compress() int { return 1 }\n",
+        ),
+        ("zstd/dec.go", "package zstd\n\nfunc decode() {}\n"),
+        ("zstd/enc_test.go", "package zstd\n\nfunc newFixture() {}\n"),
+        (
+            "zstd/x_test.go",
+            "package zstd_test\n\nimport \"example.com/m/zstd\"\n\nvar _ = zstd.Compress\n",
+        ),
+        (
+            "zstd/gen.go",
+            "//go:build ignore\n\npackage main\n\nfunc main() {}\n",
+        ),
+        ("zstd/README.md", "# zstd\n"),
+        ("tools/go.mod", "module example.com/m/tools\n"),
+        ("tools/lint/lint.go", "package lint\n"),
+    ];
+    for (path, text) in files {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    let imports = |file: &str| {
+        let source = std::fs::read(root.join(file)).unwrap();
+        let mut parser = RustOwnedParser::new();
+        let (_, edges) = parser.parse_file_in_repo(Some(&root), file, &source);
+        edges
+            .into_iter()
+            .filter(|edge| edge.kind == "IMPORTS_FROM")
+            .map(|edge| (edge.target, edge.extra))
+            .collect::<Vec<_>>()
+    };
+    let package = |file: &str, path: &str| {
+        (
+            file.to_string(),
+            serde_json::json!({"import_path": path, "package_import": true}),
+        )
+    };
+    let main_imports = imports("cmd/demo/main.go");
+    // The package's files, without its tests and the file the build
+    // ignores; an import naming no package of the module, or another
+    // module's, keeps its import path.
+    assert_eq!(
+        main_imports[1..],
+        [
+            package("version.go", "example.com/m"),
+            ("example.com/m/missing".to_string(), serde_json::json!({})),
+            (
+                "example.com/m/tools/lint".to_string(),
+                serde_json::json!({})
+            ),
+            ("example.com/other/pkg".to_string(), serde_json::json!({})),
+            package("zstd/dec.go", "example.com/m/zstd"),
+            package("zstd/enc.go", "example.com/m/zstd"),
+        ],
+        "{main_imports:#?}"
+    );
+    assert_eq!(main_imports[0].0, "fmt");
+    // An external test package imports the package it tests.
+    assert_eq!(
+        imports("zstd/x_test.go"),
+        [
+            package("zstd/dec.go", "example.com/m/zstd"),
+            package("zstd/enc.go", "example.com/m/zstd"),
+        ]
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn go_calls_through_a_package_or_a_local_function_value_are_no_plain_calls() {
     let source = br#"package zstd
 

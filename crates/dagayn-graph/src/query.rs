@@ -117,6 +117,23 @@ impl GraphStore {
         Ok(nodes)
     }
 
+    /// The indexed files directly in `directory` (not in its
+    /// subdirectories), sorted: a Go package's files.
+    pub fn files_in_directory(&self, directory: &str) -> Result<Vec<String>> {
+        let directory = directory.trim_end_matches('/');
+        if directory.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut stmt = self.conn.prepare(
+            "SELECT file_path FROM nodes WHERE kind = 'File' \
+               AND substr(file_path, 1, length(?1) + 1) = ?1 || '/' \
+               AND instr(substr(file_path, length(?1) + 2), '/') = 0 \
+             ORDER BY file_path",
+        )?;
+        let rows = stmt.query_map([directory], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
     pub fn get_nodes_by_files(
         &self,
         file_paths: &[String],

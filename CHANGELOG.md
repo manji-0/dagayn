@@ -77,6 +77,18 @@ Removed).
   On compress v1.20.1 production functions with no caller go from 0.312 to
   0.257, on testify v1.12.1 from 0.330 to 0.296; all 938 new edges agree
   with scip-go (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
+- Go imports are bound to packages (go extractor 12). An import of a
+  package of the file's own module targets the package's files, one
+  `IMPORTS_FROM` edge each (`import_path`, `package_import`), without its
+  tests and ignored files; an external test package (`package kong_test`)
+  imports the package it tests the same way. A call through the import
+  (`kong.New(...)`) binds to the package's one top-level function or type of
+  the name, never to one of its test files. `importers_of` takes a
+  directory (`internal/symbols`) and reports its files' importers. All 211
+  in-module imports of kong, testify, scip-go, and compress now reach files
+  (0 before), and functions that ran but are called untested go from 32 to
+  21 on testify v1.12.1 and from 274 to 237 on compress v1.20.1
+  (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
 
 ### Changed
 
@@ -222,6 +234,11 @@ Removed).
 
 ### Fixed
 
+- A Go method called on the first named result of a function
+  (`func openFile(..) (rc io.ReadCloser, ..)`, then `rc.Close()`) is no
+  longer bound to a repository type of the same name: the result's type is
+  read without its name. On compress v1.20.1 this removes 9 edges into
+  `zip/reader.go::ReadCloser.Close` that scip-go says are `io.Closer`'s.
 - Rust code run through a derived constructor, or through a type that
   another crate also names, is no longer reported untested. A call of an
   associated function (`Names::default()`, `names::Names::<T>::new()`)
