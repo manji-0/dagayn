@@ -1249,7 +1249,7 @@ fn resolves_pnpm_workspace_package_imports() {
             ("packages/a/src/base.ts", "export abstract class Base {}\n"),
             (
                 "packages/a/src/instant.ts",
-                "const make = () => (raw: string) => raw;\nexport const Instant = { parse: make() };\n",
+                "const make = () => (raw: string) => raw;\nconst check = make();\nexport const Instant = { parse: make(), check };\n",
             ),
             (
                 "packages/a/src/greet.ts",
@@ -1292,6 +1292,7 @@ export class Loud implements Greeter {
 export function run(g: Greeter): string {
   gone();
   Instant.parse("now");
+  Instant.check("now");
   return greet("x");
 }
 "#;
@@ -1308,6 +1309,12 @@ export function run(g: Greeter): string {
             "CALLS",
             "packages/b/src/main.ts::run",
             "packages/a/src/greet.ts::greet",
+        ),
+        // A call-valued member of an imported object is a node.
+        (
+            "CALLS",
+            "packages/b/src/main.ts::run",
+            "packages/a/src/instant.ts::Instant.parse",
         ),
         (
             "CALLS",
@@ -1345,12 +1352,12 @@ export function run(g: Greeter): string {
 
     // A member of an imported object the graph has no node for stays on
     // that receiver, never a same-named standard method.
-    let parse = edges
+    let check = edges
         .iter()
-        .find(|edge| edge.kind == "CALLS" && edge.target == "parse")
+        .find(|edge| edge.kind == "CALLS" && edge.target == "check")
         .unwrap_or_else(|| panic!("{edges:?}"));
-    assert_eq!(parse.extra["receiver_type"], "Instant", "{parse:?}");
-    assert!(parse.extra.get("receiver_unknown").is_none(), "{parse:?}");
+    assert_eq!(check.extra["receiver_type"], "Instant", "{check:?}");
+    assert!(check.extra.get("receiver_unknown").is_none(), "{check:?}");
 
     let file = "packages/c/src/main.ts";
     let source = "import { greet } from \"@ws/a\";\nexport function run() { greet(); }\n";

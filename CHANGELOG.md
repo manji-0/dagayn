@@ -234,6 +234,20 @@ Removed).
 
 ### Fixed
 
+- A call of a call-valued member of an exported TypeScript object
+  (`IsoInstant.parse(x)` for `export const IsoInstant = { schema, parse:
+  schemaResult(schema) } as const`) reaches a node (#228). The member is a
+  `Function` node (`member_role: "call_result"`) and the object a container
+  (TypeScript / JavaScript extractor 13), in a named export and the objects
+  nested in it; a module-private object or an `export default` object keeps
+  such members as data. A companion `type IsoInstant` merges into the
+  container, as it already did for an object with a method, so type
+  references keep their target. On tstodon 126 CALLS edges move onto the 57
+  new members, in the plain build and under `dagayn build --scip` alike
+  (TypeScript CALLS to a node 33.14% to 33.61%); the indexes confirm 122 of
+  them, and the edges whose SCIP definition no node held go from 128 to 6
+  (shorthand members such as `IpBlock.matches`). cfwdon's TypeScript edges
+  do not change.
 - A Go method called on the first named result of a function
   (`func openFile(..) (rc io.ReadCloser, ..)`, then `rc.Close()`) is no
   longer bound to a repository type of the same name: the result's type is
