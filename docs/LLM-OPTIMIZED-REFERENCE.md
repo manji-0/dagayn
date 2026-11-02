@@ -186,10 +186,11 @@ Codex hooks in `~/.codex/config.toml`, unless `--no-hooks` is used. Claude hooks
 are written to `~/.claude/settings.json`.
 
 `architecture_analysis_tool(mode="overview")` returns a map of the units the
-repository declares (`units`: Cargo crates, npm packages, Go modules, Python
+repository declares (`units`: Cargo crates, npm packages, Go packages, Python
 import packages, Terraform modules; `unit_edges`: the calls, imports,
 references, and bridges between them, `declared` when a manifest lists the
-dependency) and `findings`: `import_cycle` (modules that import each other at
+dependency, or for Go when the importing module's `go.mod` requires the
+module imported) and `findings`: `import_cycle` (modules that import each other at
 load time, with the imports to cut), `unstable_dependency` (a unit that depends
 on a less stable one, with the imports that make it and the SAP position of
 the unit depended on), `untested_core` (code used from many files

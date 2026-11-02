@@ -89,6 +89,20 @@ Removed).
   (0 before), and functions that ran but are called untested go from 32 to
   21 on testify v1.12.1 and from 274 to 237 on compress v1.20.1
   (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
+- Go packages are units of the architecture map. A directory with a `.go`
+  file other than a test, under a `go.mod`, is a `go_package` named by its
+  import path, in place of one `go_module` per module; `unit_edges` between
+  packages come from G3's package imports, and an import of a package of
+  another module of the repository counts, `declared: true`, when the
+  importing module's `go.mod` requires that module. On scip-go v0.2.7 the
+  overview goes from 1 unit and 0 edges to 15 packages and 33 dependency
+  pairs, which match the source's 32 import pairs plus one call; compress
+  v1.20.1 gets 36 units, 41 pairs, and one `unstable_dependency` (`zstd` on
+  `huff0`). `import_cycles` with `scope_kind="package"` leaves out the
+  imports of test files, which nothing imports, so an external test package
+  (`package a_test`) importing a package that imports `a` is no cycle. New
+  architecture cases `neg_layered_go_packages` and
+  `pos_unstable_dependency_go` (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
 
 ### Changed
 

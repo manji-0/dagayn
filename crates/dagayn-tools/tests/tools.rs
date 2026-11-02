@@ -3538,3 +3538,112 @@ fn go_packages_are_imported_through_their_files() {
         "{tests}"
     );
 }
+
+/// A Go package is a unit, named by its import path; an import of a package
+/// of another module of the repository is a declared dependency when the
+/// importing module's `go.mod` requires that module.
+#[test]
+fn go_packages_are_units_and_required_modules_are_declared() {
+    // dagayn: tests crates/dagayn-tools/src/arch_tool.rs::architecture
+    let repo = Repo::new("go-package-units", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "mathx/math.go",
+        "package mathx\n\n// Add adds.\nfunc Add(a, b int) int {\n\treturn a + b\n}\n",
+    );
+    repo.write(
+        "mathx/math_test.go",
+        "package mathx_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/demo/report\"\n)\n\n\
+         func TestLine(t *testing.T) {\n\t_ = report.Line(1)\n}\n",
+    );
+    repo.write(
+        "report/report.go",
+        "package report\n\nimport \"example.com/demo/mathx\"\n\n\
+         // Line formats a sum.\nfunc Line(a int) int {\n\treturn mathx.Add(a, a)\n}\n",
+    );
+    repo.write(
+        "tools/go.mod",
+        "module example.com/demo/tools\n\ngo 1.22\n\nrequire example.com/demo v0.0.0\n\n\
+         replace example.com/demo => ../\n",
+    );
+    repo.write(
+        "tools/gen/gen.go",
+        "package main\n\nimport \"example.com/demo/report\"\n\nfunc main() {\n\t_ = report.Line(2)\n}\n",
+    );
+    repo.write("other/go.mod", "module example.com/other\n\ngo 1.22\n");
+    repo.write(
+        "other/use/use.go",
+        "package use\n\nimport \"example.com/demo/mathx\"\n\nfunc Use() int {\n\treturn mathx.Add(1, 2)\n}\n",
+    );
+    repo.build();
+
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let overview = answer(&context, "architecture_analysis_tool", json!({}));
+    let mut units: Vec<(&str, &str)> = overview["units"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|unit| Some((unit["name"].as_str()?, unit["kind"].as_str()?)))
+        .collect();
+    units.sort_unstable();
+    // The root holds no Go package; the helper's app.py is the module's.
+    assert_eq!(
+        units,
+        [
+            ("example.com/demo", "go_module"),
+            ("example.com/demo/mathx", "go_package"),
+            ("example.com/demo/report", "go_package"),
+            ("example.com/demo/tools/gen", "go_package"),
+            ("example.com/other/use", "go_package"),
+        ],
+        "{}",
+        overview["units"]
+    );
+    let edges: Vec<(&str, &str, bool)> = overview["unit_edges"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|edge| {
+            Some((
+                edge["from"].as_str()?,
+                edge["to"].as_str()?,
+                edge["declared"].as_bool().unwrap_or(false),
+            ))
+        })
+        .collect();
+    assert!(
+        edges.contains(&("example.com/demo/report", "example.com/demo/mathx", false)),
+        "{edges:?}"
+    );
+    assert!(
+        edges.contains(&(
+            "example.com/demo/tools/gen",
+            "example.com/demo/report",
+            true
+        )),
+        "{edges:?}"
+    );
+    // The external test package's import is no dependency of the package,
+    // and closes no cycle between packages.
+    assert!(
+        !edges
+            .iter()
+            .any(|(from, _, _)| *from == "example.com/demo/mathx"),
+        "{edges:?}"
+    );
+    let cycles = answer(
+        &context,
+        "architecture_analysis_tool",
+        json!({"mode": "import_cycles", "scope_kind": "package"}),
+    );
+    assert_eq!(cycles["cycle_count"], 0, "{cycles}");
+    // example.com/other requires nothing of this repository: the call still
+    // binds, but no manifest declares the dependency.
+    assert!(
+        edges.contains(&("example.com/other/use", "example.com/demo/mathx", false)),
+        "{edges:?}"
+    );
+}

@@ -6,8 +6,8 @@
 
 What does dagayn answer about Go code, measured against coverage, before
 and after Go tests and Go packages are in the graph? These are the
-measurements of work items M2, G1, G2, G2b, and G3 of the first-class languages plan
-(`docs/plans/FIRST-CLASS-LANGUAGES-TARGET.md`, PR #217). Each item ships
+measurements of work items M2, G1, G2, G2b, G3, and G4 of the first-class
+languages plan (`docs/plans/FIRST-CLASS-LANGUAGES-TARGET.md`, PR #217). Each item ships
 only if it meets the bar the plan sets for it.
 
 ## Corpora
@@ -543,3 +543,107 @@ receiver's declaration in parentheses).
 | 25 | `require/require.go:1570` `assert.NotEqualf(..)` | `NotEqualf` | `assert/assertion_format.go::NotEqualf` | yes |
 
 25 of 25 right.
+
+## G4: units by package
+
+<!-- derived-from #g3-imports-bound-to-packages -->
+
+No extractor change: units are read from disk when the overview runs
+(`crates/dagayn-tools/src/units.rs`). A directory with a `.go` file other
+than a test, under the nearest `go.mod`, is a `go_package` unit named by its
+import path (the module path, then the directory below the `go.mod`). A
+`go.mod` directory with no such file stays the `go_module`. A directory of
+tests only declares nothing, so its tests count for the enclosing unit, as
+do directories under `testdata` or `vendor`. G3's in-module imports reach
+the package's files, so the edges between packages of one module come from
+the graph. An import of a package of another module of the repository keeps
+its import path as the target (G3); the map counts it as a dependency, with
+`declared: true`, when the importing package's `go.mod` requires that
+module. A `require` alone draws no edge, since it names a module and not one
+of its packages.
+
+`import_cycles` with `scope_kind="package"` leaves out imports made by test
+files. A test is counted for the unit it tests, but nothing imports it, so
+its imports close no cycle between units. Without this, an external test
+package (`package a_test`, in `a`'s directory) importing `b`, which imports
+`a`, read as the cycle `a` ↔ `b`, which Go permits (the tree of
+`neg_go_test_package_imports_its_importer`, with package units and without
+this rule).
+
+The graphs are full builds at go 12 (main at `3b5e1f13`) of kong v1.15.0,
+testify v1.12.1, scip-go v0.2.7, and compress v1.20.1, all copies of the Go
+module cache. A module zip leaves out nested modules, so this compress has
+none of the clone's `s2/cmd/_s2sx` and `zstd/_generate`. Before and after
+are the overview of the same graph by main's build and the branch's build.
+
+### The bar
+
+| Clause | Before | After | Met |
+|---|---|---|---|
+| scip-go's overview shows its `internal/*` packages | 1 unit (`go_module`) | 15 `go_package` units: `cmd/scip-go` and 14 under `internal/` | yes |
+| and the edges between them | 0 | 33 pairs (30 listed, 3 in `unit_edges_omitted`) | yes |
+| `neg_layered_go_packages` (Go counterpart of `neg_layered_units`) | fails: 6 expected units not mapped | passes: 6 `go_package` units, no findings | yes |
+
+The new case `pos_unstable_dependency_go` (the Go counterpart of
+`pos_unstable_dependency_rust`, kernel importing plugins) also fails on main
+(no units, the finding missed) and passes on the branch.
+
+### The four modules
+
+| Repository | Units before / after | Unit edge pairs before / after | Import pairs in the source | `unstable_dependency` before / after | Package cycles |
+|---|---|---|---|---|---|
+| kong | 1 / 4 | 0 / 3 | 3 | 0 / 0 | 0 |
+| testify | 1 / 11 | 0 / 9 | 10 | 0 / 0 | 0 |
+| scip-go | 1 / 15 | 0 / 33 | 32 | 0 / 0 | 0 |
+| compress | 1 / 36 | 0 / 41 | 41 | 0 / 1 | 0 |
+
+The source pairs are counted by a script that reads the `import` lines of
+every `.go` file other than a test and keeps those naming a package of the
+module (`check_edges.py`). They match the graph's package-import pairs
+exactly on scip-go, compress, and kong. Every listed unit edge with an
+`imports` count is a source pair. scip-go has one more pair, calls only:
+`internal/implementations` calls `Composer.Compose` of `internal/symbols`
+through `e.global.Composer()` (`extractor.go:102`) without importing it,
+which Go allows. testify's missing pair is `http` → `mock`: the only
+importer is `http/test_round_tripper.go`, which the shared test-path rule
+(`test_` prefix) reads as a test, though Go tests end in `_test.go`
+([#240](https://github.com/manji-0/dagayn/issues/240)).
+
+kong's units are the root package and the three programs under
+`_examples`. Go's `./...` leaves out `_` directories, but they are packages
+the graph indexes, so they are units. compress's 36 units fit under the
+overview's 40. Its minimal overview is 13,641 characters (500 before), most
+of it the import paths of 30 edges.
+
+A seeded sample (`random.Random(2026)`) of 12 listed edges, each with the
+first import line behind it, read from the file:
+
+| Edge (prefix dropped) | Import |
+|---|---|
+| scip-go `internal/index` → `internal/visitors` | `internal/index/scip.go:23` |
+| scip-go `cmd/scip-go` → `internal/index` | `cmd/scip-go/main.go:18` |
+| scip-go `internal/index` → `internal/output` | `internal/index/scip.go:21` |
+| scip-go `internal/index` → `internal/document` | `internal/index/scip.go:16` |
+| scip-go `internal/loader` → `internal/output` | `internal/loader/loader.go:14` |
+| scip-go `cmd/scip-go` → `internal/config` | `cmd/scip-go/main.go:16` |
+| compress `snappy` → `s2` | `snappy/decode.go:10` |
+| compress `snappy/xerial` → `s2` | `snappy/xerial/xerial.go:8` |
+| compress `s2` → `internal/race` | `s2/decode.go:14` |
+| compress `zstd` → `internal/cpuinfo` | `zstd/seqdec_amd64.go:6` |
+| compress `flate` → `internal/regmask` | `flate/fast_encoder.go:12` |
+| compress `s2/cmd/s2c` → `s2/cmd/internal/filepathx` | `s2/cmd/s2c/main.go:25` |
+
+12 of 12 name the target's import path.
+
+### The new finding
+
+compress gets one `unstable_dependency`: `zstd` (instability 0.62, 5
+dependents, 8 dependencies) depends on `huff0` (0.86, 1 dependent, 6
+dependencies), first at `zstd/blockdec.go:14`. The imports are real:
+`huff0` imports `fse`, `internal/cpuinfo`, and `internal/le`, and its tests
+add `flate`, `internal/fuzz`, and `zip`; only `zstd` imports it. The
+metrics count test files' imports, as for every language. Without them
+`huff0` is 0.75 and `zstd` 0.60, still a gap over 0.1, so the finding
+stands on production imports alone. It is right by the principle's
+definition. Whether it calls for a change is a design question: `huff0` is
+a codec only `zstd` uses.
