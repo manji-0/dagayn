@@ -906,3 +906,68 @@ func run(e *Encoder, br []bitReader) {
     // A variable shadowing the slice it takes an element of.
     assert_eq!(call("finished", 19).extra["receiver_type"], "bitReader");
 }
+
+#[test]
+fn go_calls_without_a_selector_never_bind_to_methods() {
+    // From klauspost/compress `zip` and `s2`.
+    let source = br#"package zip
+
+type writeBuf []byte
+
+func (b *writeBuf) uint64(v uint64) {}
+
+type Writer struct{}
+
+func (w *Writer) compressor(method uint16) {
+	compressor(method)
+	_ = uint64(method)
+	w.compressor(method)
+}
+
+func (w *Writer) write(p []byte) {}
+
+func (w *Writer) AddSkippableBlock(data []byte) {
+	write := func(b []byte) error { return nil }
+	write(data)
+	w.write(data)
+}
+
+func TestCompare() {
+	type customInt int
+	_ = customInt(1)
+}
+"#;
+    let (_, edges) = parse_go("zip/writer.go", source);
+    let calls = |source: &str, line: i64| {
+        edges
+            .iter()
+            .filter(|edge| edge.kind == "CALLS" && edge.source == source && edge.line == line)
+            .map(|edge| edge.target.as_str())
+            .collect::<Vec<_>>()
+    };
+    // The package's `compressor` of another file and a conversion, not the
+    // methods of their names.
+    assert_eq!(
+        calls("zip/writer.go::Writer.compressor", 10),
+        ["compressor"]
+    );
+    assert_eq!(calls("zip/writer.go::Writer.compressor", 11), ["uint64"]);
+    assert_eq!(
+        calls("zip/writer.go::Writer.compressor", 12),
+        ["zip/writer.go::Writer.compressor"]
+    );
+    // A local closure named like a method.
+    assert_eq!(
+        calls("zip/writer.go::Writer.AddSkippableBlock", 19),
+        ["write"]
+    );
+    assert_eq!(
+        calls("zip/writer.go::Writer.AddSkippableBlock", 20),
+        ["zip/writer.go::Writer.write"]
+    );
+    // A declaration nested in the caller still binds.
+    assert_eq!(
+        calls("zip/writer.go::TestCompare", 25),
+        ["zip/writer.go::TestCompare.customInt"]
+    );
+}

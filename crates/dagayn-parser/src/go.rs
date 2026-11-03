@@ -61,7 +61,7 @@ pub(super) fn parse_go_with_parser(
             nodes[0].extra["cgo_libraries"] = json!(libraries);
         }
         set_declared_namespaces(&mut nodes, namespace.into_iter().collect());
-        let mut edges = resolve_rust_call_targets(&nodes, edges, &file_path);
+        let mut edges = go_resolve_call_targets(&nodes, edges, &file_path);
         if test_file {
             add_tested_by_edges(&nodes, &mut edges);
         }
@@ -69,6 +69,57 @@ pub(super) fn parse_go_with_parser(
     }
 
     (nodes, edges)
+}
+
+/// Same-file resolution, except that a call without a selector never binds to
+/// a method. Go calls a method only through a selector (`w.compressor(m)`),
+/// so a bare `compressor(m)` in a method of `Writer` is the package's
+/// function, a conversion (`uint64(n)`), or a local closure, never
+/// `Writer.compressor`, which the shared resolver would pick.
+fn go_resolve_call_targets(
+    nodes: &[ParsedNode],
+    edges: Vec<ParsedEdge>,
+    file_path: &str,
+) -> Vec<ParsedEdge> {
+    let functions = nodes
+        .iter()
+        .filter(|node| {
+            matches!(
+                node.kind,
+                crate::core::types::NodeKind::Function | crate::core::types::NodeKind::Test
+            )
+        })
+        .collect::<Vec<_>>();
+    let scopes = functions
+        .iter()
+        .map(|node| qualify(file_path, &node.name, node.parent_name.as_deref()))
+        .collect::<HashSet<_>>();
+    // A method's parent is a type; a function's nested declaration has its
+    // function as parent.
+    let methods = functions
+        .iter()
+        .filter_map(|node| {
+            let parent = node.parent_name.as_deref()?;
+            (!scopes.contains(&qualify(file_path, parent, None)))
+                .then(|| qualify(file_path, &node.name, Some(parent)))
+        })
+        .collect::<HashSet<_>>();
+    let bare_calls = edges
+        .iter()
+        .map(|edge| {
+            (edge.kind == crate::core::types::EdgeKind::Calls && !edge.target.contains("::"))
+                .then(|| edge.target.clone())
+        })
+        .collect::<Vec<_>>();
+    let mut edges = resolve_rust_call_targets(nodes, edges, file_path);
+    for (edge, bare_call) in edges.iter_mut().zip(bare_calls) {
+        if let Some(name) = bare_call
+            && methods.contains(&edge.target)
+        {
+            edge.target = name;
+        }
+    }
+    edges
 }
 
 /// The import path of the package a file belongs to, its namespace: the
