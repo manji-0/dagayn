@@ -4177,3 +4177,140 @@ fn request_boundary_calls_follow_incremental_updates() {
             .any(|row| row.contains("-> src/index.ts::default.fetch"))
     );
 }
+
+/// The `tests_to_run` findings of `review`, as (targets, command) pairs.
+fn tests_to_run_of(review: &Value) -> Vec<(Vec<String>, String)> {
+    review["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|finding| finding["kind"] == "tests_to_run")
+        .map(|finding| {
+            let targets = finding["targets"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|target| target.as_str().map(str::to_string))
+                .collect();
+            (
+                targets,
+                finding["command"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect()
+}
+
+/// Go: `tests_to_run` names the `Test` and `Benchmark` that reach a changed
+/// function through helpers of the test file, not the helpers, and runs the
+/// benchmark with `-bench`; a `test_*.go` file is production code (#240,
+/// #255).
+#[test]
+fn go_tests_to_run_names_the_tests_behind_helpers() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    let repo = Repo::new("go-tests-to-run", true);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    let math = |op: &str| {
+        format!(
+            "package mathx\n\nfunc Add(a, b int) int {{\n\treturn a {op} b\n}}\n\nfunc Mul(a, b int) int {{\n\treturn a * b {op} 0\n}}\n"
+        )
+    };
+    let helpers = |op: &str| {
+        format!(
+            "package mathx\n\n// Sum is production code, though its file starts with test_.\nfunc Sum(xs ...int) int {{\n\ttotal := 0\n\tfor _, x := range xs {{\n\t\ttotal = total {op} x\n\t}}\n\treturn total\n}}\n"
+        )
+    };
+    repo.write("mathx/math.go", &math("+"));
+    repo.write("mathx/test_helpers.go", &helpers("+"));
+    repo.write(
+        "mathx/math_test.go",
+        "package mathx\n\nimport \"testing\"\n\nfunc checkAdd(t *testing.T) {\n\tif Add(1, 2) != 3 {\n\t\tt.Fatal(\"Add\")\n\t}\n}\n\nfunc TestAdd(t *testing.T) {\n\tcheckAdd(t)\n}\n\nfunc benchMul(b *testing.B) {\n\tfor i := 0; i < b.N; i++ {\n\t\tMul(2, 3)\n\t}\n}\n\nfunc BenchmarkMul(b *testing.B) {\n\tbenchMul(b)\n}\n",
+    );
+    // A suite method: `suite.Run` calls it by reflection, so no test is seen
+    // to reach it, and the package's tests are the command.
+    repo.write(
+        "mathx/suite_test.go",
+        "package mathx\n\ntype mathSuite struct{}\n\nfunc (s *mathSuite) TestMul() {\n\t_ = Mul(2, 3)\n}\n",
+    );
+    commit_all(&repo, "go");
+    repo.build();
+    repo.write("mathx/math.go", &math("-"));
+    repo.write("mathx/test_helpers.go", &helpers("-"));
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let review = answer(
+        &context,
+        "review_tool",
+        json!({"mode": "changes", "base": "HEAD"}),
+    );
+    assert_eq!(
+        tests_to_run_of(&review),
+        vec![
+            (
+                vec![
+                    "mathx/math_test.go::BenchmarkMul".to_string(),
+                    "mathx/math_test.go::TestAdd".to_string(),
+                ],
+                "go test ./mathx -run '^TestAdd$' -bench '^BenchmarkMul$'".to_string(),
+            ),
+            (
+                vec!["mathx/suite_test.go::mathSuite.TestMul".to_string()],
+                "go test ./mathx".to_string(),
+            ),
+        ],
+        "{review}"
+    );
+    let untested: Vec<&Value> = review["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|finding| finding["kind"] == "untested_change")
+        .collect();
+    assert_eq!(untested.len(), 1, "{review}");
+    assert_eq!(untested[0]["qualified_name"], "mathx/test_helpers.go::Sum");
+}
+
+/// Rust: a function under `tests/` that the tests call is a helper, though
+/// its path makes it a `Test` node; `tests_to_run` names the test calling
+/// it, whose `cargo test` filter runs something.
+#[test]
+fn rust_tests_to_run_names_the_test_behind_an_integration_helper() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    let repo = Repo::new("rust-tests-to-run", true);
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub fn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n",
+    );
+    repo.write(
+        "tests/it.rs",
+        "fn helper() -> i64 {\n    demo::add(1, 2)\n}\n\n#[test]\nfn adds() {\n    assert_eq!(helper(), 3);\n}\n",
+    );
+    commit_all(&repo, "rust");
+    repo.build();
+    repo.write(
+        "src/lib.rs",
+        "pub fn add(a: i64, b: i64) -> i64 {\n    b + a\n}\n",
+    );
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let review = answer(
+        &context,
+        "review_tool",
+        json!({"mode": "changes", "base": "HEAD"}),
+    );
+    assert_eq!(
+        tests_to_run_of(&review),
+        vec![(
+            vec!["tests/it.rs::adds".to_string()],
+            "cargo test -p demo --test it adds".to_string(),
+        )],
+        "{review}"
+    );
+}

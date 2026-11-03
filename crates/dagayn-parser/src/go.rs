@@ -193,10 +193,16 @@ fn go_is_build_ignore(comment: &str) -> bool {
 /// A file `go test` compiles only for testing: `name_test.go`, in the
 /// package itself or in its external test package (`package name_test`).
 fn go_is_test_file(file_path: &str) -> bool {
-    file_path
-        .rsplit('/')
-        .next()
-        .is_some_and(|name| name.ends_with("_test.go"))
+    go_test_file(file_path) == Some(true)
+}
+
+/// Go's test-file rule, for the path predicates of every language: a `.go`
+/// file is a test exactly when its name ends in `_test.go`, so neither a
+/// `test_` prefix (`test_round_tripper.go`) nor a `.test.` infix makes one.
+/// `None` for a file that is not Go, which the caller's own rules decide.
+pub fn go_test_file(path: &str) -> Option<bool> {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    name.ends_with(".go").then(|| name.ends_with("_test.go"))
 }
 
 /// A function `go test` runs: `TestX`, `BenchmarkX`, `FuzzX`, or `ExampleX`

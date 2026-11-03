@@ -41,12 +41,14 @@ pub(crate) fn is_test_file_path(file_path: &str) -> bool {
     let normalized = file_path.replace('\\', "/");
     let name = normalized.rsplit('/').next().unwrap_or("");
     TEST_FILE_PARTS.iter().any(|part| normalized.contains(part))
-        || name.starts_with("test_")
-        || name == "tests.rs"
-        || name == "test.rs"
-        || TEST_FILE_SUFFIXES
-            .iter()
-            .any(|suffix| name.ends_with(suffix))
+        || dagayn_parser::go_test_file(name).unwrap_or_else(|| {
+            name.starts_with("test_")
+                || name == "tests.rs"
+                || name == "test.rs"
+                || TEST_FILE_SUFFIXES
+                    .iter()
+                    .any(|suffix| name.ends_with(suffix))
+        })
 }
 
 /// `PurePosixPath(path)`'s name and its parent's name.
@@ -633,5 +635,8 @@ mod tests {
         assert!(is_test_file_path("src\\tests\\a.py"));
         assert!(is_test_file_path("pkg/foo.spec.ts"));
         assert!(!is_test_file_path("pkg/contest.py"));
+        assert!(is_test_file_path("pkg/test_app.py"));
+        assert!(!is_test_file_path("http/test_round_tripper.go"));
+        assert!(is_test_file_path("http/round_tripper_test.go"));
     }
 }

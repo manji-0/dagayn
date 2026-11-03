@@ -639,6 +639,9 @@ an `action`. Kinds:
   generated code are excluded.
 - `tests_to_run`: direct tests of the changed code, and changed tests. One
   finding per test file (Rust unit tests: one per crate), with a `command`.
+  A helper of the tests is replaced by the tests that call it (within 3
+  calls); one no test is seen to call keeps a command for its whole file
+  or Go package. Go benchmarks run with `-bench`.
 
 Comment- and layout-only edits are not changes (Python is compared by syntax
 tree). Each kind keeps 10 findings; `findings_omitted` counts the rest per
