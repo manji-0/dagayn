@@ -348,6 +348,13 @@ Removed).
 
 ### Fixed
 
+- `apply_refactor_tool` keeps each line's ending. It read the files it
+  edits with universal newlines and wrote them back with `\n`, so a
+  one-identifier rename in a CRLF file rewrote every line of it. It now
+  reads and writes the bytes as they are: in a CRLF file, a file with lone
+  `\r` ends, or one that mixes them, only the renamed identifiers change,
+  and the `dry_run` diff carries the same line ends that are written. Files
+  with `\n` ends are edited as before (#180).
 - `dagayn build --scip` no longer takes a call's target from a later line
   when the call's own line calls the name and the index has no reference
   there. The overlay searches the next eight lines for a chain the

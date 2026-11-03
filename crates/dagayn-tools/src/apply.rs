@@ -2,16 +2,17 @@
 //! ([`crate::pending`]), applied at the line it recorded and to whole
 //! identifiers only, or shown as a unified diff with `dry_run`.
 //!
-//! Every edited file is read before anything is written. A file that is not
-//! UTF-8 is read with replacement characters and universal newlines, and is
-//! written back that way.
+//! Every edited file is read before anything is written. Line ends are read
+//! and written as they are (`\r\n`, a lone `\r`, and `\n` alike), so an
+//! edit changes only the bytes of the identifiers it renames, and the
+//! `dry_run` diff shows what is written. A file that is not UTF-8 is read
+//! with replacement characters and is written back that way.
 
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 
 use crate::difflib::{splitlines, unified_diff};
-use crate::docs::read_text;
 use crate::pypath::realpath;
 use crate::{Args, Context, Ordered, Payload, is_placeholder, pending};
 
@@ -275,7 +276,13 @@ pub(crate) fn apply_refactor(context: &Context, arguments: &Map<String, Value>) 
             skipped.extend(group.iter().map(|edit| edit.skipped("file_not_found")));
             continue;
         }
-        let Some(original) = read_text(&path) else {
+        // Not `docs::read_text`, which turns `\r\n` and `\r` into `\n`: the
+        // line an edit names is counted the same either way (`splitlines`
+        // ends a line at each of them), but the write keeps the file's ends.
+        let Some(original) = std::fs::read(&path)
+            .ok()
+            .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        else {
             skipped.extend(group.iter().map(|edit| edit.skipped("file_unreadable")));
             continue;
         };

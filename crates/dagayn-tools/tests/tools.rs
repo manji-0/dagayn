@@ -2099,6 +2099,31 @@ fn ensure_graph_leaves_a_tree_outside_git_to_python() {
     assert!(declines(&repo.context(), "ensure_graph_tool", json!({})));
 }
 
+/// The new file a whole-file unified diff describes: its context and added
+/// lines, after the `---`/`+++`/`@@` headers.
+fn new_side(diff: &str) -> String {
+    let body = diff.splitn(4, '\n').nth(3).expect("diff headers");
+    let mut out = String::new();
+    let mut rest = body;
+    while !rest.is_empty() {
+        // Each diff line is a marker and a source line with its own end.
+        let (marker, tail) = rest.split_at(1);
+        let end = tail
+            .char_indices()
+            .find_map(|(i, c)| match c {
+                '\n' => Some(i + 1),
+                '\r' if !tail[i + 1..].starts_with('\n') => Some(i + 1),
+                _ => None,
+            })
+            .unwrap_or(tail.len());
+        if marker != "-" {
+            out.push_str(&tail[..end]);
+        }
+        rest = &tail[end..];
+    }
+    out
+}
+
 #[test]
 fn a_rename_preview_is_applied_or_shown_as_a_diff() {
     // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
@@ -2142,8 +2167,8 @@ fn a_rename_preview_is_applied_or_shown_as_a_diff() {
         format!("Refactor '{id}' not found or expired.")
     );
 
-    // Bytes that are not UTF-8 are replaced, and the file is written back
-    // that way with `\n` line ends, as `read_text`/`write_text` do.
+    // CRLF line ends are kept (#180), and bytes that are not UTF-8 are
+    // replaced and written back that way. The diff shows what is written.
     let id = rename("main", "start");
     std::fs::write(
         repo.0.join("app.py"),
@@ -2155,19 +2180,16 @@ fn a_rename_preview_is_applied_or_shown_as_a_diff() {
         "apply_refactor_tool",
         json!({"refactor_id": id, "dry_run": true}),
     );
+    let diff = dry["diffs"]["app.py"].as_str().expect("diff");
     assert!(
-        dry["diffs"]["app.py"]
-            .as_str()
-            .expect("diff")
-            .contains("+def start():\n     return '\u{fffd}'\n"),
+        diff.contains("-def main():\r\n+def start():\r\n     return '\u{fffd}'\r\n"),
         "{dry}"
     );
     let applied = answer(&context, "apply_refactor_tool", json!({"refactor_id": id}));
     assert_eq!(applied["status"], "ok", "{applied}");
-    assert_eq!(
-        std::fs::read_to_string(repo.0.join("app.py")).expect("app.py"),
-        "def start():\n    return '\u{fffd}'\n"
-    );
+    let written = std::fs::read_to_string(repo.0.join("app.py")).expect("app.py");
+    assert_eq!(written, "def start():\r\n    return '\u{fffd}'\r\n");
+    assert_eq!(new_side(diff), written);
 
     // A preview Python would have stored: a path that does not exist yet
     // is skipped, an empty name matches nothing, and a float line counts.
@@ -2177,6 +2199,37 @@ fn a_rename_preview_is_applied_or_shown_as_a_diff() {
             json!({"created_at": dagayn_tools::pending::now(), "edits": edits}).to_string(),
         );
     };
+    // A lone `\r` and a `\n` beside `\r\n` stay as they are; the line an
+    // edit names counts each of them as a line end.
+    std::fs::write(
+        repo.0.join("ends.py"),
+        b"x = 1\r\ny = old_n\rz = old_n\n\r\nw = old_n\r",
+    )
+    .expect("write");
+    stored(
+        "ends",
+        json!([
+            {"file": "ends.py", "line": 2, "old": "old_n", "new": "new_n"},
+            {"file": "ends.py", "line": 5, "old": "old_n", "new": "new_n"},
+        ]),
+    );
+    let dry = answer(
+        &context,
+        "apply_refactor_tool",
+        json!({"refactor_id": "ends", "dry_run": true}),
+    );
+    assert_eq!(dry["edits_applied"], 2, "{dry}");
+    let diff = dry["diffs"]["ends.py"].as_str().expect("diff").to_string();
+    let applied = answer(
+        &context,
+        "apply_refactor_tool",
+        json!({"refactor_id": "ends"}),
+    );
+    assert_eq!(applied["status"], "ok", "{applied}");
+    let written = std::fs::read(repo.0.join("ends.py")).expect("ends.py");
+    assert_eq!(written, b"x = 1\r\ny = new_n\rz = old_n\n\r\nw = new_n\r");
+    assert_eq!(new_side(&diff).as_bytes(), written);
+
     stored(
         "odd",
         json!([
