@@ -350,8 +350,7 @@ def test_apply_refactor_resolves_its_root_as_python_did(
     assert ambiguous["status"] == "error"
     assert ambiguous["error"].startswith("workspace hints name more than one repository")
 
-    # The write: CRLF line ends come back as `\n`, as `read_text` and
-    # `write_text` left them.
+    # The write keeps CRLF line ends: only the renamed names change (#180).
     monkeypatch.delenv("WORKSPACE_FOLDER_PATHS")
     (repo / "app.py").write_bytes(
         b"def main():\r\n    return helper()\r\n\r\n\r\ndef helper():\r\n"
@@ -361,7 +360,7 @@ def test_apply_refactor_resolves_its_root_as_python_did(
     assert applied["files_modified"] == [str((repo / "app.py").resolve())]
     assert (
         repo / "app.py"
-    ).read_bytes() == b"def main():\n    return assist()\n\n\ndef assist():\n"
+    ).read_bytes() == b"def main():\r\n    return assist()\r\n\r\n\r\ndef assist():\r\n"
 
 
 @pytest.fixture
