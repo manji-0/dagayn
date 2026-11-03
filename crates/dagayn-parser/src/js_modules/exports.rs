@@ -46,6 +46,8 @@ fn javascript_export_index_uncached(
     collect_javascript_import_map(root, &source, &mut import_map);
     let mut defined_names = HashSet::new();
     collect_javascript_defined_names(root, &source, &import_map, &mut defined_names);
+    defined_names
+        .extend(super::super::js_objects::collect_javascript_called_constants(root, &source));
     let mut named_exports = HashMap::new();
     let mut star_exports = Vec::new();
     let mut exported_declarations = HashSet::new();
@@ -133,6 +135,7 @@ fn javascript_export_index_uncached(
             star_exports.push(resolved_module);
         }
     }
+    let member_paths = super::super::js_objects::collect_javascript_member_paths(root, &source);
     Some(JavaScriptExportIndex {
         defined_names,
         exported_declarations,
@@ -141,9 +144,8 @@ fn javascript_export_index_uncached(
         star_exports,
         commonjs_value,
         class_table: Arc::new(collect_javascript_class_table(root, &source)),
-        member_paths: Arc::new(
-            super::super::js_objects::collect_javascript_member_paths(root, &source).members,
-        ),
+        member_paths: Arc::new(member_paths.members),
+        member_aliases: Arc::new(member_paths.aliases),
         import_map: Arc::new(import_map),
         type_paths: Arc::new(super::super::js_members::collect_javascript_type_paths(
             root, &source,

@@ -113,8 +113,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 13: a call-valued member of a module-scope object literal
         // (`parse: schemaResult(schema)`) is a `Function` node
         // (`member_role: "call_result"`), and makes the object a container.
+        // 14: a program-scope `const X = make(..)` that the file calls is a
+        // `Function` node (`binding_role: "call_result"`), and a call of a
+        // shorthand container member (`IpBlock.matches` for `{ matches }`)
+        // targets the function it aliases.
         extractor: "javascript",
-        version: 13,
+        version: 14,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {
