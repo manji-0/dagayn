@@ -3598,34 +3598,70 @@ fn go_callers_of_a_method_used_as_a_value_name_where_it_is_stored() {
         "package flate\n\ntype compressor struct{ step func(*compressor) }\n\n\
          func (d *compressor) storeFast() {}\n\n\
          func (d *compressor) init() {\n\td.step = (*compressor).storeFast\n}\n\n\
-         func (d *compressor) write() {\n\td.step(d)\n}\n",
+         func (d *compressor) write() {\n\td.step(d)\n\tflush(d)\n}\n\n\
+         func (d *compressor) reset() {\n\td.step = (*compressor).storeFast\n\td.storeFast()\n}\n\n\
+         func flush(d *compressor) {}\n",
     );
     repo.write(
         "flate/deflate_test.go",
         "package flate\n\nimport \"testing\"\n\n\
          func TestInit(t *testing.T) {\n\td := &compressor{}\n\td.init()\n}\n",
     );
+    repo.write(
+        "README.md",
+        "# Flate\n\nSee [flush](flate/deflate.go#flush).\n",
+    );
     repo.build();
     let context = repo.context();
-    let query = |pattern: &str| {
-        answer(
-            &context,
-            "query_graph_tool",
-            json!({"pattern": pattern, "target": "flate/deflate.go::compressor.storeFast"}),
-        )
+    let query = |args: Value| answer(&context, "query_graph_tool", args);
+    let store_fast = "flate/deflate.go::compressor.storeFast";
+    let relations = |reply: &Value| -> Vec<(String, Value)> {
+        let mut rows: Vec<(String, Value)> = reply["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .map(|row| {
+                (
+                    row["qualified_name"].as_str().unwrap_or("").to_string(),
+                    row["relation"].clone(),
+                )
+            })
+            .collect();
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        rows
     };
-    let callers = query("callers_of");
-    let rows = callers["results"].as_array().expect("results");
-    assert_eq!(rows.len(), 1, "{callers}");
-    assert_eq!(
-        rows[0]["qualified_name"], "flate/deflate.go::compressor.init",
-        "{callers}"
-    );
-    assert_eq!(rows[0]["relation"], "references", "{callers}");
+    let expected = vec![
+        (
+            "flate/deflate.go::compressor.init".to_string(),
+            json!("references"),
+        ),
+        (
+            "flate/deflate.go::compressor.reset".to_string(),
+            json!("calls,references"),
+        ),
+    ];
+    let callers = query(json!({"pattern": "callers_of", "target": store_fast}));
+    assert_eq!(relations(&callers), expected, "{callers}");
     let summary = callers["summary"].as_str().expect("summary");
-    assert!(summary.contains("1 use it as a value"), "{summary}");
+    assert!(summary.contains("2 use it as a value"), "{summary}");
     assert!(!summary.contains("is missing"), "{summary}");
-    let tests = query("tests_for");
+    let minimal =
+        query(json!({"pattern": "callers_of", "target": store_fast, "detail_level": "minimal"}));
+    assert_eq!(relations(&minimal), expected, "{minimal}");
+    // The test that calls `init` does not call `storeFast`.
+    let deep = query(json!({"pattern": "callers_of", "target": store_fast, "depth": 2}));
+    assert_eq!(relations(&deep), expected, "{deep}");
+    // A Markdown link to a function is no use of it as a value.
+    let flush = query(json!({"pattern": "callers_of", "target": "flate/deflate.go::flush"}));
+    assert_eq!(
+        relations(&flush),
+        [(
+            "flate/deflate.go::compressor.write".to_string(),
+            Value::Null
+        )],
+        "{flush}"
+    );
+    let tests = query(json!({"pattern": "tests_for", "target": store_fast}));
     assert_eq!(
         tests["test_reach"]["nearest_test"], "flate/deflate_test.go::TestInit",
         "{tests}"

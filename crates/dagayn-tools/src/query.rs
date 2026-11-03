@@ -388,6 +388,7 @@ const MINIMAL_FIELDS: &[&str] = &[
     "importer",
     "import_target",
     "import_kind",
+    "relation",
     "unresolved",
     "lines",
     "line",
@@ -402,6 +403,9 @@ const MERGED: &[&str] = &["callers_of", "callees_of", "inheritors_of", "importer
 /// A `callers_of` row's `relation` where the row uses the target as a
 /// value instead of calling it.
 const VALUE_REFERENCE: &str = "references";
+/// The merged row's `relation` for a node that both calls the target and
+/// uses it as a value.
+const CALLS_AND_REFERENCES: &str = "calls,references";
 /// `MAX_QUERY_DEPTH` and `_TRANSITIVE_ROW_LIMIT`.
 const MAX_DEPTH: i64 = 6;
 const TRANSITIVE_ROW_LIMIT: usize = 500;
@@ -636,6 +640,11 @@ fn merge(rows: Vec<Row>) -> Vec<Row> {
                         }
                         _ => existing.push(("import_kind", json!(kind))),
                     }
+                }
+                // A function that calls the target and also stores it as a
+                // value says both.
+                if get(&row, "relation") != get(existing, "relation") {
+                    set(existing, "relation", json!(CALLS_AND_REFERENCES));
                 }
             }
         }
@@ -1050,23 +1059,26 @@ fn expand_transitive(
     for row in &mut found.rows {
         row.push(("depth", json!(1)));
     }
-    let first_hop: Vec<String> = found
+    let first_hop: Vec<(String, bool)> = found
         .rows
         .iter()
         .map(|row| {
             let key = if importers { "file" } else { "qualified_name" };
-            get(row, key)
+            let name = get(row, key)
                 .and_then(Value::as_str)
                 .unwrap_or("")
-                .to_string()
+                .to_string();
+            (name, get(row, "relation") == Some(&json!(VALUE_REFERENCE)))
         })
         .collect();
     let mut seen: HashSet<String> = HashSet::new();
     seen.insert(start.to_string());
-    seen.extend(first_hop.iter().cloned());
+    seen.extend(first_hop.iter().map(|(key, _)| key.clone()));
     let mut frontier: Vec<String> = Vec::new();
-    for key in first_hop {
-        if !frontier.contains(&key) {
+    // A place that only stores the target as a value does not call it, so
+    // its own callers are not the target's.
+    for (key, reference) in first_hop {
+        if !reference && !frontier.contains(&key) {
             frontier.push(key);
         }
     }
@@ -1230,7 +1242,8 @@ fn run_pattern(
                 let references: Vec<GraphEdge> = incoming
                     .into_iter()
                     .filter(|e| {
-                        e.kind == "REFERENCES" && e.extra.get("relationship_role").is_none()
+                        e.kind == "REFERENCES"
+                            && e.extra.get("value_reference") == Some(&Value::Bool(true))
                     })
                     .collect();
                 let mut rows = found.edge_rows(store, &references, true)?;

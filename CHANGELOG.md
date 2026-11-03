@@ -346,8 +346,9 @@ Removed).
   A method expression (`(*T).m`, or `T.m` for a type of the file) is now a
   REFERENCES edge to the method, bound like a typed call. The go extractor
   is now version 14. For a Go target, `callers_of` lists these places with
-  `relation: "references"` and says that calls through the value are not
-  edges. `tests_for` follows them: `storeFast` is now reached by
+  `relation: "references"` (`"calls,references"` for a node that does
+  both) and says that calls through the value are not edges; `depth > 1`
+  does not walk on from a place that only stores the method. `tests_for` follows them: `storeFast` is now reached by
   `TestDeflate` in 2 hops, where before no test reached it. On compress, 12
   method expressions become edges, and 6 methods leave the `dead_code`
   candidates (the dead list stays empty). testify has no method
