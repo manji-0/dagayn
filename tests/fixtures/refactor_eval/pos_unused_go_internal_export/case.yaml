@@ -1,0 +1,33 @@
+description: An exported Go function of an internal package nothing calls. Only its own module may import an internal package, so the export is no API and the function is dead.
+files:
+  go.mod: |
+    module example.com/tool
+
+    go 1.22
+  main.go: |
+    package main
+
+    import "example.com/tool/internal/text"
+
+    func main() {
+    	println(text.Upper("a"))
+    }
+  internal/text/text.go: |
+    package text
+
+    import "strings"
+
+    func Upper(s string) string {
+    	return strings.ToUpper(s)
+    }
+
+    func Reverse(s string) string {
+    	out := []rune(s)
+    	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+    		out[i], out[j] = out[j], out[i]
+    	}
+    	return string(out)
+    }
+expected_findings:
+- kind: unused_symbol
+  target: internal/text/text.go::Reverse

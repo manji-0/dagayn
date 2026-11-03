@@ -437,6 +437,24 @@ fn implicit_method(language: &str, name: &str, is_method: bool) -> bool {
     listed.contains(&name)
 }
 
+/// Whether another module can use the Go name `name` declared in
+/// `file_path`: it is capitalized, and its package is neither `main` nor
+/// under an `internal` directory. Such a name is the package's API, so no
+/// use inside the repository is needed. An unused exported name of a
+/// `main` or `internal` package is dead, as an unused `pub(crate)` item is.
+fn go_exported_api(name: &str, file_path: &str, lines: &[String]) -> bool {
+    if !name.chars().next().is_some_and(char::is_uppercase) {
+        return false;
+    }
+    if file_path.split(['/', '\\']).any(|part| part == "internal") {
+        return false;
+    }
+    let package = lines
+        .iter()
+        .find_map(|line| line.trim_start().strip_prefix("package "));
+    package.is_some_and(|clause| clause.split_whitespace().next() != Some("main"))
+}
+
 /// The annotation, attribute, and decorator names in the header of the item
 /// at `line` (1-based): the definition line's own prefix, and the lines above
 /// it back to the previous statement, a blank line, or the file's start.
@@ -745,6 +763,9 @@ fn structural_reason(
             return Some("implicit_protocol_method");
         }
     }
+    if node.language == "go" && go_exported_api(&node.name, &node.file_path, lines) {
+        return Some("exported_api");
+    }
     if node.kind == "Function" && implicit_method(&node.language, &node.name, is_method) {
         return Some("implicit_protocol_method");
     }
@@ -898,7 +919,9 @@ pub(crate) fn verify(
 
 #[cfg(test)]
 mod tests {
-    use super::{header_annotations, implicit_method, rust_impl_trait, rust_trait_context};
+    use super::{
+        go_exported_api, header_annotations, implicit_method, rust_impl_trait, rust_trait_context,
+    };
 
     fn lines(text: &str) -> Vec<String> {
         text.lines().map(str::to_string).collect()
@@ -962,5 +985,20 @@ mod tests {
         assert!(implicit_method("php", "__construct", true));
         assert!(implicit_method("gdscript", "_ready", true));
         assert!(!implicit_method("python", "to_s", true));
+    }
+
+    #[test]
+    fn go_exports_are_api_only_outside_main_and_internal_packages() {
+        let library = lines("// Package shapes draws.\npackage shapes\n\nfunc Area() {}");
+        assert!(go_exported_api("Area", "shapes/area.go", &library));
+        assert!(!go_exported_api("area", "shapes/area.go", &library));
+        assert!(!go_exported_api(
+            "Area",
+            "internal/shapes/area.go",
+            &library
+        ));
+        let program = lines("//go:build linux\n\npackage main // the tool\n");
+        assert!(!go_exported_api("Run", "cmd/tool/main.go", &program));
+        assert!(!go_exported_api("Run", "cmd/tool/main.go", &[]));
     }
 }
