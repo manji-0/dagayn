@@ -1227,31 +1227,26 @@ fn edge_caveat(pattern: &str, language: &str, import_kind: Option<&str>) -> &'st
 
 /// The summary sentence for a node the graph has but that no edge of
 /// `pattern`'s kind reaches (#195): the node is there, the edges are not.
-fn no_edges_note(
-    pattern: &str,
-    target: &str,
-    language: &str,
-    import_kind: Option<&str>,
-) -> Option<String> {
+fn no_edges_note(pattern: &str, language: &str, import_kind: Option<&str>) -> Option<String> {
     let caveat = edge_caveat(pattern, language, import_kind);
     Some(match pattern {
         "callers_of" => format!(
-            "'{target}' is in the graph and nothing in it calls it; {caveat}. A use as a \
-             value (a callback, a registration, a stored method) is not a call edge, so \
+            "The node is in the graph and nothing in it calls it; {caveat}. A use as a \
+             value (a callback, a stored method) is not a call edge, so \
              callers may be missing: read where the name is used"
         ),
         "callees_of" => {
-            format!("'{target}' is in the graph and calls nothing it records; {caveat}")
+            format!("The node is in the graph and calls nothing it records; {caveat}")
         }
         "importers_of" => {
-            format!("'{target}' is in the graph and nothing in it imports it; {caveat}")
+            format!("The node is in the graph and nothing in it imports it; {caveat}")
         }
         "imports_of" => {
-            format!("'{target}' is in the graph and imports nothing it records; {caveat}")
+            format!("The node is in the graph and imports nothing it records; {caveat}")
         }
-        "tests_for" => format!("'{target}' is in the graph and no test in it reaches it"),
+        "tests_for" => "The node is in the graph and no test in it reaches it".to_string(),
         "source_of" | "file_summary" => return None,
-        _ => format!("'{target}' is in the graph, which records no {pattern} edges for it"),
+        _ => format!("The node is in the graph, which records no {pattern} edges for it"),
     })
 }
 
@@ -1806,7 +1801,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     let empty_note = node
         .as_ref()
         .filter(|_| raw_count == 0 && found.unresolved.is_empty() && exact_count > 0)
-        .and_then(|node| no_edges_note(pattern, target, &node.language, import_kind));
+        .and_then(|node| no_edges_note(pattern, &node.language, import_kind));
     let (confidence, zero_result_reason) = if raw_count > 0 {
         let high = !found.edges.is_empty()
             && found.edges.iter().all(|edge| {

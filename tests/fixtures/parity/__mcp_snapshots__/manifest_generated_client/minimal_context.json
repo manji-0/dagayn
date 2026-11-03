@@ -7,22 +7,10 @@
   ],
   "confidence": "high",
   "graph_health": {
-    "answerability": [
-      1,
-      0,
-      2,
-      0.0
-    ],
-    "parse": [
-      6,
-      3,
-      true
-    ],
     "reason_codes": [
-      "missing_test_edges",
-      "stale_derived_structures"
+      "missing_test_edges"
     ],
-    "score": 0.75,
+    "score": 0.9,
     "status": "ok"
   },
   "next": [
@@ -35,7 +23,7 @@
     }
   ],
   "status": "ok",
-  "summary": "9 nodes, 8 edges across 6 files.",
+  "summary": "9 nodes, 8 edges across 6 files. No changed files against HEAD~1.",
   "sync": {
     "state": "commit_synced",
     "status": "synced",
