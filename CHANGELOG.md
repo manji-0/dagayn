@@ -348,6 +348,20 @@ Removed).
 
 ### Fixed
 
+- `query_graph_tool` now says which calls a SCIP index settled (#264). The
+  trust guidance in the skills, `AGENTS.md`, and the reference told agents
+  to look for `resolved_by: "scip"`, but no reply returned it: the overlay
+  recorded it on the edge and the replies dropped it. A `callers_of` or
+  `callees_of` row whose call `dagayn build --scip` settled now carries
+  `resolved_by: "scip"` at every detail level (a row folding several calls
+  only when all were settled), as do those edges in a `full` reply; other
+  rows are unchanged. On dagayn's own sources built with `--scip`, the
+  index settled 81,028 of the 89,638 `CALLS` edges, 20,602 of them to a
+  node (the rest to packages, which list no row); 27 of the 28 `callees_of`
+  rows of `run_pattern` carry the field, and `minimal` replies on three
+  heavily called targets fit as many rows as without it. The guidance now says where the
+  field appears and that calls in files `dagayn update` re-parsed since the
+  last `build --scip` do not have it.
 - `dagayn build --scip` no longer takes a call's target from a later line
   when the call's own line calls the name and the index has no reference
   there. The overlay searches the next eight lines for a chain the

@@ -394,6 +394,7 @@ const MINIMAL_FIELDS: &[&str] = &[
     "line",
     "match",
     "confidence_tier",
+    "resolved_by",
     "depth",
     "via",
 ];
@@ -484,6 +485,12 @@ pub(crate) fn node_dict(node: &GraphNode) -> Value {
     object(node_row(node))
 }
 
+/// What settled the edge's target (`"scip"`: a SCIP index), when something
+/// other than the extractor did.
+fn resolved_by(edge: &GraphEdge) -> Option<&str> {
+    edge.extra.get("resolved_by").and_then(Value::as_str)
+}
+
 /// `edge_to_dict`.
 pub(crate) fn edge_dict(edge: &GraphEdge) -> Map<String, Value> {
     let mut out = Map::new();
@@ -498,6 +505,9 @@ pub(crate) fn edge_dict(edge: &GraphEdge) -> Map<String, Value> {
         "confidence_tier".into(),
         json!(edge.confidence_tier.as_str()),
     );
+    if let Some(by) = resolved_by(edge) {
+        out.insert("resolved_by".into(), json!(by));
+    }
     if edge.kind == "CROSS_ARTIFACT"
         && let Some(extra) = edge.extra.as_object()
         && !extra.is_empty()
@@ -645,6 +655,11 @@ fn merge(rows: Vec<Row>) -> Vec<Row> {
                 // value says both.
                 if get(&row, "relation") != get(existing, "relation") {
                     set(existing, "relation", json!(CALLS_AND_REFERENCES));
+                }
+                // A merged row says what settled its calls only when every
+                // call it merges was settled that way.
+                if get(&row, "resolved_by") != get(existing, "resolved_by") {
+                    existing.retain(|(k, _)| *k != "resolved_by");
                 }
             }
         }
@@ -839,6 +854,9 @@ impl Found {
             row.push(("line", json!(edge.line)));
             if edge.target_qualified.contains("::") {
                 row.push(("confidence_tier", json!(edge.confidence_tier.as_str())));
+                if let Some(by) = resolved_by(edge) {
+                    row.push(("resolved_by", json!(by)));
+                }
             } else {
                 row.push(("confidence_tier", json!("MEDIUM")));
                 row.push(("match", json!("bare_name")));
