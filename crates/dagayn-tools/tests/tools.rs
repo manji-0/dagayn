@@ -3668,6 +3668,40 @@ fn go_callers_of_a_method_used_as_a_value_name_where_it_is_stored() {
     );
 }
 
+/// A test double's method in a `_test.go` file is test code, not a test:
+/// `tests_for` on `CollectT.Errorf` names the test that calls it, not the
+/// doubles' methods that share its name.
+#[test]
+fn go_tests_for_a_method_skips_test_doubles_of_its_name() {
+    // dagayn: tests crates/dagayn-tools/src/coverage.rs::infer_tests_for_node
+    let repo = Repo::new("go-tests-for-doubles", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "assert/assertions.go",
+        "package assert\n\n// CollectT collects errors.\ntype CollectT struct{ n int }\n\n\
+         // Errorf records an error.\nfunc (c *CollectT) Errorf(format string, args ...any) {\n\tc.n++\n}\n",
+    );
+    repo.write(
+        "assert/assertions_test.go",
+        "package assert\n\nimport \"testing\"\n\ntype mockT struct{ n int }\n\n\
+         func (m *mockT) Errorf(format string, args ...any) {\n\tm.n++\n}\n\n\
+         func TestCollect(t *testing.T) {\n\tc := &CollectT{}\n\tc.Errorf(\"x\")\n}\n",
+    );
+    repo.build();
+    let reply = answer(
+        &repo.context(),
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "assert/assertions.go::CollectT.Errorf"}),
+    );
+    let rows: Vec<&str> = reply["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["qualified_name"].as_str())
+        .collect();
+    assert_eq!(rows, ["assert/assertions_test.go::TestCollect"], "{reply}");
+}
+
 /// A Go package is a unit, named by its import path; an import of a package
 /// of another module of the repository is a declared dependency when the
 /// importing module's `go.mod` requires that module.

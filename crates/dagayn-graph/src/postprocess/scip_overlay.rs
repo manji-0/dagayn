@@ -4,7 +4,8 @@
 //! `dagayn-scip-typescript`) says which definition each reference names. A `CALLS` edge is matched to the
 //! reference at its called name's position: the edge's line, or one of the
 //! next eight for a chain the extractor records at the expression's first
-//! line. Its answer then settles the edge:
+//! line, unless the edge's own line calls the name. Its answer then settles
+//! the edge:
 //!
 //! - a definition of the repository: the node whose range holds it, `HIGH`;
 //!   an edge already at that node (or at a node containing it, a class for
@@ -192,29 +193,43 @@ fn called_name(target: &str, extra: &Value) -> String {
     last.split(['(', '<']).next().unwrap_or(last).to_string()
 }
 
-/// Columns, in the document's units, where `name` stands as a whole word in
-/// `line`; for a member call, only after `.`, `::`, or `->`
-/// (`map.into_iter().map(..)` names the method, not the variable `map`).
-fn name_columns(line: &str, name: &str, encoding: Encoding, member: bool) -> Vec<usize> {
-    if name.is_empty() {
-        return Vec::new();
-    }
+/// Byte offsets where `name` stands as a whole word in `line`; for a member
+/// call, only after `.`, `::`, or `->` (`map.into_iter().map(..)` names the
+/// method, not the variable `map`).
+fn name_offsets<'a>(
+    line: &'a str,
+    name: &'a str,
+    member: bool,
+) -> impl Iterator<Item = usize> + 'a {
     let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
     line.match_indices(name)
-        .filter(|(at, _)| {
-            !line[..*at].chars().next_back().is_some_and(is_word)
+        .map(|(at, _)| at)
+        .filter(move |&at| {
+            !name.is_empty()
+                && !line[..at].chars().next_back().is_some_and(is_word)
                 && !line[at + name.len()..].chars().next().is_some_and(is_word)
                 && (!member || {
-                    let before = line[..*at].trim_end();
+                    let before = line[..at].trim_end();
                     before.ends_with('.') || before.ends_with("::") || before.ends_with("->")
                 })
         })
-        .map(|(at, _)| match encoding {
+}
+
+/// [`name_offsets`] as columns in the document's units.
+fn name_columns(line: &str, name: &str, encoding: Encoding, member: bool) -> Vec<usize> {
+    name_offsets(line, name, member)
+        .map(|at| match encoding {
             Encoding::Utf8 => at,
             Encoding::Utf16 => line[..at].encode_utf16().count(),
             Encoding::Utf32 => line[..at].chars().count(),
         })
         .collect()
+}
+
+/// Whether `line` calls `name`: the word followed by `(`, not a variable
+/// of the name (`let entry = map` before a chain's `.entry(..)`).
+fn calls_name(line: &str, name: &str, member: bool) -> bool {
+    name_offsets(line, name, member).any(|at| line[at + name.len()..].trim_start().starts_with('('))
 }
 
 /// The package a SCIP symbol belongs to, as dagayn names it, whether it is
@@ -549,7 +564,10 @@ impl GraphStore {
                         }
                     }
                 }
-                if !symbols.is_empty() {
+                // A call of the name on the edge's own line is the edge's,
+                // even when the index has no reference there (Go's builtins
+                // and conversions): a later line's `h.len()` is another call.
+                if !symbols.is_empty() || (at == line && calls_name(text, &name, member)) {
                     break;
                 }
             }
@@ -965,5 +983,9 @@ mod tests {
             name_columns("map.into_iter()", "map", Encoding::Utf8, true),
             Vec::<usize>::new()
         );
+        assert!(calls_name("t.Log(test.name, err.Error())", "Error", true));
+        assert!(calls_name("return (len (in) + 5) * 8", "len", false));
+        assert!(!calls_name("let entry = by_file", "entry", false));
+        assert!(!calls_name("if let Some(parent) = node", "parent", false));
     }
 }

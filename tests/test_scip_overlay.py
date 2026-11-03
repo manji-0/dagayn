@@ -72,7 +72,7 @@ def test_jobs_follow_the_projects_and_the_overrides(
         ("rust", "", repo, True),
         ("typescript", "docs/", repo / "docs", True),
         ("typescript", "web/", repo / "web", True),
-        ("go", "svc/", repo / "svc", False),
+        ("go", "svc/", repo / "svc", True),
     ]
     assert jobs[0].command[:2] == ["ra", "scip"]
     assert jobs[2].command[:3] == ["scip-ts", "index", "--output"]
@@ -218,7 +218,7 @@ def test_indexes_are_applied_and_failures_reported(
     )
     store = _Store()
     report = run_scip_overlay(store, repo, tmp_path / "out")
-    assert store.calls == [[("rust-0.scip", "", True)], [("go-0.scip", "svc/", False)]]
+    assert store.calls == [[("rust-0.scip", "", True)], [("go-0.scip", "svc/", True)]]
     assert [run["language"] for run in report.runs] == ["rust", "go"]
     assert [hint.split(":")[0] for hint in report.hints] == ["typescript"]
     assert len(report.warnings) == 2

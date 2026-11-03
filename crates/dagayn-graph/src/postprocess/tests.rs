@@ -3376,6 +3376,139 @@ fn a_filling_scip_index_keeps_resolutions_answer() {
 }
 
 #[test]
+fn a_name_on_the_edges_line_without_a_reference_is_not_taken_from_a_later_line() {
+    use protobuf::{EnumOrUnknown, Message};
+    use scip::types::{Document, Index, Occurrence, PositionEncoding};
+
+    // scip-go has no occurrence for the builtin `len(in)`; `h.len()` two
+    // lines down is another call. A chain's `.count()` is still found on a
+    // line after the edge's, past the variable `count` the edge's line binds.
+    let root = std::env::temp_dir().join(format!("dagayn-scip-window-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let go = "package z\n\
+              func (h hcode) len() int { return 0 }\n\
+              func run(in []byte, h hcode) int {\n\
+              \tn := len(in)\n\
+              \tn++\n\
+              \treturn n + h.len()\n\
+              }\n";
+    let rust = "fn total(items: Vec<u8>) -> usize {\n    \
+                let count = items\n        \
+                .iter()\n        \
+                .count();\n    \
+                count\n\
+                }\n";
+    std::fs::write(root.join("a.go"), go).unwrap();
+    std::fs::write(root.join("b.rs"), rust).unwrap();
+    let occurrence = |source: &str, row: usize, name: &str, symbol: &str, roles: i32| {
+        let line = source.lines().nth(row).unwrap();
+        let start = line.rfind(name).unwrap() as i32;
+        Occurrence {
+            range: vec![row as i32, start, start + name.len() as i32],
+            symbol: symbol.to_string(),
+            symbol_roles: roles,
+            ..Occurrence::default()
+        }
+    };
+    let hcode_len = "scip-go gomod example.com/z . `example.com/z`/hcode#len().";
+    let count = "rust-analyzer cargo core 1.0.0 iter/traits/iterator/Iterator#count().";
+    let utf8 = EnumOrUnknown::new(PositionEncoding::UTF8CodeUnitOffsetFromLineStart);
+    let index = Index {
+        documents: vec![
+            Document {
+                relative_path: "a.go".to_string(),
+                position_encoding: utf8,
+                occurrences: vec![
+                    occurrence(go, 1, "len", hcode_len, 1),
+                    occurrence(go, 5, "len", hcode_len, 0),
+                ],
+                ..Document::default()
+            },
+            Document {
+                relative_path: "b.rs".to_string(),
+                position_encoding: utf8,
+                occurrences: vec![occurrence(rust, 3, "count", count, 0)],
+                ..Document::default()
+            },
+        ],
+        ..Index::default()
+    };
+    let index_path = root.join("index.scip");
+    std::fs::write(&index_path, index.write_to_bytes().unwrap()).unwrap();
+
+    let path = temp_db("scip-window");
+    let mut store = GraphStore::open(&path).expect("open");
+    let ranged = |node: NodeInput, start: i64, end: i64| NodeInput {
+        line_start: start,
+        line_end: end,
+        ..node
+    };
+    store
+        .store_file_nodes_edges(
+            "a.go",
+            &[
+                file_node("a.go"),
+                ranged(method_node("len", "a.go", "hcode"), 2, 2),
+                ranged(function_node("run", "a.go"), 3, 7),
+            ],
+            &[EdgeInput {
+                extra: json!({"external": true, "external_package": "builtin",
+                              "stdlib": true, "external_symbol": "len"}),
+                ..edge("CALLS", "a.go::run", "builtin", "a.go", 4)
+            }],
+            &sha256_hex(go.as_bytes()),
+            0,
+        )
+        .expect("store a.go");
+    store
+        .store_file_nodes_edges(
+            "b.rs",
+            &[
+                file_node("b.rs"),
+                ranged(function_node("total", "b.rs"), 1, 6),
+            ],
+            &[EdgeInput {
+                extra: json!({"external": true, "external_package": "std",
+                              "stdlib": true, "external_symbol": "Iterator::count"}),
+                ..edge("CALLS", "b.rs::total", "std", "b.rs", 2)
+            }],
+            &sha256_hex(rust.as_bytes()),
+            0,
+        )
+        .expect("store b.rs");
+    let stats = store
+        .apply_scip_overlays(&[one_index(&index_path, true)], &root)
+        .unwrap()
+        .remove(0);
+    assert_eq!((stats.unmatched, stats.confirmed), (1, 1), "{stats:?}");
+    let targets = store
+        .conn
+        .prepare(
+            "SELECT file_path, target_qualified, json_extract(extra, '$.resolved_by') \
+             FROM edges WHERE kind = 'CALLS' ORDER BY file_path",
+        )
+        .unwrap()
+        .query_map([], |row| <(String, String, Option<String>)>::try_from(row))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        targets,
+        vec![
+            ("a.go".to_string(), "builtin".to_string(), None),
+            (
+                "b.rs".to_string(),
+                "std".to_string(),
+                Some("scip".to_string())
+            ),
+        ]
+    );
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn a_definition_one_index_holds_settles_another_indexs_reference() {
     use protobuf::{EnumOrUnknown, Message};
     use scip::types::{Document, Index, Occurrence, PositionEncoding};

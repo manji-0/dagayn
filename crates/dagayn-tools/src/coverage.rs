@@ -317,10 +317,13 @@ impl ScanState {
 fn is_test_like(node: &GraphNode) -> Option<bool> {
     let name = casefold(&node.name);
     let qualified = casefold(&node.qualified_name);
-    if node.kind == "Function" && !node.is_test && NON_TEST_HELPER_NAMES.contains(&name.as_str()) {
+    // A test is a `Test` node. A Function counts only by its name: Go and
+    // Rust mark everything in test code `is_test`, a test double's `Errorf`
+    // and a helper among them.
+    if node.kind == "Function" && NON_TEST_HELPER_NAMES.contains(&name.as_str()) {
         return Some(false);
     }
-    if node.kind == "Function" && !node.is_test {
+    if node.kind == "Function" {
         return Some(
             name.starts_with("test")
                 || qualified.contains("::test")
