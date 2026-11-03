@@ -121,8 +121,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // member call on another imported value of the repository records
         // it (`receiver_import`), or on one of those apps (`receiver_app`),
         // for the request-boundary pass.
+        // 16: an import of an external package is marked `external`, with
+        // its `external_package`.
         extractor: "javascript",
-        version: 15,
+        version: 16,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {

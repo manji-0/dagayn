@@ -102,7 +102,10 @@ function selectUser(user: User) {
             && node.line_start == 10
     }));
     assert!(edges.iter().any(|edge| {
-        edge.kind == "IMPORTS_FROM" && edge.target == "svelte/store" && edge.line == 2
+        edge.kind == "IMPORTS_FROM"
+            && edge.target == "svelte/store"
+            && edge.extra["external_package"] == "svelte"
+            && edge.line == 2
     }));
     assert!(edges.iter().any(|edge| {
         edge.kind == "CALLS"
