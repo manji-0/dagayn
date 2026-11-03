@@ -62,7 +62,7 @@
   "target": "src/functions.ts::decl",
   "test_reach": {
     "counts_as_tested": true,
-    "hop_limit": 4,
+    "hop_limit": 8,
     "hops": 0,
     "nearest_test": "src/__tests__/calls.test.ts::it:decl works@L6"
   },

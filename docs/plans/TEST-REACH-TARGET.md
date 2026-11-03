@@ -190,7 +190,8 @@ deepest Rust test path is 12):
   ([Rust false untested claims](#rust-false-untested-claims)).
 
 Applied: `caller_test_depth` lifts the limit for Rust and keeps 4 hops
-elsewhere (Python measured 0.874 / 0.674 / 0.949 with no limit, too close
+elsewhere (TypeScript and JavaScript got 8 on 2026-11-03,
+[M1](./TYPESCRIPT-SUPPORT-MEASUREMENTS.md#m1-test-reach-against-coverage); Python measured 0.874 / 0.674 / 0.949 with no limit, too close
 to its recall floor of 0.67 to trade). `test_reach.hop_limit` is `null` for
 Rust. CI's Rust job writes the coverage of its `cargo llvm-cov` run per
 function (`cargo llvm-cov report --json`) and gates it with

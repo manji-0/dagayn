@@ -101,11 +101,21 @@ production nodes outside the population are the generated Prisma client
 | web-ui | plain | 483 (312) | 95 | **15** | 3 / 12 / 0 | 0.842 | 0.468 | **0.765** (388) |
 | web-ui | `--scip` | 483 (312) | 95 | 15 | 3 / 12 / 0 | 0.842 | 0.468 | 0.765 (388) |
 
-TypeScript keeps the 4-hop limit. With 8 hops (read from the same run:
-`beyond_limit` has the hop count), tstodon's ran-and-called-untested falls
-from 538 to 483 at no cost: none of the 55 failed to run, so tested
-precision goes from 0.995 (442) to 0.996 (497). web-ui has no `beyond_limit` row. A run with
-no limit needs a change to `caller_test_depth`, and was not made.
+The table is the 4-hop run. Read from it (`beyond_limit` has the hop
+count), 8 hops would take tstodon's ran-and-called-untested from 538 to 483
+at no cost: none of the 55 failed to run. So TypeScript and JavaScript now
+walk 8 hops (`caller_test_depth`, 2026-11-03), and other languages keep
+theirs. The rerun at 8 hops, on graphs rebuilt from the branch (metadata
+`last_build_type` `full`, `javascript=13`):
+
+| Repository | Graph | Functions (ran) | Called untested | Ran, called untested | `no_callers` / `no_test_path` / `beyond_limit` (ran) | Untested precision | Recall | Tested precision |
+|---|---|---|---|---|---|---|---|---|
+| tstodon | plain, 8 hops | 1,034 (978) | 537 | **483** | 7 / 476 / 0 | 0.101 | 0.964 | 0.996 (497) |
+| web-ui | plain, 8 hops | 483 (312) | 95 | 15 | 3 / 12 / 0 | 0.842 | 0.468 | 0.765 (388) |
+
+`tests_for` looks 4 hops past the limit, so `beyond_limit` is empty out to
+12 hops: no tstodon function has its nearest test 9 to 12 hops away.
+web-ui has no test past 4 hops, so it does not change.
 
 The two repositories fail in opposite directions:
 

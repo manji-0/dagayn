@@ -127,6 +127,13 @@ Removed).
 
 ### Changed
 
+- `untested_change` and `tests_for`'s `test_reach` count a test up to 8
+  caller hops away for TypeScript and JavaScript, up from 4
+  (`test_reach.hop_limit` is 8). On tstodon all 55 functions with a test 5
+  to 8 hops away ran; the change takes its ran-and-called-untested from 538
+  to 483 and tested precision from 0.995 to 0.996, and leaves cfwdon's
+  web-ui unchanged (docs/plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md). Python
+  and Go keep 4 hops and Rust keeps no limit.
 - `dagayn build --scip` indexes TypeScript with an indexer dagayn ships
   (`crates/dagayn-scip-typescript`, on the tsrs checker pinned at
   `e906c9e4`, run as `python -P -m dagayn.scip_typescript` in a child
