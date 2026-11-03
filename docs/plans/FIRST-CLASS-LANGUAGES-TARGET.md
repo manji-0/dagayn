@@ -43,7 +43,7 @@ read from source at `44c098c6`:
 | C4 | Calls through types and traits | `postprocess/impl_members.rs`; `findings.rs:593` and `:615` reach a trait impl's methods through its type |
 | C5 | Units with declared dependencies | `units.rs:181-207` reads Cargo `[dependencies]` |
 | C6 | SCIP call targets are authoritative | `build --scip`; 788 of 789 node edges agree with rust-analyzer |
-| C7 | Test reach scored against coverage, gated | `test_reach_rust_thresholds.yaml` (llvm-cov); no hop limit (`findings.rs:30`) |
+| C7 | Test reach scored against coverage, gated | `test_reach_rust_thresholds.yaml` (llvm-cov); no hop limit (`findings.rs:35`) |
 | C8 | Cases in each tool eval | review 16, architecture 3, flow 2, refactor 1 |
 | C9 | Language rules in dead-code verification | `dead_code_verify.rs:583` and `:601` (trait context, impl header); `#[pymethods]` exports |
 | C10 | An agent experiment that gained | E13: 0.74x tokens, 0.61x time at equal accuracy |
@@ -360,18 +360,26 @@ method-call gap.
     **Measured** with M1: tstodon 0.092 / 0.964 / 0.996 (535 ran and
     called untested, 3 fewer: Durable Object stub calls), web-ui
     unchanged.
-13. **T3, the causes M1 finds.** Lazy `await import()` routes and anonymous
-    route arrows, only if M1's cause table attributes at least 10 wrong
-    answers to them.
-    Bar: those answers fixed, and tested precision no lower.
-    M1's table gives them 0 such answers on tstodon: it has no lazy
-    `await import()`, and its 457 answers under anonymous route arrows
-    stay wrong with an arrow node, because no test reaches a route file
-    by any edge. web-ui's 20 lazy pages are wrong the other way (called
-    tested, not run). The causes with 10 or more answers are the request
-    boundary (470), the hop limit (55 on tstodon, none of them unrun), and
-    call-valued module constants (#239, 10 on web-ui)
+13. **T3, request-boundary edges.** Two framework wirings recorded as
+    edges, as the pydantic work recorded validators, not as a new
+    type-inference rule: a test's `SELF.fetch` (from `cloudflare:test`) to
+    the worker's `default.fetch`, and a Hono route registration
+    (`app.get(path, handler)`, `.post`, `.put`, `.delete`, `.use`) to its
+    handler, matched by path where the test's URL and the route's path
+    allow it.
+    Bar: most of tstodon's 470 request-boundary answers fixed, and tested
+    precision no lower, both measured against vitest coverage as M1 is.
+    This replaces the first scope (lazy `await import()` routes and
+    anonymous route arrows, if M1 gave them 10 or more wrong answers),
+    because M1 gave that scope 0: tstodon has no lazy `await import()`,
+    and its 457 answers under anonymous route arrows stay wrong with an
+    arrow node, because no test reaches a route file by any edge. web-ui's
+    20 lazy pages are wrong the other way (called tested, not run). The
+    break is the request
     ([table](./TYPESCRIPT-SUPPORT-MEASUREMENTS.md#tstodon-why-the-functions-that-ran-are-called-untested)).
+    M1's other causes with 10 or more answers are decided below
+    ([decisions](#decisions-2026-11-03)): the hop limit (55 on tstodon)
+    and call-valued module constants (#239, 11 on web-ui).
 14. **T4, eval coverage.** A refactor `pos_unused_typescript_export` case,
     and flow and architecture cases from the causes M1 finds.
 
@@ -421,7 +429,7 @@ method-call gap.
 - **Go coverage is per function.** `go tool cover -func` reports a function
   as run when any statement ran, so a branch the test does not take is
   invisible, as in Rust.
-- **Hop limit.** Go keeps the 4-hop test walk (`findings.rs:30`) until M2
+- **Hop limit.** Go keeps the 4-hop test walk (`findings.rs:35`) until M2
   shows how deep its test paths run.
 - **Priority.** The positioning puts Rust untested precision before new
   languages. The Go items are new investment in a language with no agent
@@ -485,3 +493,24 @@ method-call gap.
   functions is still reported. Reaching 0.15 there needs edges from an
   interface method to its implementations, which no item builds.
 - **Third-party Python.** httpx 0.28.1 (b5addb6), chosen when M3 started.
+
+## Decisions (2026-11-03)
+
+<!-- derived-from ./TYPESCRIPT-SUPPORT-MEASUREMENTS.md#m1-test-reach-against-coverage -->
+
+Taken by the owner after M1.
+
+- **TypeScript and JavaScript walk 8 caller hops.** M1 found 55 tstodon
+  functions with a test 5 to 8 hops away, and all 55 ran. At 8 hops
+  (`caller_test_depth`), tstodon's ran-and-called-untested falls from 538
+  to 483 and tested precision rises from 0.995 to 0.996; web-ui does not
+  change. Other languages keep their limits, because their CI gates were
+  tuned at them: 4 for Python and Go, none for Rust.
+- **T3 is request-boundary edges** ([T3](#typescript-work)), not the lazy
+  import and route arrow scope, which M1 gave no wrong answers.
+- **#239 is raised in priority and is being done now.** Call-valued
+  module constants and shorthand members gave web-ui 11 wrong answers
+  (10 and 1) and tstodon 1.
+- **No TypeScript test-reach floor or CI gate yet.** Neither tstodon nor
+  web-ui runs coverage in dagayn's CI, so a floor would gate nothing.
+  Revisit when a TypeScript corpus runs coverage in CI.

@@ -3372,7 +3372,7 @@ fn a_rust_test_that_builds_a_derived_default_reaches_the_trait_methods_of_its_ty
 }
 
 #[test]
-fn a_rust_test_any_number_of_hops_away_counts_and_a_python_one_does_not() {
+fn a_test_beyond_four_hops_counts_in_rust_and_typescript_and_not_in_python() {
     // dagayn: tests crates/dagayn-tools/src/review.rs::review
     // dagayn: tests crates/dagayn-tools/src/findings.rs::caller_test_depth
     // dagayn: tests crates/dagayn-tools/src/findings.rs::untested_changes
@@ -3392,6 +3392,20 @@ fn a_rust_test_any_number_of_hops_away_counts_and_a_python_one_does_not() {
         source.push_str(&format!("def f6():\n    return {value}\n"));
         source
     };
+    let typescript = |value: i64| {
+        let mut source: String = (0..6)
+            .map(|i| {
+                format!(
+                    "export function f{i}(): number {{\n  return f{}();\n}}\n\n",
+                    i + 1
+                )
+            })
+            .collect();
+        source.push_str(&format!(
+            "export function f6(): number {{\n  return {value};\n}}\n"
+        ));
+        source
+    };
     repo.write(
         "Cargo.toml",
         "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
@@ -3402,10 +3416,16 @@ fn a_rust_test_any_number_of_hops_away_counts_and_a_python_one_does_not() {
         "test_chain.py",
         "from chain import f0\n\n\ndef test_chain():\n    assert f0()\n",
     );
+    repo.write("web/chain.ts", &typescript(1));
+    repo.write(
+        "web/chain.test.ts",
+        "import { expect, test } from \"vitest\";\nimport { f0 } from \"./chain\";\n\ntest(\"chain\", () => {\n  expect(f0()).toBeGreaterThan(0);\n});\n",
+    );
     commit_all(&repo, "chains");
     repo.build();
     repo.write("src/lib.rs", &rust(2));
     repo.write("chain.py", &python(2));
+    repo.write("web/chain.ts", &typescript(2));
     commit_all(&repo, "edit");
     repo.build();
     let context = Context {
@@ -3430,6 +3450,14 @@ fn a_rust_test_any_number_of_hops_away_counts_and_a_python_one_does_not() {
     assert_eq!(reach["test_reach"]["hops"], 6, "{reach}");
     assert_eq!(reach["test_reach"]["counts_as_tested"], true, "{reach}");
     assert_eq!(reach["test_reach"]["hop_limit"], Value::Null, "{reach}");
+    let reach = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "web/chain.ts::f6"}),
+    );
+    assert_eq!(reach["test_reach"]["hops"], 6, "{reach}");
+    assert_eq!(reach["test_reach"]["counts_as_tested"], true, "{reach}");
+    assert_eq!(reach["test_reach"]["hop_limit"], 8, "{reach}");
 }
 
 #[test]

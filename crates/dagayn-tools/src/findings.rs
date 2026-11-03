@@ -22,13 +22,22 @@ use crate::query::cross_artifact_role;
 const MAX_LISTED: usize = 10;
 /// Caller hops `untested_change` walks looking for a test.
 pub(crate) const CALLER_TEST_DEPTH: usize = 4;
+/// Caller hops for TypeScript and JavaScript.
+const JS_CALLER_TEST_DEPTH: usize = 8;
 
 /// The caller hops a test may be from a function of `language` and count:
 /// none for Rust, whose call chains run deep (a test 5–12 hops away ran in
-/// 94% of the cases, docs/plans/TEST-REACH-TARGET.md#rust), and
-/// [`CALLER_TEST_DEPTH`] elsewhere, where a deeper test barely occurs.
+/// 94% of the cases, docs/plans/TEST-REACH-TARGET.md#rust);
+/// [`JS_CALLER_TEST_DEPTH`] for TypeScript and JavaScript, where all 55
+/// tstodon functions a test reached in 5 to 8 hops ran
+/// (docs/plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md#m1-test-reach-against-coverage);
+/// and [`CALLER_TEST_DEPTH`] elsewhere, where a deeper test barely occurs.
 pub(crate) fn caller_test_depth(language: &str) -> Option<usize> {
-    (language != "rust").then_some(CALLER_TEST_DEPTH)
+    match language {
+        "rust" => None,
+        "typescript" | "tsx" | "javascript" => Some(JS_CALLER_TEST_DEPTH),
+        _ => Some(CALLER_TEST_DEPTH),
+    }
 }
 
 /// Doc-to-code roles that state a contract (`implemented_by`), and the
