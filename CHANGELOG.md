@@ -306,6 +306,19 @@ Removed).
 
 ### Fixed
 
+- A Go call without a selector no longer binds to a method of the same
+  name. Go reaches a method only through a selector, but same-file
+  resolution bound `Equal(a.t, ...)` in testify's forwarder
+  `Assertions.Equal` to the method itself, `compressor(method)` in
+  klauspost/compress's `Writer.compressor` to that method, the conversion
+  `uint64(n)` to `writeBuf.uint64`, and a local closure `write` to
+  `Writer.write`, all at `EXTRACTED`. Such a call now keeps its bare name
+  for resolution across the package, which binds testify's 310 forwarders
+  to the package's functions; a closure stays unresolved with
+  `callee_local`. The go extractor is now version 13. Found by comparing
+  with scip-go (G6 of the first-class languages plan): on testify,
+  dagayn's node edges now agree with scip-go on 4,813 of 4,836, up from
+  4,503 (docs/plans/GO-SUPPORT-MEASUREMENTS.md, G6).
 - A call of a TypeScript module constant whose value is a call
   (`parseRow(raw)` for `const parseRow = schemaResult(RowSchema)`) reaches
   a node when the constant's own file calls it, exported or not (#239). The
