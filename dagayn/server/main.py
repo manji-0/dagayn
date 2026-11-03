@@ -408,7 +408,8 @@ async def get_minimal_context_tool(
 
     Args:
         task: What you are doing (e.g. "review PR #42", "debug login timeout").
-        changed_files: Explicit changed files. Auto-detected if omitted.
+        changed_files: Explicit changed files. Auto-detected against ``base`` if
+            omitted, as ``review_tool`` detects them; ``[]`` skips change analysis.
         base: Git ref for change detection. Default: HEAD while tracked files
             have uncommitted changes, else HEAD~1.
     """

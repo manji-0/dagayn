@@ -677,7 +677,11 @@ for review, debugging, exploration, feature addition, and refactoring to the
 first calls of that workflow, as `next` (each with its arguments: the
 task's text as a search query, a review at `detail_level="minimal"`,
 `ensure_graph_tool` first on an empty or drifted graph). It also returns
-`workflow`, `why`, and `confidence`. It includes compact
+`workflow`, `why`, and `confidence`. Without `changed_files` it detects the
+change against `base` as `review_tool(mode="changes")` does and returns
+`changes` (the count of each finding kind) and `key_entities` for it, or says
+in `summary` that nothing changed; `changed_files=[]` skips the change
+analysis. It includes compact
 `graph_health` answerability metadata and a `sync` object carrying the
 freshness `state` (`unbuilt` / `commit_drift` / `commit_synced` /
 `worktree_behind` / `worktree_ahead`) alongside the legacy `status`

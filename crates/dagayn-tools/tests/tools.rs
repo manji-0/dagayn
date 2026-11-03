@@ -1106,6 +1106,57 @@ fn unassigned_communities_are_not_stale() {
     }
 }
 
+/// #191: `changed_files` omitted detects the change as `review_tool` does;
+/// an explicit empty list still looks at none.
+#[test]
+fn minimal_context_detects_changed_files_when_omitted() {
+    // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
+    let repo = Repo::new("context-detect", true);
+    repo.build();
+    let context = repo.context();
+    let clean = answer(
+        &context,
+        "get_minimal_context_tool",
+        json!({"task": "review recent changes"}),
+    );
+    let summary = clean["summary"].as_str().unwrap_or_default();
+    assert!(
+        summary.contains("No changed files against HEAD~1"),
+        "{clean}"
+    );
+    assert!(clean.get("changes").is_none(), "{clean}");
+
+    repo.write(
+        "app.py",
+        "def main():\n    return helper() + 1\n\n\ndef helper():\n    pass\n",
+    );
+    let dirty = answer(
+        &context,
+        "get_minimal_context_tool",
+        json!({"task": "review recent changes"}),
+    );
+    assert_eq!(dirty["changes"]["state"], "analysed", "{dirty}");
+    assert_eq!(dirty["changes"]["files"], 1, "{dirty}");
+    assert!(
+        dirty["key_entities"]
+            .as_array()
+            .is_some_and(|names| names.contains(&json!("main"))),
+        "{dirty}"
+    );
+    let skipped = answer(
+        &context,
+        "get_minimal_context_tool",
+        json!({"task": "review recent changes", "changed_files": []}),
+    );
+    assert!(skipped.get("changes").is_none(), "{skipped}");
+    assert!(
+        !skipped["summary"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Changes")
+    );
+}
+
 #[test]
 fn search_without_embeddings_ranks_fts_hits() {
     // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
