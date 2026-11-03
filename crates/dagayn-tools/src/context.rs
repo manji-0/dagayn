@@ -542,13 +542,15 @@ pub(crate) fn get_minimal_context(
 
     let (changed_files, detected) = match explicit_files {
         Some(files) => (Ok(files), false),
+        // Outside any version control there is no change to detect.
+        None if vcs == "none" => (Ok(Vec::new()), false),
         None => (
             crate::review::detect_changed_files(&graph.root, base).map(|(files, _)| files),
             true,
         ),
     };
     let changes = match changed_files {
-        // The change was not looked at: say so, as no change at all.
+        // Detection failed: the summary says so, so no change is not implied.
         Err(_) => Changes::of("undetected", 0),
         Ok(files) if files.is_empty() => Changes::of(if detected { "clean" } else { "none" }, 0),
         Ok(files) if files.len() > max_risk_files => Changes::of("skipped", files.len()),
