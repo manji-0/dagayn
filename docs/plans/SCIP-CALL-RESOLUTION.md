@@ -121,9 +121,10 @@ On the v7.0.0 sources, the overlay leaves 1,126 calls unresolved (`LOW`),
 against 2,597 without it: Rust 1,167 → 14, TypeScript 483 → 194; the
 whole `build --scip` takes about 15 s.
 
-When SCIP and dagayn disagree, SCIP wins for Rust, TypeScript, and Python
-(Python since dagayn's own indexer, below). Every other indexer (Go,
-Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, R) only fills: it keeps what the
+When SCIP and dagayn disagree, SCIP wins for Rust, TypeScript, Python, and
+Go (Python since dagayn's own indexer, below; Go since the scip-go comparison,
+[G6](./GO-SUPPORT-MEASUREMENTS.md#authoritative-go)). Every other indexer
+(Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, R) only fills: it keeps what the
 extractor resolved and settles the rest before the inference passes. With
 Python filling through scip-python, the v7.0.0 sources dropped to 926
 unresolved calls (Python 807 → 607), and the 1,482 Python calls into the Rust
@@ -238,15 +239,15 @@ file's calls stay `LOW` until the next `build`. Frozen means no new table
 entries or rules; bugs that SCIP exposes (the `RefCell::borrow()` chains)
 are still fixed. Whether to delete them later is an open question below.
 
-| Pass or table | Rust | TypeScript | Python |
-| ------------- | ---- | ---------- | ------ |
-| Cross-file module resolution (`rust_lang/` modules, `use` tracking) | freeze | — | — |
-| Receiver tracking in the extractor (`receiver_from`, bindings) | freeze | freeze | keep |
-| Standard-method lists (`RUST_STD_METHODS`, `JAVASCRIPT_BUILTIN_METHODS`) | freeze | freeze | keep |
-| Return-type tables (`returned.rs`) | freeze | freeze | keep |
-| Observed-method inference | freeze | freeze | keep |
-| PyO3 / native-binding bridges | keep | keep | keep |
-| Languages without an indexer used here | keep | keep | keep |
+| Pass or table | Rust | TypeScript | Python | Go |
+| ------------- | ---- | ---------- | ------ | -- |
+| Cross-file module resolution (`rust_lang/` modules, `use` tracking) | freeze | — | — | keep (imports bound to packages feed units and `importers_of`) |
+| Receiver tracking in the extractor (`receiver_from`, bindings) | freeze | freeze | keep | freeze |
+| Standard-method lists (`RUST_STD_METHODS`, `JAVASCRIPT_BUILTIN_METHODS`) | freeze | freeze | keep | — |
+| Return-type tables (`returned.rs`) | freeze | freeze | keep | freeze |
+| Observed-method inference | freeze | freeze | keep | freeze |
+| PyO3 / native-binding bridges | keep | keep | keep | — |
+| Languages without an indexer used here | keep | keep | keep | keep |
 
 Edges a frozen pass produced are recognizable by `confidence_tier` `MEDIUM`
 and `inferred_from` (`observed_method`, `return_table`), so the overlay's
@@ -264,11 +265,12 @@ effect on them can be measured on any graph before deletion.
   only if the overlay becomes cheap enough to run per update (an indexer
   that indexes single files, or a long-running rust-analyzer).
 
-- **Other languages.** Go, Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, and R
+- **Other languages.** Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, and R
   are wired, but only to fill. Go was compared on compress, scip-go, and
   testify ([G6](./GO-SUPPORT-MEASUREMENTS.md#g6-the-scip-go-comparison)):
-  0.998 and 1.000 of node edges agree, and making it authoritative waits
-  on the owner and on the chain window stopping at the edge's own line.
+  0.998 and 1.000 of node edges agree, and it is authoritative since the
+  chain window stops at the edge's own line
+  ([authoritative Go](./GO-SUPPORT-MEASUREMENTS.md#authoritative-go)).
   The others were not run at all. Each needs the comparison above on a representative
   repository before it can be authoritative, and its package naming mapped
   (only Go import paths and Python modules are) before it names packages.
