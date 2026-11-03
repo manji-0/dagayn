@@ -1,0 +1,79 @@
+{
+ "_about": "G7 (docs/plans/FIRST-CLASS-LANGUAGES-TARGET.md, item 10): four Go questions on testify v1.12.1 (stretchr/testify 959dbda) with the change in testify-change.patch as the last commit. Keys were built without dagayn; eval/g7_go/PREREG.md says how.",
+ "source_commit": "959dbdacf1533e155162811ea90c90117a420463",
+ "change": {
+  "patch": "testify-change.patch",
+  "message": "assert: treat a nil and an empty byte slice as equal in ObjectsAreEqual"
+ },
+ "preamble": "このリポジトリ (カレントディレクトリ。Go のモジュール github.com/stretchr/testify v1.12.1 のチェックアウト) について、次の質問に答えてください。\n- リポジトリのファイルは変更しないこと。一時ファイルが必要なら /tmp の下に作ること。\n- テストやリポジトリのコードは実行しないこと (go test や go run は使わない。読む・検索する・解析用のスクリプトを書いて実行するのはよい)。\n- 回答の最後に、次の形式の JSON コードブロックを 1 つだけ置くこと: ```json\n{\"answer\": [...]}\n```\n\n質問: ",
+ "condition_line": {
+  "graph": "- dagayn の MCP ツール (サーバ名 dagayn) が使える。まずそれで調べ、必要なら他の道具で確かめること。\n",
+  "none": "- dagayn の MCP ツールは使えない。標準の道具 (検索・ファイルの読み込み・シェル) で調べること。\n"
+ },
+ "tasks": {
+  "T1": {
+   "prompt": "`assert/assertions.go` のメソッド `(*CollectT).Errorf` の本体は、どのテストを実行したときに実行されるか。`func TestXxx(t *testing.T)` の形のテスト関数のうち、そのテストを 1 つだけ実行したとき (`go test -run '^TestXxx$'` で、そのサブテストを含む) に `(*CollectT).Errorf` の本体が実行されるものをすべて挙げてください。対象はリポジトリのすべてのパッケージのテスト。`Benchmark`・`Fuzz`・`Example` で始まる関数は数えない。形式は \"ファイルパス::テスト関数名\" (ファイルパスはリポジトリルートから)。",
+   "kind": "symbols",
+   "truth": [
+    "assert/assertions_test.go::TestEventuallyWithTFailNow",
+    "assert/assertions_test.go::TestEventuallyWithTFalse",
+    "assert/assertions_test.go::TestEventuallyWithTTrue",
+    "assert/assertions_test.go::TestEventuallyWithT_ConcurrencySafe",
+    "assert/assertions_test.go::TestEventuallyWithT_ReturnsTheLatestFinishedConditionErrors",
+    "require/requirements_test.go::TestEventuallyWithTFalse",
+    "require/requirements_test.go::TestEventuallyWithTTrue"
+   ]
+  },
+  "T2": {
+   "prompt": "`assert/assertion_forward.go` で定義されているメソッド `(*Assertions).Equal` を直接呼んでいる関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.Equal(...)` は、x の静的な型が `assert` パッケージの `*Assertions` か、それを埋め込んだ型で、呼び出しがこのメソッドに解決されるなら数える。パッケージ関数の `assert.Equal`、`require` パッケージの `Equal` 関数と `Assertions.Equal` メソッド、ほかの型の `Equal` は数えない。コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "truth": [
+    "assert/forward_assertions_test.go::TestEqualWrapper",
+    "assert/http_assertions_test.go::TestHTTPError",
+    "assert/http_assertions_test.go::TestHTTPRedirect",
+    "assert/http_assertions_test.go::TestHTTPStatusCode",
+    "assert/http_assertions_test.go::TestHTTPStatusesWrapper",
+    "assert/http_assertions_test.go::TestHTTPSuccess",
+    "suite/suite_test.go::SuiteTester.TestOne",
+    "suite/suite_test.go::SuiteTester.TestSubtest",
+    "suite/suite_test.go::suiteWithStats.TestSomething"
+   ]
+  },
+  "T3": {
+   "prompt": "`suite/suite.go` のメソッド `(*Suite).T` を直接呼び得る関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.T()` という呼び出しは、実行時にその呼び出しが `(*Suite).T` を実行し得るなら数える (`Suite` を埋め込んだ型の値での呼び出しや、インタフェース型の値を通した呼び出しを含む)。ほかの型の `T` やコメントでの言及は数えない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "truth": [
+    "suite/suite.go::Run",
+    "suite/suite.go::Suite.Run",
+    "suite/suite_test.go::CallOrderSuite.TearDownSuite",
+    "suite/suite_test.go::FailfastSuite.Test_A_Fails",
+    "suite/suite_test.go::SuiteLoggingTester.TestLoggingFail",
+    "suite/suite_test.go::SuiteLoggingTester.TestLoggingPass",
+    "suite/suite_test.go::SuiteSkipTester.SetupSuite",
+    "suite/suite_test.go::SuiteTester.SetupSubTest",
+    "suite/suite_test.go::SuiteTester.TearDownSubTest",
+    "suite/suite_test.go::SuiteTester.TestOne",
+    "suite/suite_test.go::SuiteTester.TestSkip",
+    "suite/suite_test.go::SuiteTester.TestSubtest",
+    "suite/suite_test.go::SuiteTester.TestTwo",
+    "suite/suite_test.go::suiteWithSkipInSetupAndStats.SetupTest"
+   ]
+  },
+  "T4": {
+   "prompt": "最後のコミットは `assert/assertions.go` の関数 `ObjectsAreEqual` の振る舞いを変えた。このコミットの時点で `ObjectsAreEqual` を直接呼んでいる関数・メソッドのうち、このコミットで変更されていないものをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。「変更された」は、コミットの差分が、その関数・メソッドの定義 (`func` の行から本体の最後の行まで) の中の行を変えた・足した・消したこと。`ObjectsAreEqualValues` など名前の違う関数の呼び出しや、コメントでの言及は数えない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "truth": [
+    "assert/assertions.go::Equal",
+    "assert/assertions.go::NotSubset",
+    "assert/assertions.go::ObjectsAreEqualValues",
+    "assert/assertions.go::Subset",
+    "assert/assertions.go::containsElement",
+    "assert/assertions.go::diffLists",
+    "assert/assertions_test.go::TestBytesEqual",
+    "assert/assertions_test.go::TestObjectsAreEqual",
+    "mock/mock.go::Arguments.Diff",
+    "mock/mock.go::assertOpts"
+   ]
+  }
+ }
+}

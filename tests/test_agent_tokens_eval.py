@@ -88,5 +88,26 @@ def test_a_symbol_answer_is_read_in_every_spelling_of_the_same_symbol() -> None:
     }
 
 
+def test_a_go_method_is_read_in_every_receiver_spelling() -> None:
+    answer = [
+        "zstd/x.go::(*Digest).Reset",
+        "zstd/x.go::*Digest.Reset()",
+        "zstd/x.go::(Digest).Sum",
+        "zstd/x.go::List[T].Push",
+        "zstd/x_test.go::TestReset/zero length",
+    ]
+
+    assert harness.answer_set("symbols", answer) == {
+        "zstd/x.go::Digest.Reset",
+        "zstd/x.go::Digest.Sum",
+        "zstd/x.go::List.Push",
+        "zstd/x_test.go::TestReset",
+    }
+
+
+def test_a_python_symbol_keeps_parentheses_and_slashes_inside_names() -> None:
+    assert harness.answer_set("symbols", ["a/b.py::(*C).d"]) == {"a/b.py::(*C).d"}
+
+
 def test_a_path_answer_keeps_its_spelling() -> None:
     assert harness.answer_set("paths", ["a/b.py::C::d"]) == {"a/b.py::C::d"}
