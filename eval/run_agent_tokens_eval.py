@@ -104,10 +104,15 @@ def canon_cycle(cycle: list[str]) -> tuple[str, ...]:
 
 def norm_symbol(item: str) -> str:
     """`path::Class.method`: pytest's `Class::method` spelling, a parametrize
-    suffix (`[case]`), and a trailing `()` name the same symbol."""
+    suffix (`[case]`), and a trailing `()` name the same symbol. In a `.go`
+    file, so do a receiver written `(*T)`, `(T)`, `*T`, or `T[K]`, and a
+    subtest suffix (`TestX/case`)."""
     path, sep, rest = norm_path(item).partition("::")
     rest = re.sub(r"\[.*\]$", "", rest.strip())
     rest = rest.removesuffix("()").replace("::", ".")
+    if path.endswith(".go"):
+        rest = re.sub(r"^\(?\*?(\w+)(?:\[[^\]]*\])?\)?\.", r"\1.", rest)
+        rest = rest.split("/", 1)[0]
     return path + sep + rest
 
 

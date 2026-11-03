@@ -305,8 +305,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 12: an import of a package of the file's own module targets the
         // package's files (one edge each, `import_path` and
         // `package_import`), leaving out its tests and ignored files.
+        // 13: a call without a selector (`compressor(m)`, `uint64(n)`, a
+        // local closure) never binds to a same-named method of the file.
         extractor: "go",
-        version: 12,
+        version: 13,
         languages: &["go"],
     },
     ExtractorVersion {

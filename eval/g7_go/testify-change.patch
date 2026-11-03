@@ -1,0 +1,33 @@
+diff --git a/assert/assertions.go b/assert/assertions.go
+index 166f637..24e6de7 100644
+--- a/assert/assertions.go
++++ b/assert/assertions.go
+@@ -74,9 +74,7 @@ func ObjectsAreEqual(expected, actual interface{}) bool {
+ 	if !ok {
+ 		return false
+ 	}
+-	if exp == nil || act == nil {
+-		return exp == nil && act == nil
+-	}
++	// A nil slice and an empty slice hold the same bytes.
+ 	return bytes.Equal(exp, act)
+ }
+ 
+@@ -457,7 +455,7 @@ func NotImplements(t TestingT, interfaceObject interface{}, object interface{},
+ }
+ 
+ func isType(expectedType, object interface{}) bool {
+-	return ObjectsAreEqual(reflect.TypeOf(object), reflect.TypeOf(expectedType))
++	return ObjectsAreEqual(reflect.TypeOf(expectedType), reflect.TypeOf(object))
+ }
+ 
+ // IsType asserts that the specified objects are of the same type.
+@@ -890,7 +888,7 @@ func NotEqual(t TestingT, expected, actual interface{}, msgAndArgs ...interface{
+ 	}
+ 
+ 	if ObjectsAreEqual(expected, actual) {
+-		return Fail(t, fmt.Sprintf("Should not be: %s\n", truncatingFormat("%#v", actual)), msgAndArgs...)
++		return Fail(t, fmt.Sprintf("Should not be equal to: %s\n", truncatingFormat("%#v", actual)), msgAndArgs...)
+ 	}
+ 
+ 	return true

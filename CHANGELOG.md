@@ -49,6 +49,16 @@ Removed).
   only through `SELF.fetch`; on cfwdon's web-ui tested precision is 0.765,
   mostly calls inside event handlers the tests never fire
   (docs/plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md). No floor is set.
+- G7, the pre-registered Go agent experiment of the first-class languages
+  plan (`eval/g7_go/`): eight questions in M3's four kinds on testify
+  v1.12.1 and compress v1.20.1, with answer keys from scip-go v0.2.7 and
+  per-test Go coverage, each entry read against the source. Over 160 runs
+  (Claude Haiku 5.5), agents with dagayn used 1.00x the tokens (Holm p =
+  1.0) and 0.91x the time (Holm p = 0.21) of agents without it, at 78
+  against 74 of 80 exact. The bar (0.85x tokens or time) is not met, so Go
+  is not first-class (eval/g7_go/RESULTS.md). `run_agent_tokens_eval.py`
+  reads Go spellings of a method (`(*T).M`, `*T.M`, `T[K].M`) and a subtest
+  suffix as the same symbol.
 - M3, the pre-registered Python agent experiment of the first-class
   languages plan (`eval/m3_python/`): eight questions a short script cannot
   answer (test reach, callers on an unnamed receiver type, callers through
@@ -157,6 +167,19 @@ Removed).
 
 ### Changed
 
+- `dagayn build --scip` for Go was compared edge by edge with scip-go
+  v0.2.7 (G6 of the first-class languages plan). dagayn's own node edges
+  agree on 7,003 of 7,017 on klauspost/compress and 287 of 287 on scip-go,
+  which meets the plan's 0.95 bar. Go stays fill-only until the owner
+  decides. In fill mode a `--scip` build already takes every call the
+  extractor leaves open from scip-go, including cross-file calls and
+  observed-method guesses, of which scip-go shows 108 of the 606 it
+  answers wrong. Authoritative mode would change 238 more edges on compress:
+  234 `println` calls that the package's own `println` shadows, and 4
+  `len` calls that the overlay's chain window binds to a later line's
+  `.len()`. A name declared more than once under build tags binds to the
+  indexing host's file. scip-go v0.2.7 needs Go 1.25, for which
+  `GOTOOLCHAIN=go1.25.3` suffices (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
 - `untested_change` and `tests_for`'s `test_reach` count a test up to 8
   caller hops away for TypeScript and JavaScript, up from 4
   (`test_reach.hop_limit` is 8). On tstodon all 55 functions with a test 5
@@ -174,6 +197,15 @@ Removed).
   `cloudflare:test` and `cloudflare:workers`, which no `package.json`
   names. Other edges are unchanged. The javascript extractor
   is now version 16.
+- The architecture overview's `untested_core` looks for a test as far as
+  `untested_change` does for the symbol's language: 8 caller hops for
+  TypeScript and JavaScript and no limit for Rust, where it walked 4 in
+  every language (`caller_hops_searched` is `null` for Rust). On tstodon
+  and dagayn's own graph the findings do not change. Six TypeScript eval
+  cases cover the causes M1 found (T4 of the first-class languages plan):
+  `pos_unused_typescript_export` (refactor), the worker request boundary,
+  a shorthand member, and a call-valued constant (flow), and a helper
+  reached through a request or six hops away (architecture).
 - `dagayn build --scip` indexes TypeScript with an indexer dagayn ships
   (`crates/dagayn-scip-typescript`, on the tsrs checker pinned at
   `e906c9e4`, run as `python -P -m dagayn.scip_typescript` in a child
@@ -316,6 +348,19 @@ Removed).
 
 ### Fixed
 
+- A Go call without a selector no longer binds to a method of the same
+  name. Go reaches a method only through a selector, but same-file
+  resolution bound `Equal(a.t, ...)` in testify's forwarder
+  `Assertions.Equal` to the method itself, `compressor(method)` in
+  klauspost/compress's `Writer.compressor` to that method, the conversion
+  `uint64(n)` to `writeBuf.uint64`, and a local closure `write` to
+  `Writer.write`, all at `EXTRACTED`. Such a call now keeps its bare name
+  for resolution across the package, which binds testify's 310 forwarders
+  to the package's functions; a closure stays unresolved with
+  `callee_local`. The go extractor is now version 13. Found by comparing
+  with scip-go (G6 of the first-class languages plan): on testify,
+  dagayn's node edges now agree with scip-go on 4,813 of 4,836, up from
+  4,503 (docs/plans/GO-SUPPORT-MEASUREMENTS.md, G6).
 - A call of a TypeScript module constant whose value is a call
   (`parseRow(raw)` for `const parseRow = schemaResult(RowSchema)`) reaches
   a node when the constant's own file calls it, exported or not (#239). The

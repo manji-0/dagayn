@@ -173,11 +173,11 @@ these calls with no import at all.
 | C3 | **missing in the graph** | `is_test: false` everywhere (`go.rs:195`, `:263`): `TestX`, `BenchmarkX`, `FuzzX`, and `ExampleX` are `Function` nodes, and no `TESTED_BY` edge exists. Only the tools' path rule (`_test.` in `findings.rs:229-239`) knows the files are tests |
 | C4 | partial | method calls on a receiver of a declared type (`go.rs:588`); interfaces are satisfied implicitly and no edge records it (0 `IMPLEMENTS`) |
 | C5 | partial | a `go.mod` is one unit (`units.rs:223-229`), with no `require` dependencies; packages, Go's unit of import, are not units |
-| C6 | partial | wired to fill only, run once on a small module ([open questions](./SCIP-CALL-RESOLUTION.md#open-questions)); `scip-go` is not installed here |
+| C6 | partial | wired to fill only; [G6](./GO-SUPPORT-MEASUREMENTS.md#g6-the-scip-go-comparison) measured it: node edges agree with scip-go on 7,003 of 7,017 (compress) and 287 of 287 (scip-go); authoritative is open |
 | C7 | **missing** | no harness; testify measured [above](#tool-answers) |
 | C8 | **missing** | no case in any eval |
 | C9 | present | `init` and protocol methods (`dead_code_verify.rs:319-330`); exported names of importable packages (`go_exported_api`, G5); `Benchmark` / `Fuzz` / `Example` functions are `Test` nodes (G1) |
-| C10 | **missing** | no experiment |
+| C10 | **failed** | G7, on questions a script cannot answer: tokens 1.00x, time 0.91x, neither significant ([results](../../eval/g7_go/RESULTS.md)) |
 | C11 | present | cgo and wasm bridges (`go.rs:280`, `:1316`) |
 
 ## Why Python cost agents tokens
@@ -351,10 +351,30 @@ method-call gap.
    Go SCIP becomes authoritative.
    Bar: the agreement table filled for Go. Authoritative only if dagayn's
    own node edges agree on at least 0.95, as Rust's did.
+   **Met** (2026-11-03,
+   [Go measurements](./GO-SUPPORT-MEASUREMENTS.md#g6-the-scip-go-comparison)):
+   node edges agree on 7,003 of 7,017 on compress (0.998) and 287 of 287
+   on scip-go. testify, added because its forwarders exercise the case,
+   was at 4,503 of 4,836 through a bare-call bug that
+   [#250](https://github.com/manji-0/dagayn/pull/250) fixes (4,813 after).
+   Whether Go becomes authoritative is the owner's call; the
+   recommendation is yes once the overlay's chain window stops on the
+   edge's own line.
 10. **G7, Go agent experiment.** After G1 to G3, the same design as E13,
     with an answer key from scip-go.
     Bar: tokens or time at most 0.85x at equal accuracy. Go is first-class
     when this and the M2 gate both hold.
+    **Measured, not met** (2026-11-03,
+    [pre-registration](../../eval/g7_go/PREREG.md),
+    [results](../../eval/g7_go/RESULTS.md)): four questions on testify
+    v1.12.1 and four on compress v1.20.1, 160 runs, keys from scip-go and
+    per-test coverage. Tokens 1.00x (Holm p = 1.0), time 0.91x (Holm p =
+    0.21), 78 against 74 of 80 exact. dagayn helped where its answer was
+    complete and the question was about receiver types and a diff (C4:
+    0.79x tokens, 10 against 6 exact) and cost where it was empty (a call
+    through a field holding a method expression, C3: 1.36x, Holm p = 0.022)
+    or listed 65 tests for 4 that run the function (C1). Go is not
+    first-class. The defects the runs show are listed in the results.
 
 ### TypeScript work
 
@@ -419,6 +439,26 @@ method-call gap.
     web-ui does not change.
 14. **T4, eval coverage.** A refactor `pos_unused_typescript_export` case,
     and flow and architecture cases from the causes M1 finds.
+    **Met** (2026-11-03): six cases, each failing on the code before its
+    rule or with its rule disabled.
+
+    | Case | Cause | Fails when |
+    |---|---|---|
+    | refactor `pos_unused_typescript_export` | an application's exports are not API | TypeScript exports are left out as `exported_api`, as Go's are |
+    | flow `pos_typescript_worker_route_handler` | request boundary (T3) | the request-boundary pass is off: the entry is `src/app.ts` (`module_level`) |
+    | flow `pos_typescript_shorthand_member` | #239 shorthand member | shorthand aliases are off: the target is its own `uncalled` entry |
+    | flow `pos_typescript_call_valued_constant` | #239 call-valued constant | called constants get no node: no target |
+    | architecture `neg_typescript_helper_tested_through_request` | request boundary (T3) | the request-boundary pass is off: `untested_core` on the helper |
+    | architecture `neg_typescript_helper_tested_six_hops_away` | hop limit | on `main`: `untested_core` walked 4 hops in every language |
+
+    The last case found a gap: `untested_core` kept its own 4-hop limit
+    when `untested_change` moved to 8 for TypeScript and JavaScript. It
+    now uses the same per-language limit (no limit for Rust). On tstodon
+    and dagayn's own graph its findings do not change (tstodon keeps
+    `unitKind`, called at module load). A `format` imported from
+    `date-fns` still hides an unused local `format` from `dead_code`: the
+    source scan counts any occurrence of the name, so the refactor case
+    uses a name no other file mentions.
 
 ### Python work
 

@@ -1,0 +1,100 @@
+description: A helper used from six Hono route modules has no test of its own. The worker's test sends
+  a request through `SELF.fetch` from `cloudflare:test`, which reaches the worker's default fetch, the
+  app, and every route mounted on it, so the test reaches the helper.
+negative: true
+files:
+  package.json: |
+    {"name": "worker", "private": true, "dependencies": {"hono": "^4.6.0"}, "devDependencies": {"vitest": "^3.2.0", "@cloudflare/vitest-pool-workers": "^0.8.0"}}
+  wrangler.toml: |
+    name = "worker"
+    main = "src/index.ts"
+  src/label.ts: |
+    export function label(kind: string, id: string): string {
+      return `${kind}:${id}`;
+    }
+  src/clock.ts: |
+    export function now(): number {
+      return Date.now();
+    }
+  src/routes/users.ts: |
+    import { Hono } from "hono";
+    import { label } from "../label";
+
+    export const users = new Hono();
+
+    users.get("/:id", (c) => c.text(label("users", c.req.param("id"))));
+  src/routes/posts.ts: |
+    import { Hono } from "hono";
+    import { label } from "../label";
+
+    export const posts = new Hono();
+
+    posts.get("/:id", (c) => c.text(label("posts", c.req.param("id"))));
+  src/routes/tags.ts: |
+    import { Hono } from "hono";
+    import { label } from "../label";
+
+    export const tags = new Hono();
+
+    tags.get("/:id", (c) => c.text(label("tags", c.req.param("id"))));
+  src/routes/likes.ts: |
+    import { Hono } from "hono";
+    import { label } from "../label";
+
+    export const likes = new Hono();
+
+    likes.get("/:id", (c) => c.text(label("likes", c.req.param("id"))));
+  src/routes/lists.ts: |
+    import { Hono } from "hono";
+    import { label } from "../label";
+
+    export const lists = new Hono();
+
+    lists.get("/:id", (c) => c.text(label("lists", c.req.param("id"))));
+  src/routes/media.ts: |
+    import { Hono } from "hono";
+    import { label } from "../label";
+
+    export const media = new Hono();
+
+    media.get("/:id", (c) => c.text(label("media", c.req.param("id"))));
+  src/app.ts: |
+    import { Hono } from "hono";
+    import { users } from "./routes/users";
+    import { posts } from "./routes/posts";
+    import { tags } from "./routes/tags";
+    import { likes } from "./routes/likes";
+    import { lists } from "./routes/lists";
+    import { media } from "./routes/media";
+
+    export const app = new Hono();
+
+    app.route("/users", users);
+    app.route("/posts", posts);
+    app.route("/tags", tags);
+    app.route("/likes", likes);
+    app.route("/lists", lists);
+    app.route("/media", media);
+  src/index.ts: |
+    import { app } from "./app";
+
+    export default {
+      async fetch(request: Request): Promise<Response> {
+        return app.fetch(request);
+      },
+    };
+  test/users.test.ts: |
+    import { SELF } from "cloudflare:test";
+    import { expect, it } from "vitest";
+
+    it("labels a user", async () => {
+      const response = await SELF.fetch("https://example.com/users/1");
+      expect(await response.text()).toBe("users:1");
+    });
+  test/clock.test.ts: |
+    import { expect, it } from "vitest";
+    import { now } from "../src/clock";
+
+    it("tells the time", () => {
+      expect(now()).toBeGreaterThan(0);
+    });

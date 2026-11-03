@@ -1,0 +1,25 @@
+description: A module-scope object lists a function by shorthand (`{ matches }`), and another file calls it as `IpBlock.matches(..)`. The call reaches the function the member names, so the caller is the target's entry point.
+target: src/ip-block.ts::matches
+files:
+  package.json: |
+    {"name": "app", "private": true}
+  src/ip-block.ts: |
+    function matches(block: string, address: string): boolean {
+      return address.startsWith(block);
+    }
+
+    function parse(text: string): string {
+      return text.trim();
+    }
+
+    export const IpBlock = { matches, parse };
+  src/firewall.ts: |
+    import { IpBlock } from "./ip-block";
+
+    export function allowed(address: string): boolean {
+      return !IpBlock.matches("10.", address);
+    }
+expected_entry_points:
+- entry_point: src/firewall.ts::allowed
+  kind: uncalled
+  chain: [src/firewall.ts::allowed, src/ip-block.ts::matches]
