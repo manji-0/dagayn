@@ -54,9 +54,12 @@ editor workspace variable set, a corrupt graph) runs the Python CLI instead,
 with the same output. `dagayn queue add` of `update`, `postprocess`, or
 `prepare` with `--repo`, which edit hooks run, likewise enqueues without loading
 the whole CLI. `dagayn serve` over stdio answers
-the MCP handshake, the tool and prompt listings, and `list_graph_stats_tool` and
-`get_docs_section_tool` in Rust, and starts the Python server only for the first
-call it does not answer itself. Set `DAGAYN_PYTHON_CLI=1` to run
+the MCP handshake, the tool and prompt listings, and `tools/call` for the
+default tools and the advanced tools `dagayn-tools` implements in Rust. A call
+it cannot answer starts the Python server for the rest of the session: a
+`semantic_search_nodes_tool` query that needs embeddings, and
+`run_postprocess_tool`, which writes the graph, once the Python server is
+running. Set `DAGAYN_PYTHON_CLI=1` to run
 every command through the full Python CLI; `python -m dagayn` always does.
 
 ### SCIP call resolution
@@ -552,7 +555,8 @@ row per related node; for `callers_of`, `callees_of`, `inheritors_of`, and
 edge's `confidence_tier`, and rows drop `id`, `language`, default
 `parent_name` / `is_test`, and a `file_path` already in `qualified_name`.
 It omits `answerability` and `edges`. `minimal` keeps fewer row fields, drops `guidance` and
-`description`, and returns every row that fits a 2,000-token budget. `full`
+`description`, and returns every row that fits 8K characters (`standard` fits 32K, as for
+the other Tier 1 analysis tools). `full`
 returns the earlier `standard` shape: one row per edge, the `edges` list, and
 full `answerability`.
 
