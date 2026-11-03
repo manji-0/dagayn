@@ -355,6 +355,42 @@ Removed).
   `\r` ends, or one that mixes them, only the renamed identifiers change,
   and the `dry_run` diff carries the same line ends that are written. Files
   with `\n` ends are edited as before (#180).
+- A Go file is a test only when its name ends in `_test.go` (#240). The
+  path rules of `review_tool`, the architecture overview, `tests_for`'s
+  test inference, and refactor suggestions read any `test_*` file as a
+  test, so testify's
+  `http/test_round_tripper.go` (`package http`) was test code: its
+  symbols were left out of untested and dead-code reports, and the
+  overview lacked the unit edge `http` -> `mock`, whose only import is in
+  that file. On testify v1.12.1 the overview now has 10 unit edges, all 10
+  package-import pairs of the source (9 before). Test directories
+  (`testdata`, `tests/`) still make a Go file test code. Every rule now
+  defers to one Go predicate, `dagayn_parser::go_test_file`. The parser's
+  rule read a `test_` prefix only at the repository root, where a
+  `test_*.go` File node was `is_test`; the go extractor is now version 15.
+- `review_tool`'s `tests_to_run` no longer names a helper of the tests as
+  a test to run, and runs a Go benchmark with `-bench` (#255, item 1).
+  Every function of a `_test.go` file is test code, and the finding listed
+  each one a change reached, with a `go test -run` command that ran
+  nothing for a helper or a benchmark. A helper is now replaced by the
+  tests that reach it through test code within 3 calls; a helper no test
+  is seen to reach (a testify suite method, which `suite.Run` calls by
+  reflection) stays listed with a command that runs its package's or
+  file's tests (`go test ./suite`). `Benchmark*` tests run with
+  `-run '^$' -bench '^(..)$'`, or next to `-run` when the file has tests
+  too; fuzz targets keep `-run`, which runs their seed corpus. The same
+  leak hit Rust: a function under `tests/` is a `Test` node by its path,
+  so an integration test's helper was named with a `cargo test` filter
+  that matched no test; a Rust `Test` node that other test code calls is
+  now a helper. On the G7 change commits (eval/g7_go), compress's 7
+  findings named 2 helpers (`benchmarkEncoder`, `testFileLevelDictReset`)
+  and ran `BenchmarkDeflate` with `-run`, and testify's suite method
+  `SuiteTester.TestTwo` with `-run '^TestTwo$'`; now `benchmarkEncoder`
+  gives the 27 benchmarks that call it, `testFileLevelDictReset` gives
+  zlib's `TestWriterReset`, and every command runs its targets. The review
+  eval is unchanged (tests_to_run 16 TP, 0 FP, 0 FN). The finding's claim
+  now reads "N test(s) here test M changed function(s)", without
+  "directly".
 - `dagayn build --scip` no longer takes a call's target from a later line
   when the call's own line calls the name and the index has no reference
   there. The overlay searches the next eight lines for a chain the

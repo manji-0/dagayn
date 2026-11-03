@@ -117,6 +117,7 @@ pub use discovery::{
     filter_incremental_candidates, filter_parseable_files, load_ignore_patterns,
 };
 pub use extractor_version::{EXTRACTOR_VERSIONS, ExtractorVersion, extractor_versions};
+pub use go::go_test_file;
 pub use js_resolve::strip_jsonc_comments;
 pub use js_sfc::{parse_svelte, parse_vue};
 pub use types::{EdgeKind, FilePath, NodeKind, ParsedEdge, ParsedNode};
