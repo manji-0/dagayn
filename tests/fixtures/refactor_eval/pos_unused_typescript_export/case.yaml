@@ -1,0 +1,19 @@
+description: An exported function of a private TypeScript application that nothing imports or calls. The application's own entry imports a sibling export of the same module, but no other package consumes an application, so the unused export is dead, not API.
+files:
+  package.json: |
+    {"name": "app", "private": true}
+  src/dates.ts: |
+    export function formatDay(day: Date): string {
+      return day.toISOString().slice(0, 10);
+    }
+
+    export function parseDay(text: string): Date {
+      return new Date(`${text}T00:00:00Z`);
+    }
+  src/index.ts: |
+    import { parseDay } from "./dates";
+
+    console.log(parseDay("2026-01-01").getUTCFullYear());
+expected_findings:
+- kind: unused_symbol
+  target: src/dates.ts::formatDay

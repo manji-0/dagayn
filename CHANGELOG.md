@@ -164,6 +164,15 @@ Removed).
   to 483 and tested precision from 0.995 to 0.996, and leaves cfwdon's
   web-ui unchanged (docs/plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md). Python
   and Go keep 4 hops and Rust keeps no limit.
+- The architecture overview's `untested_core` looks for a test as far as
+  `untested_change` does for the symbol's language: 8 caller hops for
+  TypeScript and JavaScript and no limit for Rust, where it walked 4 in
+  every language (`caller_hops_searched` is `null` for Rust). On tstodon
+  and dagayn's own graph the findings do not change. Six TypeScript eval
+  cases cover the causes M1 found (T4 of the first-class languages plan):
+  `pos_unused_typescript_export` (refactor), the worker request boundary,
+  a shorthand member, and a call-valued constant (flow), and a helper
+  reached through a request or six hops away (architecture).
 - `dagayn build --scip` indexes TypeScript with an indexer dagayn ships
   (`crates/dagayn-scip-typescript`, on the tsrs checker pinned at
   `e906c9e4`, run as `python -P -m dagayn.scip_typescript` in a child

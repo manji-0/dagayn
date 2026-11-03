@@ -1,0 +1,31 @@
+description: A Cloudflare Worker's default fetch hands each request to a Hono app, and a route handler registered at module scope calls the target. The worker's fetch reaches it through the app's routes file, not the routes file on its own.
+target: src/greeting.ts::greet
+files:
+  package.json: |
+    {"name": "worker", "private": true, "dependencies": {"hono": "^4.6.0"}}
+  wrangler.toml: |
+    name = "worker"
+    main = "src/index.ts"
+  src/greeting.ts: |
+    export function greet(name: string): string {
+      return `hello ${name}`;
+    }
+  src/app.ts: |
+    import { Hono } from "hono";
+    import { greet } from "./greeting";
+
+    export const app = new Hono();
+
+    app.get("/hello/:name", (c) => c.text(greet(c.req.param("name"))));
+  src/index.ts: |
+    import { app } from "./app";
+
+    export default {
+      async fetch(request: Request): Promise<Response> {
+        return app.fetch(request);
+      },
+    };
+expected_entry_points:
+- entry_point: src/index.ts::default.fetch
+  kind: dispatched_method
+  chain: [src/index.ts::default.fetch, src/app.ts, src/greeting.ts::greet]
