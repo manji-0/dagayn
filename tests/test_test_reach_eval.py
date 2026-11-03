@@ -8,6 +8,7 @@ DAGAYN_TEST_REACH_EVAL=1 and DAGAYN_COVERAGE_JSON to the report.
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import sqlite3
 import subprocess
@@ -182,6 +183,74 @@ def test_go_population_matches_a_function_by_file_and_first_line(tmp_path: Path)
         ("pkg/a.go::idle", False, 0),
         ("tools/gen.go::Gen", True, 0),
     ]
+
+
+def _istanbul_function(line: int, column: int) -> dict:
+    start = {"line": line, "column": column}
+    return {
+        "name": "(anonymous_0)",
+        "decl": {"start": start, "end": start},
+        "loc": {"start": start},
+    }
+
+
+def test_istanbul_report_is_read_as_typescript_coverage(tmp_path: Path):
+    # dagayn: tests eval/run_test_reach_eval.py::load_coverage
+    # dagayn: tests eval/run_test_reach_eval.py::js_population
+    repo = tmp_path / "repo"
+    source = str(repo / "src" / "a.ts")
+    report = {
+        source: {
+            "path": source,
+            "fnMap": {
+                "0": _istanbul_function(3, 13),
+                # A callback that ran, written on the line of a function that did not.
+                "1": _istanbul_function(8, 40),
+                "2": _istanbul_function(8, 13),
+                # A callback inside a function: no node starts on its line.
+                "3": _istanbul_function(12, 7),
+            },
+            "f": {"0": 2, "1": 1, "2": 0, "3": 1},
+        },
+        str(repo / "src" / "a.test.ts"): {"fnMap": {"0": _istanbul_function(1, 0)}, "f": {"0": 1}},
+        str(tmp_path / "elsewhere" / "b.ts"): {
+            "fnMap": {"0": _istanbul_function(1, 0)},
+            "f": {"0": 1},
+        },
+    }
+    path = tmp_path / "coverage-final.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    coverage = harness.load_coverage(path)
+    assert coverage == {"type": harness.ISTANBUL, "files": report}
+
+    db = tmp_path / "graph.db"
+    with sqlite3.connect(db) as conn:
+        conn.executescript(
+            "CREATE TABLE nodes (qualified_name TEXT, kind TEXT, is_test INT, language TEXT,"
+            " file_path TEXT, line_start INT, line_end INT);"
+            "CREATE TABLE edges (kind TEXT, target_qualified TEXT, extra TEXT);"
+        )
+        conn.executemany(
+            "INSERT INTO nodes VALUES (?, 'Function', 0, 'typescript', ?, ?, ?)",
+            [
+                ("src/a.ts::ran", "src/a.ts", 3, 6),
+                ("src/a.ts::idle", "src/a.ts", 8, 14),
+                # A call-valued member (`parse: schemaResult(schema)`): no function literal.
+                ("src/a.ts::Schema.parse", "src/a.ts", 20, 20),
+                ("src/a.test.ts::helper", "src/a.test.ts", 1, 2),
+            ],
+        )
+        conn.execute("INSERT INTO edges VALUES ('CALLS', 'src/a.ts::ran', '{}')")
+    rows = harness.population(db, coverage, repo)
+    assert sorted(rows) == [("src/a.ts::idle", False, 0), ("src/a.ts::ran", True, 1)]
+
+
+def test_load_coverage_keeps_a_pytest_cov_report_as_it_is(tmp_path: Path):
+    # dagayn: tests eval/run_test_reach_eval.py::load_coverage
+    report = {"meta": {"version": "7.6"}, "files": {"pkg/a.py": {"executed_lines": [1]}}}
+    path = tmp_path / "coverage.json"
+    path.write_text(json.dumps(report), encoding="utf-8")
+    assert harness.load_coverage(path) == report
 
 
 def test_gate_reports_each_metric_below_its_floor():

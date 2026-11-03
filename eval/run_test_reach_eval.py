@@ -29,7 +29,13 @@ call graph does not cross, so there it is if anything understated. A
 when its percentage is above zero. Run the tests with ``-coverpkg=./...`` so
 that a package's functions count when another package's tests run them. A
 file the build left out (another ``GOARCH``'s ``_amd64.go``, a build tag) is
-absent from the listing, and so are its functions from the population.
+absent from the listing, and so are its functions from the population. An
+istanbul ``coverage-final.json`` (vitest's ``json`` reporter, from the
+istanbul or the v8 provider) measures TypeScript and JavaScript: a function
+counts as covered when its count is above zero. Set ``coverage.include`` so
+that files no test loads are reported too; a function the graph has no node
+for (an anonymous arrow passed at module scope, a callback) is in no
+population.
 
 Usage::
 
@@ -45,6 +51,12 @@ Usage::
     go tool cover -func=cover.out > cover.func
     dagayn build --repo GO_REPO
     uv run python eval/run_test_reach_eval.py --coverage cover.func --repo GO_REPO
+
+    vitest run --coverage.enabled --coverage.provider=istanbul \
+        --coverage.reporter=json '--coverage.include=src/**/*.ts'
+    dagayn build --repo TS_REPO
+    uv run python eval/run_test_reach_eval.py \
+        --coverage TS_REPO/coverage/coverage-final.json --repo TS_REPO
 """
 
 from __future__ import annotations
@@ -65,6 +77,8 @@ ROOT = Path(__file__).resolve().parent.parent
 THRESHOLDS = ROOT / "eval" / "test_reach_thresholds.yaml"
 TEST_DIRS = {"tests", "test", "__tests__", "spec", "testdata", "fixtures"}
 GO_COVER_FUNC = "go.cover.func"
+ISTANBUL = "istanbul.coverage-final"
+JS_LANGUAGES = ("typescript", "tsx", "javascript")
 # `github.com/x/y/pkg/file.go:12:\tName\t\t75.0%`, one line per function.
 _GO_FUNC_LINE = re.compile(
     r"^(?P<file>\S+\.go):(?P<line>\d+):\s+(?P<name>\S+)\s+(?P<percent>[\d.]+)%$"
@@ -96,14 +110,19 @@ def _incoming(conn: sqlite3.Connection) -> Counter[str]:
 
 
 def load_coverage(path: Path) -> dict[str, Any]:
-    """A JSON coverage report as it is, or a ``go tool cover -func`` listing
-    as ``{"type": "go.cover.func", "functions": [[file, line, name,
-    percent], ...]}``."""
+    """A JSON coverage report as it is, an istanbul ``coverage-final.json``
+    as ``{"type": ISTANBUL, "files": {path: report}}``, or a ``go tool cover
+    -func`` listing as ``{"type": GO_COVER_FUNC, "functions": [[file, line,
+    name, percent], ...]}``."""
     text = path.read_text(encoding="utf-8")
     try:
-        return json.loads(text)
+        report = json.loads(text)
     except json.JSONDecodeError:
         pass
+    else:
+        if report and all(isinstance(file, dict) and "fnMap" in file for file in report.values()):
+            return {"type": ISTANBUL, "files": report}
+        return report
     functions = []
     for line in text.splitlines():
         match = _GO_FUNC_LINE.match(line.strip())
@@ -129,11 +148,13 @@ def population(
     """``(qualified_name, covered, incoming)`` of each production function
     the coverage report measures: Python for a pytest-cov report, Rust for a
     ``cargo llvm-cov --json`` export, Go for a ``go tool cover -func``
-    listing."""
+    listing, TypeScript and JavaScript for an istanbul report."""
     if coverage.get("type") == "llvm.coverage.json.export":
         return rust_population(db_path, coverage, repo)
     if coverage.get("type") == GO_COVER_FUNC:
         return go_population(db_path, coverage, repo)
+    if coverage.get("type") == ISTANBUL:
+        return js_population(db_path, coverage, repo)
     files = coverage["files"]
     rows = []
     with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
@@ -260,6 +281,44 @@ def go_population(
     return rows
 
 
+def js_population(
+    db_path: Path, coverage: dict[str, Any], repo: Path
+) -> list[tuple[str, bool, int]]:
+    """TypeScript and JavaScript functions against an istanbul
+    ``coverage-final.json`` (vitest's ``json`` reporter, from either the
+    istanbul or the v8 provider). Its functions are mostly anonymous, so a
+    node matches on file and first line: the line of the function's name
+    (``decl``), where the graph starts it too. A callback written on the
+    same line declares there as well, further right, so the leftmost one is
+    the node's own."""
+    leftmost: dict[tuple[str, int], tuple[int, bool]] = {}
+    for path, report in coverage["files"].items():
+        try:
+            relative = Path(path).relative_to(repo).as_posix()
+        except ValueError:
+            continue
+        for key, function in report["fnMap"].items():
+            start = function["decl"]["start"]
+            column, ran = start["column"], report["f"][key] > 0
+            seen = leftmost.get((relative, start["line"]))
+            if seen is None or column < seen[0]:
+                leftmost[(relative, start["line"])] = (column, ran)
+    rows = []
+    with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
+        incoming = _incoming(conn)
+        nodes = conn.execute(
+            "SELECT qualified_name, file_path, line_start FROM nodes "
+            "WHERE kind = 'Function' AND is_test = 0 AND language IN (?, ?, ?)",
+            JS_LANGUAGES,
+        ).fetchall()
+    for qualified_name, file_path, line_start in nodes:
+        measured = leftmost.get((file_path, line_start))
+        if measured is None or is_test_path(file_path):
+            continue
+        rows.append((qualified_name, measured[1], incoming[qualified_name]))
+    return rows
+
+
 _REPO = ROOT
 
 
@@ -355,7 +414,8 @@ def main() -> int:
         "--coverage",
         type=Path,
         required=True,
-        help="pytest-cov JSON, cargo llvm-cov JSON export, or `go tool cover -func` output",
+        help="pytest-cov JSON, cargo llvm-cov JSON export, `go tool cover -func` output, "
+        "or istanbul coverage-final.json (vitest)",
     )
     parser.add_argument(
         "--repo",
