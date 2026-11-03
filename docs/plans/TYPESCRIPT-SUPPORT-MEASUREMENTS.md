@@ -334,7 +334,9 @@ Graphs were rebuilt from the branch (`last_build_type` `full`,
 web-ui does not change: it has no Hono app and no `SELF.fetch`.
 
 On tstodon, 504 functions are newly called tested. 471 of them ran: 469 of
-the 470 request-boundary answers, `default.fetch`, and `StreamHub.write`
+the 470 request-boundary answers (465 of the 466 names M1 sampled from,
+and the 4 the streaming Durable Object reaches too), `default.fetch`, and
+`StreamHub.write`
 (under the streaming route). The 470th, `objectUriOf`, is 9 hops from a
 test. The 12 still wrong are M1's other causes: 5 runtime entry points, 2
 Durable Object stub calls, and one each of a call at module load, a
@@ -376,7 +378,7 @@ A seeded random sample: `random.Random(20261103).sample` of 50 from the 471
 newly tested functions that ran (sorted names), and all 33 that did not
 run. For each, the shortest backward chain to a test was read with the
 source line of every hop. All 83 chains start at a test helper's
-`SELF.fetch` and pass `default.fetch`, `app.fetch`, and `app.route` (and a
-sub-app's `route` for nested apps, such as `adminRoutes`) to a call in a
-route file. Lengths are 3 hops (middleware such as `app.use("/api/*",
-apiCors())`) to 8 hops.
+`SELF.fetch` and pass `default.fetch` and `app.fetch`. They end at a call
+in `app.ts` (middleware such as `app.use("/api/*", apiCors())`, 3 hops) or,
+through `app.route` and a sub-app's `route` for nested apps such as
+`adminRoutes`, at a call in a route file (up to 8 hops).
