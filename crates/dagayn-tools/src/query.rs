@@ -388,6 +388,7 @@ const MINIMAL_FIELDS: &[&str] = &[
     "importer",
     "import_target",
     "import_kind",
+    "relation",
     "unresolved",
     "lines",
     "line",
@@ -399,6 +400,12 @@ const MINIMAL_FIELDS: &[&str] = &[
 
 /// Patterns whose rows are one per edge and merge by endpoint.
 const MERGED: &[&str] = &["callers_of", "callees_of", "inheritors_of", "importers_of"];
+/// A `callers_of` row's `relation` where the row uses the target as a
+/// value instead of calling it.
+const VALUE_REFERENCE: &str = "references";
+/// The merged row's `relation` for a node that both calls the target and
+/// uses it as a value.
+const CALLS_AND_REFERENCES: &str = "calls,references";
 /// `MAX_QUERY_DEPTH` and `_TRANSITIVE_ROW_LIMIT`.
 const MAX_DEPTH: i64 = 6;
 const TRANSITIVE_ROW_LIMIT: usize = 500;
@@ -633,6 +640,11 @@ fn merge(rows: Vec<Row>) -> Vec<Row> {
                         }
                         _ => existing.push(("import_kind", json!(kind))),
                     }
+                }
+                // A function that calls the target and also stores it as a
+                // value says both.
+                if get(&row, "relation") != get(existing, "relation") {
+                    set(existing, "relation", json!(CALLS_AND_REFERENCES));
                 }
             }
         }
@@ -1047,23 +1059,26 @@ fn expand_transitive(
     for row in &mut found.rows {
         row.push(("depth", json!(1)));
     }
-    let first_hop: Vec<String> = found
+    let first_hop: Vec<(String, bool)> = found
         .rows
         .iter()
         .map(|row| {
             let key = if importers { "file" } else { "qualified_name" };
-            get(row, key)
+            let name = get(row, key)
                 .and_then(Value::as_str)
                 .unwrap_or("")
-                .to_string()
+                .to_string();
+            (name, get(row, "relation") == Some(&json!(VALUE_REFERENCE)))
         })
         .collect();
     let mut seen: HashSet<String> = HashSet::new();
     seen.insert(start.to_string());
-    seen.extend(first_hop.iter().cloned());
+    seen.extend(first_hop.iter().map(|(key, _)| key.clone()));
     let mut frontier: Vec<String> = Vec::new();
-    for key in first_hop {
-        if !frontier.contains(&key) {
+    // A place that only stores the target as a value does not call it, so
+    // its own callers are not the target's.
+    for (key, reference) in first_hop {
+        if !reference && !frontier.contains(&key) {
             frontier.push(key);
         }
     }
@@ -1201,9 +1216,11 @@ fn run_pattern(
     };
     match pattern {
         "callers_of" => {
-            let edges: Vec<GraphEdge> = edges_of(false)?
-                .into_iter()
+            let incoming = edges_of(false)?;
+            let edges: Vec<GraphEdge> = incoming
+                .iter()
                 .filter(|e| e.kind == "CALLS")
+                .cloned()
                 .collect();
             found.rows = found.edge_rows(store, &edges, true)?;
             found.edges = edges.iter().map(edge_dict).collect();
@@ -1215,6 +1232,26 @@ fn run_pattern(
                 found.rows.extend(rows);
                 found.edges.extend(fallback.iter().map(edge_dict));
                 annotate_bare(&mut found.edges);
+            }
+            // Where a Go method is used as a value (`d.step =
+            // (*compressor).storeFast`): its calls through that value are
+            // not edges, so the place that stores it stands in for them
+            // (#235). Other languages record such references too, but
+            // their replies do not show them yet.
+            if node.is_some_and(|node| node.language == "go") {
+                let references: Vec<GraphEdge> = incoming
+                    .into_iter()
+                    .filter(|e| {
+                        e.kind == "REFERENCES"
+                            && e.extra.get("value_reference") == Some(&Value::Bool(true))
+                    })
+                    .collect();
+                let mut rows = found.edge_rows(store, &references, true)?;
+                for row in &mut rows {
+                    row.push(("relation", json!(VALUE_REFERENCE)));
+                }
+                found.rows.extend(rows);
+                found.edges.extend(references.iter().map(edge_dict));
             }
             if depth > 1 {
                 expand_transitive(store, &mut found, qualified, depth, false, None)?;
@@ -1880,7 +1917,24 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             reach.get("state") == Some(&json!("complete"))
                 && reach.get("depth_limit_reached") != Some(&Value::Bool(true))
         });
-    if closed
+    // Counted by node, as `merge` folds the rows.
+    let value_uses = found
+        .rows
+        .iter()
+        .filter(|row| get(row, "relation") == Some(&json!(VALUE_REFERENCE)))
+        .filter_map(|row| get(row, "qualified_name"))
+        .collect::<HashSet<_>>()
+        .len();
+    if value_uses > 0
+        && let Some(summary) = payload.get("summary").and_then(Value::as_str)
+    {
+        let summary = format!(
+            "{summary}. {value_uses} use it as a value (relation \"{VALUE_REFERENCE}\"); calls \
+             through that value are not edges, so callers may be missing: read where the \
+             value goes"
+        );
+        payload = payload.replace("summary", json!(summary));
+    } else if closed
         && let Some(note) = closed_note(
             pattern,
             found.reachability.is_none(),

@@ -375,6 +375,24 @@ Removed).
   removes 173 test-code Functions from the candidates on testify and 153
   on klauspost/compress. `test_reach`, `dead_code`, and test reach do not
   change. G7 found the defect (eval/g7_go/RESULTS.md).
+- A Go method used as a value is in the graph, and `callers_of` names the
+  place (#235, Go only). klauspost/compress stores its step function with
+  `d.step = (*compressor).storeFast` in `compressor.init` and calls it as
+  `d.step(d)`. `callers_of` on `storeFast` returned 0 rows, and G7's agents
+  searched for the callers themselves (eval/g7_go/RESULTS.md, defect 1).
+  A method expression (`(*T).m`, or `T.m` for a type of the file) is now a
+  REFERENCES edge to the method, bound like a typed call. The go extractor
+  is now version 14. For a Go target, `callers_of` lists these places with
+  `relation: "references"` (`"calls,references"` for a node that does
+  both) and says that calls through the value are not edges; `depth > 1`
+  does not walk on from a place that only stores the method. `tests_for` follows them: `storeFast` is now reached by
+  `TestDeflate` in 2 hops, where before no test reached it. On compress, 12
+  method expressions become edges, and 6 methods leave the `dead_code`
+  candidates (the dead list stays empty). testify has no method
+  expressions, and its test reach does not change. Other languages record
+  such references but `callers_of` does not list them yet. A method value
+  (`d.storeFast` without a call) and a call through the field are not
+  edges.
 - A Go call without a selector no longer binds to a method of the same
   name. Go reaches a method only through a selector, but same-file
   resolution bound `Equal(a.t, ...)` in testify's forwarder

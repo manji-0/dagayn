@@ -307,8 +307,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `package_import`), leaving out its tests and ignored files.
         // 13: a call without a selector (`compressor(m)`, `uint64(n)`, a
         // local closure) never binds to a same-named method of the file.
+        // 14: a method expression used as a value (`(*T).m`, `T.m` for a
+        // type of the file) is a REFERENCES edge to the method.
         extractor: "go",
-        version: 13,
+        version: 14,
         languages: &["go"],
     },
     ExtractorVersion {

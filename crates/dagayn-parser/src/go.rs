@@ -36,14 +36,14 @@ pub(super) fn parse_go_with_parser(
         stdlib.own_package = namespace
             .as_deref()
             .map(|path| path.strip_suffix("_test").unwrap_or(path).to_string());
+        let declared_types = go_declared_types(root, source);
         let context = GoContext {
             source,
             file_path: &file_path,
             stdlib: &stdlib,
             struct_fields: go_struct_fields(root, source, &stdlib),
-            bindings: RefCell::new(MemberCallBindings::with_types(go_declared_types(
-                root, source,
-            ))),
+            bindings: RefCell::new(MemberCallBindings::with_types(declared_types.clone())),
+            declared_types,
             locals: RefCell::new(HashSet::new()),
         };
         go_walk_children(root, &context, None, &mut nodes, &mut edges);
@@ -236,6 +236,8 @@ struct GoContext<'a> {
     /// (`cfg *Config`).
     struct_fields: HashMap<String, HashMap<String, Option<GoType>>>,
     bindings: RefCell<MemberCallBindings>,
+    /// Every type the file declares.
+    declared_types: HashSet<String>,
     /// Names the enclosing function declares (parameters, receiver,
     /// `var`, `:=`, `range`): a receiver of these is a variable, never a
     /// package qualifier.
@@ -303,10 +305,82 @@ fn go_walk_children(
             "call_expression" => {
                 go_emit_call(child, context, enclosing_func, edges);
             }
+            "selector_expression" => {
+                go_emit_method_expression(child, context, enclosing_func, edges);
+            }
             _ => {}
         }
         go_walk_children(child, context, enclosing_func, nodes, edges);
     }
+}
+
+/// A method used as a value through its type (`d.step =
+/// (*compressor).storeFast`, `Store.Save`): REFERENCES to the method, so
+/// the place that stores it is in the graph even though calls through the
+/// value (`d.step(d)`) are not edges. Bound like a typed call's method
+/// ([`go_finish_typed_receivers`]): in the file, or by `receiver_type`
+/// across the package.
+fn go_emit_method_expression(
+    node: tree_sitter::Node<'_>,
+    context: &GoContext<'_>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let called = node.parent().is_some_and(|parent| {
+        parent.kind() == "call_expression" && parent.child_by_field_name("function") == Some(node)
+    });
+    if called {
+        return;
+    }
+    let (Some(operand), Some(field)) = (
+        node.child_by_field_name("operand"),
+        node.child_by_field_name("field"),
+    ) else {
+        return;
+    };
+    let Some(type_name) = go_method_expression_type(operand, context) else {
+        return;
+    };
+    let file_path = context.file_path;
+    let source = enclosing_func
+        .map(|func| qualify(file_path, func, None))
+        .unwrap_or_else(|| file_path.to_string());
+    edges.push(ParsedEdge {
+        kind: crate::core::types::EdgeKind::References,
+        source,
+        target: node_text(field, context.source),
+        file_path: file_path.clone(),
+        line: node.start_position().row as i64 + 1,
+        extra: json!({"value_reference": true, GO_TYPED_RECEIVER_KEY: type_name}),
+    });
+}
+
+/// The type a method expression's operand names: `(*T)`, or `T` for a type
+/// the file declares. A variable of the function (`(*p).n`) is a value.
+fn go_method_expression_type(
+    operand: tree_sitter::Node<'_>,
+    context: &GoContext<'_>,
+) -> Option<String> {
+    let name = match operand.kind() {
+        "parenthesized_expression" => {
+            let mut cursor = operand.walk();
+            let inner = operand.named_children(&mut cursor).next()?;
+            let pointee = (inner.kind() == "unary_expression"
+                && inner
+                    .child_by_field_name("operator")
+                    .is_some_and(|operator| node_text(operator, context.source) == "*"))
+            .then(|| inner.child_by_field_name("operand"))
+            .flatten()
+            .filter(|pointee| pointee.kind() == "identifier")?;
+            node_text(pointee, context.source)
+        }
+        "identifier" => {
+            let name = node_text(operand, context.source);
+            context.declared_types.contains(&name).then_some(name)?
+        }
+        _ => return None,
+    };
+    (!context.locals.borrow().contains(&name)).then_some(name)
 }
 
 fn go_emit_imports(

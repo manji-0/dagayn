@@ -549,6 +549,13 @@ edges only; the bare-name fallback that hop 1 of `callers_of` uses when a node
 has no resolved callers is not repeated further out. Other patterns reject
 `depth` other than 1.
 
+For a Go target, `callers_of` also lists the places that use the function or
+method as a value (a method expression such as `d.step =
+(*compressor).storeFast`), with `relation: "references"`. A call through that
+value (`d.step(d)`) is no edge, so the summary says that callers may be
+missing and where to read instead. Other languages record such references
+but do not list them yet (#235).
+
 `query_graph_tool` has three detail levels. `standard` (default) returns one
 row per related node; for `callers_of`, `callees_of`, `inheritors_of`, and
 `importers_of`, the edge lines are folded into the row as `lines` with the

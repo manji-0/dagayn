@@ -971,3 +971,76 @@ func TestCompare() {
         ["zip/writer.go::TestCompare.customInt"]
     );
 }
+
+#[test]
+fn go_method_expressions_are_references_to_their_methods() {
+    // From klauspost/compress `flate`: `d.step(d)` calls the method the
+    // field holds, which only the method expression names.
+    let source = br#"package flate
+
+import "fmt"
+
+type compressor struct {
+	step func(*compressor)
+	fill func(*compressor, []byte) int
+	n    int
+}
+
+type Store struct{}
+
+func (s Store) Save() {}
+
+func (d *compressor) storeFast() {}
+
+var hook = (*compressor).storeFast
+
+func (d *compressor) init(level int, p *compressor) {
+	d.step = (*compressor).storeFast
+	d.fill = (*compressor).fillBlock
+	save := Store.Save
+	_ = (*p).n
+	print := fmt.Println
+	_, _ = save, print
+	(*compressor).storeFast(d)
+}
+"#;
+    let (_, edges) = parse_go("flate/deflate.go", source);
+    let references = |line: i64| {
+        edges
+            .iter()
+            .filter(|edge| edge.kind == "REFERENCES" && edge.line == line)
+            .map(|edge| (edge.source.as_str(), edge.target.as_str()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        references(17),
+        [("flate/deflate.go", "flate/deflate.go::compressor.storeFast")]
+    );
+    assert_eq!(
+        references(20),
+        [(
+            "flate/deflate.go::compressor.init",
+            "flate/deflate.go::compressor.storeFast"
+        )]
+    );
+    // A method another file of the package declares: bound by its type.
+    let fill = edges
+        .iter()
+        .find(|edge| edge.kind == "REFERENCES" && edge.line == 21)
+        .expect("fillBlock reference");
+    assert_eq!(fill.target, "fillBlock");
+    assert_eq!(fill.extra["receiver_type"], "compressor");
+    assert_eq!(fill.extra["value_reference"], true);
+    assert_eq!(
+        references(22),
+        [(
+            "flate/deflate.go::compressor.init",
+            "flate/deflate.go::Store.Save"
+        )]
+    );
+    // A field through a pointer variable, a package's function, and a
+    // method expression that is called are no references.
+    assert!(references(23).is_empty());
+    assert!(references(24).is_empty());
+    assert!(references(26).is_empty());
+}
