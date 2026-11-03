@@ -385,48 +385,64 @@ not change:
 T3 of the first-class languages plan records the request a worker test
 sends as calls, for the two frameworks tstodon uses. The extractor marks
 each file's module-scope Hono apps (`hono_apps` on the File node) and the
-imported value a member call is made on (`receiver_import`). A wrangler
-configuration bridges to the module its `main` names (`worker_entry`). A
-post-processing pass (`request_boundary`) then writes `CALLS`:
+imported value a member call is made on, with the member
+(`receiver_import`). A wrangler configuration bridges to the module its
+`main` names (`worker_entry`). A post-processing pass (`request_boundary`)
+then writes `CALLS`:
 
 - a caller of `SELF.fetch` from `cloudflare:test` to the `default.fetch` of
-  the worker entry, from the nearest wrangler configuration above the
-  caller's file;
+  the worker entry, or to the entry's File when its default export is an
+  app (`export default app`), from the nearest wrangler configuration above
+  the caller's file;
 - a reference to an app from another file (`app.route("/", users)`) to the
   File that declares the app, whose module-scope route handlers the File
   owns;
 - `app.fetch(..)` or `app.request(..)` on an imported app to that File. On
-  tstodon, name resolution had bound `app.fetch` to `StreamHub.fetch`; the
-  pass retargets that edge.
+  tstodon, name resolution had bound `app.fetch` to `StreamHub.fetch`. The
+  pass retargets that edge, keeps its original target, and restores it on
+  the next run before it derives the edge again.
 
-Graphs were rebuilt from the branch (`last_build_type` `full`,
-`javascript=14`) and measured with 8 hops, against the same coverage as M1:
+The pass removes what its previous run wrote, then reconciles TESTED_BY at
+the end. So a test's request is a test's call from the first build on: 52
+tstodon tests that call `SELF.fetch` in the test itself test
+`default.fetch` directly.
+
+Graphs were rebuilt from the branch merged with `main` (`last_build_type`
+`full`, `javascript=15`) and measured with 8 hops, against the same
+coverage as M1. "Before T3" is `main` with #246 (javascript 14), from the
+table above.
 
 | Repository | Graph | Functions (ran) | Called untested | Ran, called untested | `no_callers` / `no_test_path` / `beyond_limit` (ran) | Untested precision | Recall | Tested precision |
 |---|---|---|---|---|---|---|---|---|
-| tstodon | 8 hops, before T3 | 1,034 (978) | 537 | 483 | 7 / 476 / 0 | 0.101 | 0.964 | 0.996 (497) |
-| tstodon | 8 hops, T3 | 1,034 (978) | 33 | **12** | 6 / 5 / 1 | 0.636 | 0.375 | **0.965** (1,001) |
-| web-ui | 8 hops, T3 | 483 (312) | 95 | 15 | 3 / 12 / 0 | 0.842 | 0.468 | 0.765 (388) |
+| tstodon | before T3 | 1,034 (978) | 536 | 482 | | | | 0.996 (498) |
+| tstodon | T3 | 1,034 (978) | 30 | **10** | 6 / 4 / 0 | 0.667 | 0.357 | **0.964** (1,004) |
+| web-ui | T3 | 483 (312) | 95 | 15 | 3 / 12 / 0 | 0.842 | 0.468 | 0.765 (388) |
 
-web-ui does not change: it has no Hono app and no `SELF.fetch`.
+web-ui does not change. It has no Hono app and no `SELF.fetch`.
 
-On tstodon, 504 functions are newly called tested. 471 of them ran: 469 of
-the 470 request-boundary answers (465 of the 466 names M1 sampled from,
-and the 4 the streaming Durable Object reaches too), `default.fetch`, and
-`StreamHub.write`
-(under the streaming route). The 470th, `objectUriOf`, is 9 hops from a
-test. The 12 still wrong are M1's other causes: 5 runtime entry points, 2
-Durable Object stub calls, and one each of a call at module load, a
-shorthand member (#239), a method passed as a value, a call through a
-table, and the hop limit.
+On tstodon, 506 functions are newly called tested. 472 of them ran: all
+470 request-boundary answers (the 466 names M1 sampled from, and the 4 the
+streaming Durable Object reaches too), `default.fetch`, and
+`StreamHub.write` (under the streaming route). The 10 still wrong are M1's
+other causes: 5 runtime entry points, 2 Durable Object stub calls, a call
+at module load, a method passed as a value, and a call through a table.
 
-33 of the newly tested functions did not run, so tested precision falls
-from 0.996 to 0.965. 31 are calls in a handler that ran, on a path the
+34 of the newly tested functions did not run, so tested precision falls
+from 0.996 to 0.964. 32 are calls in a handler that ran, on a path the
 tests do not take. Examples are `followRemote` in the follow handler (the
 remote-account branch), `tagNotFound` in the tag handler (the invalid-tag
-branch), and `handleLocalLike` in the inbox `switch` on the activity type.
-The other 2 (`collection` and `listAcceptedOutboundFollowUris`) are under
-the followers and following routes, which no test requests.
+branch), and `handleLocalLike` and `findOutboundFollowByActivityId` under
+the inbox `switch` on the activity type. The other 2 (`collection` and
+`listAcceptedOutboundFollowUris`) are under the followers and following
+routes, which no test requests.
+
+Two numbers moved from the first T3 measurement, which had 12 ran and
+called untested and 0.965 (1,001). #246 calls `wireState` tested. The
+first build now has the TESTED_BY edges of the request calls, which a
+later post-processing run used to add. With `default.fetch` tested
+directly, chains under the inbox route are one hop shorter. So
+`objectUriOf` (which ran) and `findOutboundFollowByActivityId` (which did
+not) are 8 hops from a test instead of 9.
 
 ### Why a request reaches every route
 
@@ -438,8 +454,9 @@ of matching by path is low:
 
 - **Prototype.** Each handler arrow got a node of its own that owns the
   calls in its span. Each handler was linked only if coverage says it ran,
-  which is better than any path matching can do. Tested precision was 0.966
-  against 0.965: 2 of the 33 answers change. 245 of the 252 handlers ran.
+  which is better than any path matching can do. On the first T3 graph,
+  tested precision was 0.966 against 0.965: 2 of the 33 answers change.
+  245 of the 252 handlers ran.
 - **Paths.** 84 of tstodon's 142 `SELF.fetch` calls build the URL in a
   helper (``SELF.fetch(`https://example.com${path}`)``). The path is a
   parameter there, so matching would also need to follow the helper's
@@ -451,11 +468,14 @@ functions called tested that did not run.
 
 #### Hand check
 
-A seeded random sample: `random.Random(20261103).sample` of 50 from the 471
-newly tested functions that ran (sorted names), and all 33 that did not
-run. For each, the shortest backward chain to a test was read with the
-source line of every hop. All 83 chains start at a test helper's
-`SELF.fetch` and pass `default.fetch` and `app.fetch`. They end at a call
-in `app.ts` (middleware such as `app.use("/api/*", apiCors())`, 3 hops) or,
-through `app.route` and a sub-app's `route` for nested apps such as
-`adminRoutes`, at a call in a route file (up to 8 hops).
+A seeded random sample: `random.Random(20261103).sample` of 50 from the
+473 functions that ran and are newly called tested against M1's 4-hop rows
+(sorted names). They are the 472, and `wireState`, which #246 fixes and
+the sample does not include. All 34 that did not run were read too. For
+each, the shortest backward chain to a test was read with the source line
+of every hop. All 84 chains start at a test helper's `SELF.fetch` and pass
+`default.fetch` and `app.fetch`. They end at a call in `app.ts`
+(middleware such as `app.use("/api/*", apiCors())`) or, through
+`app.route` and a sub-app's `route` for nested apps such as
+`adminRoutes`, at a call in a route file. The chains are 4 to 9 call hops
+long. The count does not use TESTED_BY.

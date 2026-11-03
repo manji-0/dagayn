@@ -803,22 +803,42 @@ A Cloudflare Worker test sends a request (`SELF.fetch(url)` from
 `cloudflare:test`), and Hono dispatches it to a handler registered at
 module scope (`app.get(path, (c) => ..)`). Neither step is a call in the
 source. The handler arrows have no node, so the File owns their calls
-(§5.1). A File records the Hono apps it declares at module scope
-(`hono_apps: ["app"]`, for `new Hono()` with `Hono` imported from `hono` or
-a `hono/*` preset). A wrangler configuration's `main` is a `worker_entry`
-manifest bridge. The `request_boundary` post-processing pass then writes
-`CALLS` edges (`extra.framework` `cloudflare:test` or `hono`):
+(§5.1).
+
+A File records the Hono apps it declares at module scope (`hono_apps:
+["app"]`). An app is `new Hono()` with `Hono` imported from `hono` or a
+`hono/*` preset, or a method chained on it (`new Hono().basePath("/api")`).
+`default` is among the apps when the default export is one
+(`export default app`, the create-hono layout). A wrangler
+configuration's `main` is a `worker_entry` manifest bridge. The
+`request_boundary` post-processing pass then writes `CALLS` edges
+(`extra.framework` `cloudflare:test` or `hono`):
 
 - a caller of `cloudflare:test::SELF.fetch` to `<main>::default.fetch` of
-  the nearest wrangler configuration above it;
-- a reference to an app from another file (`app.route("/", users)`) to
-  the File declaring that app;
+  the nearest wrangler configuration above it, or to `<main>` when its
+  default export is an app;
+- a value reference to an app from another file (`app.route("/", users)`)
+  to the File declaring that app. A type reference (`hc<typeof app>`)
+  sends no request and gets no edge;
 - `app.fetch(..)` / `app.request(..)` on an imported app
-  (`receiver_import`) to that File. The pass retargets the edge that name
-  resolution had bound by the member name alone.
+  (`receiver_import: {"value": .., "member": ..}`, where a default import's
+  value is the module's `default`) to that File. The pass retargets the
+  edge that name resolution had bound by the member name alone. It keeps
+  the original target in `request_boundary_original`, and every run
+  restores that before it derives the edge again.
+
+Each run removes the edges its previous run wrote, and the TESTED_BY
+edges reconciled from them. It reconciles TESTED_BY again at the end. The
+graph is therefore the same after one post-processing run or several. A
+change to a wrangler configuration re-runs post-processing in an
+incremental update, although the configuration is no parsed file.
 
 A request reaches every route of the app, not only the route its path
-names. The measurement shows why this is enough for now.
+names. The measurement shows why this is enough for now. A sub-app that
+another file imports by default and mounts (`import users from
+"./users"; app.route("/", users)`) is matched only when the local name is
+the name it was declared with: its `REFERENCES` edge carries the
+importer's local name.
 
 ## 8. JavaScript parity
 
