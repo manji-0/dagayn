@@ -299,7 +299,10 @@ imported `PascalCase` value of a repository module whose member has no node
 (`IpBlock.matches(..)` for `export const IpBlock = { matches, ... }`, a
 shorthand member) carries `receiver_type: "IpBlock"` instead, so
 only a method of that receiver can bind it and the call is never taken for
-a standard method of the same name (`Element.matches`).
+a standard method of the same name (`Element.matches`). Any other imported
+value of the repository keeps `receiver_unknown` and also records the
+qualified name it resolves to (`receiver_import: "src/app.ts::app"` for
+`app.fetch(..)`), which the request-boundary pass reads (§7.9).
 
 ### 6.2 Imports
 
@@ -767,6 +770,31 @@ A class field holding a function literal is a method in both languages:
 `field_definition` is read like TypeScript's `public_field_definition`. A
 function-valued field no longer counts as a data field, so a class with one
 is not a property-only `data_container`. Implemented (#26).
+
+### 7.9 A Worker test's request is a call
+
+<!-- derived-from ./plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md#t3-request-boundary-edges -->
+
+A Cloudflare Worker test sends a request (`SELF.fetch(url)` from
+`cloudflare:test`), and Hono dispatches it to a handler registered at
+module scope (`app.get(path, (c) => ..)`). Neither step is a call in the
+source. The handler arrows have no node, so the File owns their calls
+(§5.1). A File records the Hono apps it declares at module scope
+(`hono_apps: ["app"]`, for `new Hono()` with `Hono` imported from `hono` or
+a `hono/*` preset). A wrangler configuration's `main` is a `worker_entry`
+manifest bridge. The `request_boundary` post-processing pass then writes
+`CALLS` edges (`extra.framework` `cloudflare:test` or `hono`):
+
+- a caller of `cloudflare:test::SELF.fetch` to `<main>::default.fetch` of
+  the nearest wrangler configuration above it;
+- a reference to an app from another file (`app.route("/", users)`) to
+  the File declaring that app;
+- `app.fetch(..)` / `app.request(..)` on an imported app
+  (`receiver_import`) to that File. The pass retargets the edge that name
+  resolution had bound by the member name alone.
+
+A request reaches every route of the app, not only the route its path
+names. The measurement shows why this is enough for now.
 
 ## 8. JavaScript parity
 

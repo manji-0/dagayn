@@ -10,6 +10,21 @@ Removed).
 
 ### Added
 
+- A Cloudflare Worker test's request counts as calls (T3 of the
+  first-class languages plan). A caller of `SELF.fetch` from
+  `cloudflare:test` calls the worker's `default.fetch`, taken from the
+  `main` of the nearest `wrangler.toml` / `wrangler.json` /
+  `wrangler.jsonc` (a new `worker_entry` manifest bridge). A Hono app
+  (`const app = new Hono()` at module scope) stands for the file that
+  registers its routes: `app.route(prefix, sub)` and `app.fetch(..)` call
+  that file. The `app.fetch` call was previously bound to an unrelated
+  `fetch` method. On tstodon, the functions that ran but are called
+  untested fall from 483 to 12, and tested precision falls from 0.996 to
+  0.965, because a request reaches every route. web-ui does not change
+  (docs/plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md#t3-request-boundary-edges).
+  The javascript extractor is now version 14: a File records its Hono apps
+  (`hono_apps`), and a member call on an imported repository value records
+  that value (`receiver_import`).
 - The test-reach eval (`eval/run_test_reach_eval.py`) reads an istanbul
   `coverage-final.json`, which vitest's `json` reporter writes from either
   coverage provider, as TypeScript and JavaScript coverage (M1 of the

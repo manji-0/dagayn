@@ -390,6 +390,17 @@ method-call gap.
     M1's other causes with 10 or more answers are decided below
     ([decisions](#decisions-2026-11-03)): the hop limit (55 on tstodon)
     and call-valued module constants (#239, 11 on web-ui).
+    **Measured**
+    ([T3](./TYPESCRIPT-SUPPORT-MEASUREMENTS.md#t3-request-boundary-edges)):
+    the first half of the bar is met and the second is not. 469 of the
+    470 are fixed (the 470th is 9 hops from a test), and tstodon's ran and
+    called untested falls from 483 to 12. Tested precision falls from
+    0.996 to 0.965: 33 functions that did not run are now called tested,
+    and 31 of them are on an untaken path in a handler that ran. Matching
+    by path does not recover them. With each handler linked only if it
+    ran, precision is 0.966. So a request reaches every route of the app,
+    and the precision bar is for the owner to revisit. web-ui does not
+    change.
 14. **T4, eval coverage.** A refactor `pos_unused_typescript_export` case,
     and flow and architecture cases from the causes M1 finds.
 

@@ -300,3 +300,83 @@ against the call sites in source.
 These are web-ui's lazy `await import()` routes. They make answers wrong in
 the other direction from T3's: reaching through the lazy import to the
 page would call more pages tested, not fewer.
+
+## T3: request-boundary edges
+
+<!-- derived-from #tstodon-why-the-functions-that-ran-are-called-untested -->
+
+T3 of the first-class languages plan records the request a worker test
+sends as calls, for the two frameworks tstodon uses. The extractor marks
+each file's module-scope Hono apps (`hono_apps` on the File node) and the
+imported value a member call is made on (`receiver_import`). A wrangler
+configuration bridges to the module its `main` names (`worker_entry`). A
+post-processing pass (`request_boundary`) then writes `CALLS`:
+
+- a caller of `SELF.fetch` from `cloudflare:test` to the `default.fetch` of
+  the worker entry, from the nearest wrangler configuration above the
+  caller's file;
+- a reference to an app from another file (`app.route("/", users)`) to the
+  File that declares the app, whose module-scope route handlers the File
+  owns;
+- `app.fetch(..)` or `app.request(..)` on an imported app to that File. On
+  tstodon, name resolution had bound `app.fetch` to `StreamHub.fetch`; the
+  pass retargets that edge.
+
+Graphs were rebuilt from the branch (`last_build_type` `full`,
+`javascript=14`) and measured with 8 hops, against the same coverage as M1:
+
+| Repository | Graph | Functions (ran) | Called untested | Ran, called untested | `no_callers` / `no_test_path` / `beyond_limit` (ran) | Untested precision | Recall | Tested precision |
+|---|---|---|---|---|---|---|---|---|
+| tstodon | 8 hops, before T3 | 1,034 (978) | 537 | 483 | 7 / 476 / 0 | 0.101 | 0.964 | 0.996 (497) |
+| tstodon | 8 hops, T3 | 1,034 (978) | 33 | **12** | 6 / 5 / 1 | 0.636 | 0.375 | **0.965** (1,001) |
+| web-ui | 8 hops, T3 | 483 (312) | 95 | 15 | 3 / 12 / 0 | 0.842 | 0.468 | 0.765 (388) |
+
+web-ui does not change: it has no Hono app and no `SELF.fetch`.
+
+On tstodon, 504 functions are newly called tested. 471 of them ran: 469 of
+the 470 request-boundary answers, `default.fetch`, and `StreamHub.write`
+(under the streaming route). The 470th, `objectUriOf`, is 9 hops from a
+test. The 12 still wrong are M1's other causes: 5 runtime entry points, 2
+Durable Object stub calls, and one each of a call at module load, a
+shorthand member (#239), a method passed as a value, a call through a
+table, and the hop limit.
+
+33 of the newly tested functions did not run, so tested precision falls
+from 0.996 to 0.965. 31 are calls in a handler that ran, on a path the
+tests do not take. Examples are `followRemote` in the follow handler (the
+remote-account branch), `tagNotFound` in the tag handler (the invalid-tag
+branch), and `handleLocalLike` in the inbox `switch` on the activity type.
+The other 2 (`collection` and `listAcceptedOutboundFollowUris`) are under
+the followers and following routes, which no test requests.
+
+### Why a request reaches every route
+
+<!-- derived-from #t3-request-boundary-edges -->
+
+A request reaches every route of the app, not the route its path names.
+Matching by path would need the handlers to be nodes. The measured ceiling
+of matching by path is low:
+
+- **Prototype.** Each handler arrow got a node of its own that owns the
+  calls in its span. Each handler was linked only if coverage says it ran,
+  which is better than any path matching can do. Tested precision was 0.966
+  against 0.965: 2 of the 33 answers change. 245 of the 252 handlers ran.
+- **Paths.** 84 of tstodon's 142 `SELF.fetch` calls build the URL in a
+  helper (``SELF.fetch(`https://example.com${path}`)``). The path is a
+  parameter there, so matching would also need to follow the helper's
+  callers.
+
+tstodon is close to the best case for this rule, since nearly every route
+ran. A worker whose tests request few of its routes would have more
+functions called tested that did not run.
+
+#### Hand check
+
+A seeded random sample: `random.Random(20261103).sample` of 50 from the 471
+newly tested functions that ran (sorted names), and all 33 that did not
+run. For each, the shortest backward chain to a test was read with the
+source line of every hop. All 83 chains start at a test helper's
+`SELF.fetch` and pass `default.fetch`, `app.fetch`, and `app.route` (and a
+sub-app's `route` for nested apps, such as `adminRoutes`) to a call in a
+route file. Lengths are 3 hops (middleware such as `app.use("/api/*",
+apiCors())`) to 8 hops.
