@@ -84,7 +84,7 @@ fn wrangler_config_bridges_to_its_worker_entry() {
     let repo = TempRepo::new("wrangler");
     repo.write(
         "wrangler.jsonc",
-        "{\n  // the worker\n  \"name\": \"w\",\n  \"main\": \"packages/worker/src/index.ts\",\n  \"vars\": { \"A\": \"b\", },\n}\n",
+        "{\n  // the worker\n  \"name\": \"w\",\n  \"main\": \"packages/worker/src/index.ts\",\n  \"vars\": { \"A\": \"b, }\", \"N\": \"caf\u{e9} // not a comment\", },\n}\n",
     )
     .write("packages/worker/src/index.ts", "export default {};\n")
     .write("edge/wrangler.toml", "name = \"edge\"\nmain = \"./src/main.js\"\n")

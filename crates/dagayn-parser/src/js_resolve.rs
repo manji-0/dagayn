@@ -324,72 +324,57 @@ fn read_javascript_tsconfig(path: &Path) -> Option<Value> {
 }
 
 /// JSON with comments (`tsconfig.json`, `wrangler.jsonc`) as plain JSON:
-/// comments and trailing commas removed.
+/// comments and trailing commas outside strings removed.
 pub fn strip_jsonc_comments(text: &str) -> String {
     let bytes = text.as_bytes();
-    let mut out = String::with_capacity(text.len());
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    // Where a `,` was copied, while only whitespace has followed it.
+    let mut comma: Option<usize> = None;
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'"' {
-            out.push('"');
-            i += 1;
-            while i < bytes.len() {
-                let ch = bytes[i] as char;
-                out.push(ch);
-                if bytes[i] == b'\\' && i + 1 < bytes.len() {
-                    i += 1;
-                    out.push(bytes[i] as char);
-                } else if bytes[i] == b'"' {
-                    i += 1;
-                    break;
+        match bytes[i] {
+            b'"' => {
+                let start = i;
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
                 }
-                i += 1;
+                i = (i + 1).min(bytes.len());
+                out.extend_from_slice(&bytes[start..i]);
+                comma = None;
             }
-            continue;
-        }
-        if bytes[i] == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
-            i += 2;
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
-            }
-            continue;
-        }
-        if bytes[i] == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
-            i += 2;
-            while i + 1 < bytes.len() {
-                if bytes[i] == b'*' && bytes[i + 1] == b'/' {
-                    i += 2;
-                    break;
+            b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
                 }
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i < bytes.len() && !(bytes[i] == b'*' && bytes.get(i + 1) == Some(&b'/')) {
+                    i += 1;
+                }
+                i = (i + 2).min(bytes.len());
+            }
+            b'}' | b']' => {
+                if let Some(at) = comma.take() {
+                    out.remove(at);
+                }
+                out.push(bytes[i]);
                 i += 1;
             }
-            continue;
-        }
-        out.push(bytes[i] as char);
-        i += 1;
-    }
-    strip_json_trailing_commas(&out)
-}
-
-fn strip_json_trailing_commas(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = String::with_capacity(text.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b',' {
-            let mut j = i + 1;
-            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
-                j += 1;
-            }
-            if j < bytes.len() && matches!(bytes[j], b'}' | b']') {
+            byte => {
+                if byte == b',' {
+                    comma = Some(out.len());
+                } else if !byte.is_ascii_whitespace() {
+                    comma = None;
+                }
+                out.push(byte);
                 i += 1;
-                continue;
             }
         }
-        out.push(bytes[i] as char);
-        i += 1;
     }
-    out
+    // Cut only at ASCII bytes, so still UTF-8.
+    String::from_utf8(out).unwrap_or_default()
 }
 
 fn javascript_alias_specificity(pattern: &str) -> usize {

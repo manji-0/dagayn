@@ -5,7 +5,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use dagayn_build::{BuildOptions, PostprocessLevel, db_path_for_build, full_build};
+use dagayn_build::{
+    BuildOptions, PostprocessLevel, UpdateOptions, db_path_for_build, full_build,
+    incremental_update,
+};
 use dagayn_graph::GraphStore;
 use dagayn_tools::{Context, call};
 use serde_json::{Value, json};
@@ -79,6 +82,21 @@ impl Repo {
             },
         )
         .expect("build");
+    }
+
+    fn update(&self, base: &str) {
+        let db = db_path_for_build(&self.0).expect("db path");
+        let mut store = GraphStore::open(&db).expect("store");
+        incremental_update(
+            &self.0,
+            &mut store,
+            &UpdateOptions {
+                base: base.to_string(),
+                postprocess: PostprocessLevel::Full,
+                recurse_submodules: false,
+            },
+        )
+        .expect("update");
     }
 
     fn context(&self) -> Context {
@@ -3678,10 +3696,11 @@ fn go_packages_are_units_and_required_modules_are_declared() {
     );
 }
 
-#[test]
-fn a_worker_test_request_reaches_the_hono_routes() {
-    // dagayn: tests crates/dagayn-graph/src/postprocess/request_boundary.rs::resolve_request_boundaries
-    let repo = Repo::new("worker-request", false);
+/// A Hono worker: `wrangler.jsonc` names `src/index.ts`, whose
+/// `default.fetch` calls the app in `src/app.ts`, which mounts the users
+/// routes. `src/users.test.ts` sends a request with `SELF.fetch`, and
+/// `src/app.test.ts` calls `app.request(..)`.
+fn hono_worker(repo: &Repo) {
     repo.write(
         "package.json",
         "{\"name\": \"w\", \"dependencies\": {\"hono\": \"4.0.0\"}}\n",
@@ -3694,10 +3713,7 @@ fn a_worker_test_request_reaches_the_hono_routes() {
         "src/index.ts",
         "import { app } from \"./app\";\n\nexport default {\n  fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),\n};\n",
     );
-    repo.write(
-        "src/app.ts",
-        "import { Hono } from \"hono\";\nimport { users } from \"./routes/users\";\nimport { stamp } from \"./stamp\";\n\nexport const app = new Hono();\napp.use(\"*\", stamp);\napp.route(\"/\", users);\n",
-    );
+    repo.write("src/app.ts", HONO_APP);
     repo.write(
         "src/routes/users.ts",
         "import { Hono } from \"hono\";\nimport { findUser } from \"../store\";\n\nexport const users = new Hono();\nusers.get(\"/users/:id\", (c) => c.json(findUser(c.req.param(\"id\"))));\n",
@@ -3716,36 +3732,207 @@ fn a_worker_test_request_reaches_the_hono_routes() {
         "src/hub.ts",
         "export class Hub {\n  fetch(request: Request) {\n    return new Response(request.url);\n  }\n}\n",
     );
+    // An RPC client names the app's type only.
+    repo.write(
+        "src/client.ts",
+        "import { hc } from \"hono/client\";\nimport { app } from \"./app\";\n\nexport type App = typeof app;\nexport const client = hc<typeof app>(\"https://example.com\");\n",
+    );
     repo.write(
         "src/users.test.ts",
         "import { SELF } from \"cloudflare:test\";\nimport { expect, it } from \"vitest\";\n\nconst get = (path: string) => SELF.fetch(`https://example.com${path}`);\n\nit(\"finds a user\", async () => {\n  expect((await get(\"/users/1\")).status).toBe(200);\n});\n",
     );
+    repo.write(
+        "src/app.test.ts",
+        "import { expect, it } from \"vitest\";\nimport { app } from \"./app\";\n\nit(\"serves a user\", async () => {\n  expect((await app.request(\"/users/1\")).status).toBe(200);\n});\n",
+    );
+}
+
+const HONO_APP: &str = "import { Hono } from \"hono\";\nimport { users } from \"./routes/users\";\nimport { stamp } from \"./stamp\";\n\nexport const app = new Hono();\napp.use(\"*\", stamp);\napp.route(\"/\", users);\n";
+
+fn counts_as_tested(repo: &Repo, target: &str) -> bool {
+    let reply = answer(
+        &repo.context(),
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": target}),
+    );
+    reply["test_reach"]["counts_as_tested"].as_bool() == Some(true)
+}
+
+/// The graph's edges of `kinds`, as sorted `kind source -> target
+/// @file:line` rows.
+fn edge_rows(repo: &Repo, kinds: &[&str]) -> Vec<String> {
+    let conn = rusqlite::Connection::open(repo.0.join(".dagayn/graph.db")).expect("open");
+    let mut stmt = conn
+        .prepare("SELECT kind, source_qualified, target_qualified, file_path, line FROM edges")
+        .expect("prepare");
+    let mut rows: Vec<String> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
+        })
+        .expect("query")
+        .map(|row| row.expect("row"))
+        .filter(|(kind, ..)| kinds.contains(&kind.as_str()))
+        .map(|(kind, source, target, file, line)| {
+            format!("{kind} {source} -> {target} @{file}:{line}")
+        })
+        .collect();
+    rows.sort();
+    rows
+}
+
+/// Rows into `src/app.ts` as a call target or out of it as a TESTED_BY
+/// source.
+fn into_app(rows: &[String]) -> Vec<String> {
+    rows.iter()
+        .filter(|row| row.contains(" -> src/app.ts @") || row.starts_with("TESTED_BY src/app.ts "))
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn a_worker_test_request_reaches_the_hono_routes() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/request_boundary.rs::resolve_request_boundaries
+    let repo = Repo::new("worker-request", false);
+    hono_worker(&repo);
     repo.build();
-    let context = repo.context();
-    let reach = |target: &str| {
-        let reply = answer(
-            &context,
-            "query_graph_tool",
-            json!({"pattern": "tests_for", "target": target}),
-        );
-        reply["test_reach"]["counts_as_tested"].as_bool() == Some(true)
-    };
     // The handler's call, the middleware, and the entry are under the
     // request; the Durable Object's `fetch` is not.
-    assert!(reach("src/store.ts::findUser"));
-    assert!(reach("src/stamp.ts::stamp"));
-    assert!(reach("src/index.ts::default.fetch"));
-    assert!(!reach("src/hub.ts::Hub.fetch"));
+    assert!(counts_as_tested(&repo, "src/store.ts::findUser"));
+    assert!(counts_as_tested(&repo, "src/stamp.ts::stamp"));
+    assert!(counts_as_tested(&repo, "src/index.ts::default.fetch"));
+    assert!(!counts_as_tested(&repo, "src/hub.ts::Hub.fetch"));
+    let calls = edge_rows(&repo, &["CALLS"]);
+    assert!(
+        !calls
+            .iter()
+            .any(|row| row.starts_with("CALLS src/client.ts") && row.contains("-> src/app.ts @")),
+        "a type reference is no request: {calls:?}"
+    );
+    // A test's request is a test's call from the first build on.
+    let tested_by = edge_rows(&repo, &["TESTED_BY"]);
+    assert!(
+        tested_by
+            .iter()
+            .any(|row| row.starts_with("TESTED_BY src/app.ts -> src/app.test.ts::")),
+        "{tested_by:?}"
+    );
+    // Another post-processing run writes the same graph.
+    let before = edge_rows(&repo, &["CALLS", "TESTED_BY", "REFERENCES"]);
+    let db = db_path_for_build(&repo.0).expect("db path");
+    let mut store = GraphStore::open(&db).expect("store");
+    store.resolve_bare_call_targets().expect("resolution");
+    store.resolve_request_boundaries().expect("pass");
+    drop(store);
+    assert_eq!(
+        edge_rows(&repo, &["CALLS", "TESTED_BY", "REFERENCES"]),
+        before
+    );
 
     // Without a wrangler configuration naming the worker, `SELF.fetch`
     // reaches nothing.
     std::fs::remove_file(repo.0.join("wrangler.jsonc")).unwrap();
+    std::fs::remove_file(repo.0.join("src/app.test.ts")).unwrap();
     repo.build();
-    let context = repo.context();
-    let reply = answer(
-        &context,
-        "query_graph_tool",
-        json!({"pattern": "tests_for", "target": "src/store.ts::findUser"}),
+    assert!(!counts_as_tested(&repo, "src/store.ts::findUser"));
+}
+
+#[test]
+fn a_create_hono_worker_exports_the_app() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/request_boundary.rs::resolve_request_boundaries
+    let repo = Repo::new("worker-default-app", false);
+    repo.write("wrangler.toml", "name = \"w\"\nmain = \"src/index.ts\"\n");
+    repo.write(
+        "src/index.ts",
+        "import { Hono } from \"hono\";\nimport { findUser } from \"./store\";\n\nconst app = new Hono().basePath(\"/api\");\napp.get(\"/users/:id\", (c) => c.json(findUser(c.req.param(\"id\"))));\n\nexport default app;\n",
     );
-    assert_eq!(reply["test_reach"]["counts_as_tested"], false, "{reply}");
+    repo.write(
+        "src/store.ts",
+        "export function findUser(id: string) {\n  return { id };\n}\n",
+    );
+    repo.write(
+        "src/index.test.ts",
+        "import { SELF } from \"cloudflare:test\";\nimport { it } from \"vitest\";\n\nit(\"finds a user\", async () => {\n  await SELF.fetch(\"https://example.com/api/users/1\");\n});\n",
+    );
+    repo.write(
+        "src/default.test.ts",
+        "import { it } from \"vitest\";\nimport server from \"./index\";\n\nit(\"serves\", async () => {\n  await server.request(\"/api/users/1\");\n});\n",
+    );
+    repo.build();
+    assert!(counts_as_tested(&repo, "src/store.ts::findUser"));
+    let calls = edge_rows(&repo, &["CALLS"]);
+    for source in ["src/index.test.ts::", "src/default.test.ts::"] {
+        assert!(
+            calls
+                .iter()
+                .any(|row| row.starts_with(&format!("CALLS {source}"))
+                    && row.contains("-> src/index.ts @")),
+            "{source}: {calls:?}"
+        );
+    }
+}
+
+#[test]
+fn request_boundary_calls_follow_incremental_updates() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/request_boundary.rs::resolve_request_boundaries
+    let repo = Repo::new("worker-update", true);
+    hono_worker(&repo);
+    commit_all(&repo, "worker");
+    repo.build();
+    let full = edge_rows(&repo, &["CALLS", "TESTED_BY"]);
+    assert!(counts_as_tested(&repo, "src/store.ts::findUser"));
+
+    // An unrelated change: the update leaves the request edges as the full
+    // build has them.
+    repo.write(
+        "src/hub.ts",
+        "export class Hub {\n  fetch(request: Request) {\n    return new Response(request.method);\n  }\n}\n",
+    );
+    commit_all(&repo, "hub");
+    repo.update("HEAD~1");
+    assert_eq!(edge_rows(&repo, &["CALLS", "TESTED_BY"]), full);
+
+    // `app` stops being a Hono app. Its importers are not re-parsed, and
+    // their dispatches go back to what name resolution bound.
+    repo.write(
+        "src/app.ts",
+        "export const app = {\n  route() {},\n  fetch(request: Request) {\n    return request;\n  },\n  request(path: string) {\n    return path;\n  },\n};\n",
+    );
+    commit_all(&repo, "not hono");
+    repo.update("HEAD~1");
+    let rows = edge_rows(&repo, &["CALLS", "TESTED_BY"]);
+    assert_eq!(into_app(&rows), Vec::<String>::new(), "{rows:?}");
+    assert!(!counts_as_tested(&repo, "src/store.ts::findUser"));
+
+    // Hono again; then the wrangler configuration goes, and `SELF.fetch`
+    // no longer reaches the worker.
+    repo.write("src/app.ts", HONO_APP);
+    commit_all(&repo, "hono again");
+    repo.update("HEAD~1");
+    assert!(!into_app(&edge_rows(&repo, &["CALLS"])).is_empty());
+    std::fs::remove_file(repo.0.join("wrangler.jsonc")).unwrap();
+    commit_all(&repo, "no wrangler");
+    repo.update("HEAD~1");
+    let rows = edge_rows(&repo, &["CALLS", "CROSS_ARTIFACT"]);
+    assert!(
+        !rows
+            .iter()
+            .any(|row| row.contains("wrangler.jsonc")
+                || row.contains("-> src/index.ts::default.fetch")),
+        "{rows:?}"
+    );
+    // And it comes back with the configuration.
+    repo.write("wrangler.jsonc", "{\n  \"main\": \"src/index.ts\",\n}\n");
+    commit_all(&repo, "wrangler again");
+    repo.update("HEAD~1");
+    assert!(
+        edge_rows(&repo, &["CALLS"])
+            .iter()
+            .any(|row| row.contains("-> src/index.ts::default.fetch"))
+    );
 }

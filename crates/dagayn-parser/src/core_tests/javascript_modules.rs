@@ -1480,7 +1480,9 @@ import { users } from "./routes/users";
 
 export const app = new Router<{ Bindings: Env }>();
 const admin = new Router(), other = new Hono();
+export const api = (new Router()).basePath("/api").get("/", (c) => c.text(""));
 app.route("/", users);
+export default app;
 
 export function local() {
   const inner = new Router();
@@ -1490,8 +1492,10 @@ export function local() {
     let users = "import { Hono } from \"hono/tiny\";\nexport const users = new Hono();\n";
     let entry = r#"import { app } from "./app";
 import { Store } from "./store";
+import server from "./app";
 export default {
   fetch: (request, env, ctx) => app.fetch(request, env, ctx),
+  probe: () => server.request("/health"),
   load: () => Store.load(),
 };
 "#;
@@ -1509,9 +1513,13 @@ export default {
         nodes[0].extra["hono_apps"].clone()
     };
     // A Hono app is a module-scope `new Hono()` of `hono` or a `hono/*`
-    // preset, under any local name; not another module's `Hono`, and not
-    // one a function builds.
-    assert_eq!(apps("src/app.ts", app), serde_json::json!(["app", "admin"]));
+    // preset, under any local name, or a chain of its methods; not another
+    // module's `Hono`, and not one a function builds. `default` names the
+    // default export when it is one.
+    assert_eq!(
+        apps("src/app.ts", app),
+        serde_json::json!(["app", "admin", "api", "default"])
+    );
     assert_eq!(
         apps("src/routes/users.ts", users),
         serde_json::json!(["users"])
@@ -1526,8 +1534,18 @@ export default {
         .unwrap_or_else(|| panic!("{edges:?}"));
     assert_eq!(fetch.extra["receiver_unknown"], true, "{fetch:?}");
     assert_eq!(
-        fetch.extra["receiver_import"], "src/app.ts::app",
+        fetch.extra["receiver_import"],
+        serde_json::json!({"value": "src/app.ts::app", "member": "fetch"}),
         "{fetch:?}"
+    );
+    let request = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.target == "request")
+        .unwrap_or_else(|| panic!("{edges:?}"));
+    assert_eq!(
+        request.extra["receiver_import"],
+        serde_json::json!({"value": "src/app.ts::default", "member": "request"}),
+        "{request:?}"
     );
     // A `PascalCase` import still types the receiver instead.
     let load = edges
@@ -1537,4 +1555,14 @@ export default {
     assert_eq!(load.extra["receiver_type"], "Store", "{load:?}");
     assert!(load.extra.get("receiver_import").is_none(), "{load:?}");
     let _ = std::fs::remove_dir_all(&repo_root);
+}
+
+#[test]
+fn jsonc_loses_comments_and_trailing_commas_outside_strings() {
+    let text = "{\n  // a comment\n  \"a\": \"b, }\", /* block */\n  \"n\": \"caf\u{e9} // kept\",\n  \"l\": [1, 2,],\n}\n";
+    let json: serde_json::Value = serde_json::from_str(&strip_jsonc_comments(text)).unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({"a": "b, }", "n": "caf\u{e9} // kept", "l": [1, 2]})
+    );
 }

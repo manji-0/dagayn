@@ -688,7 +688,13 @@ def build_or_update_graph(
                 extra_files=extra_files,
                 change_file_sources=change_file_sources,
             )
-            if build_result.files_updated == 0:
+            from dagayn.postprocessing import _should_scan_manifests
+
+            # A manifest names no parsed file but still changes bridges.
+            touched_manifest = bool(build_result.changed_files) and _should_scan_manifests(
+                build_result.changed_files
+            )
+            if build_result.files_updated == 0 and not touched_manifest:
                 build_result.status = "ok"
                 build_result.build_type = "incremental"
                 build_result.summary = "No changes detected. Graph is up to date."

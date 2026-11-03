@@ -12,13 +12,21 @@
 //! The edges are `CALLS`, which test reach walks:
 //!
 //! * a caller of `cloudflare:test::SELF.fetch` -> `<main>::default.fetch`,
-//!   `main` from the `worker_entry` manifest bridge of the nearest wrangler
-//!   configuration above the caller's file;
-//! * a reference to an app (`app.route("/", sub)`, `testClient(app)`) ->
-//!   the File that declares it;
+//!   or `<main>` itself when its default export is an app, `main` from the
+//!   `worker_entry` manifest bridge of the nearest wrangler configuration
+//!   above the caller's file;
+//! * a reference to an app from another file (`app.route("/", sub)`,
+//!   `testClient(app)`) -> the File that declares it;
 //! * `app.fetch(..)` / `app.request(..)` on an imported app
 //!   (`receiver_import`), which name resolution could only guess at
-//!   (`StreamHub.fetch`), retargeted to that File.
+//!   (`StreamHub.fetch`), retargeted to that File. The edge keeps what it
+//!   was (`request_boundary_original`), and every run restores it before
+//!   deriving again, so an app that stops being one gives the edge back.
+//!
+//! Each run first removes what the previous one wrote, including the
+//! TESTED_BY edges reconciled from those calls, and reconciles TESTED_BY
+//! once more at the end, so the result does not depend on how many times
+//! post-processing ran.
 //!
 //! A request reaches every route of the app, not the route its path names.
 //! On tstodon, linking each test to only the handlers coverage says ran
@@ -27,10 +35,12 @@
 //! and most tests build the path in a helper (`SELF.fetch(base + path)`).
 
 use super::native_bindings::path_under;
+use super::tested_by::reconcile_tested_by_with_calls;
 use crate::helpers::*;
 use crate::*;
 
 const REQUEST_BOUNDARY_EXTRACTOR: &str = "request_boundary";
+const ORIGINAL: &str = "request_boundary_original";
 const REQUEST_BOUNDARY_CONFIDENCE: f64 = 0.8;
 const SELF_FETCH: &str = "cloudflare:test::SELF.fetch";
 /// Members of a Hono app that dispatch a request to its handlers.
@@ -45,16 +55,12 @@ struct NewCall {
 }
 
 impl GraphStore {
-    /// Replace the `request_boundary` calls and retarget dispatches on
+    /// Replace the `request_boundary` calls and the retargeted dispatches on
     /// imported Hono apps; returns how many edges were written or moved.
     pub fn resolve_request_boundaries(&mut self) -> Result<i64> {
         let now = now_seconds()?;
         let tx = write_tx(&mut self.conn)?;
-        tx.execute(
-            "DELETE FROM edges WHERE kind = 'CALLS' \
-             AND json_extract(extra, '$.extractor') = ?",
-            [REQUEST_BOUNDARY_EXTRACTOR],
-        )?;
+        forget_previous_run(&tx)?;
         let apps = hono_apps(&tx)?;
         let mut calls = Vec::new();
         let mut moved = 0_i64;
@@ -62,7 +68,7 @@ impl GraphStore {
             calls.extend(app_references(&tx, &apps)?);
             moved = retarget_dispatches(&tx, &apps)?;
         }
-        calls.extend(self_fetches(&tx)?);
+        calls.extend(self_fetches(&tx, &apps)?);
         calls.sort_by(|a, b| {
             (&a.file_path, a.line, &a.source, &a.target).cmp(&(
                 &b.file_path,
@@ -74,7 +80,7 @@ impl GraphStore {
         calls.dedup_by(|a, b| a.source == b.source && a.target == b.target && a.line == b.line);
         let mut written = 0_i64;
         for call in calls {
-            let extra = serde_json::json!({
+            let extra = json!({
                 "extractor": REQUEST_BOUNDARY_EXTRACTOR,
                 "framework": call.framework,
             });
@@ -96,12 +102,60 @@ impl GraphStore {
             )?;
             written += 1;
         }
+        // A test's request is a test's call: TESTED_BY follows, as it does
+        // for the calls name resolution binds.
+        reconcile_tested_by_with_calls(&tx)?;
         tx.commit()?;
         Ok(written + moved)
     }
 }
 
-/// `file::app` of every Hono app -> the File that declares it.
+/// Undo the previous run: its TESTED_BY edges, its calls, and its
+/// retargets.
+fn forget_previous_run(tx: &Transaction<'_>) -> Result<()> {
+    tx.execute(
+        "DELETE FROM edges WHERE kind = 'TESTED_BY' AND EXISTS ( \
+             SELECT 1 FROM edges c WHERE c.kind = 'CALLS' \
+               AND (json_extract(c.extra, '$.extractor') = ?1 \
+                    OR json_extract(c.extra, '$.' || ?2) IS NOT NULL) \
+               AND c.target_qualified = edges.source_qualified \
+               AND c.source_qualified = edges.target_qualified \
+               AND c.file_path = edges.file_path AND c.line = edges.line)",
+        params![REQUEST_BOUNDARY_EXTRACTOR, ORIGINAL],
+    )?;
+    tx.execute(
+        "DELETE FROM edges WHERE kind = 'CALLS' \
+         AND json_extract(extra, '$.extractor') = ?",
+        [REQUEST_BOUNDARY_EXTRACTOR],
+    )?;
+    let mut stmt = tx.prepare(&format!(
+        "SELECT id, json_extract(extra, '$.{ORIGINAL}') FROM edges \
+         WHERE kind = 'CALLS' AND json_extract(extra, '$.{ORIGINAL}') IS NOT NULL"
+    ))?;
+    let retargeted: Vec<(i64, String)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<std::result::Result<_, _>>()?;
+    drop(stmt);
+    for (id, original) in retargeted {
+        let original: Value = serde_json::from_str(&original).unwrap_or_else(|_| json!({}));
+        tx.execute(
+            "UPDATE edges SET target_qualified = ?, target_name = ?, confidence = ?, \
+             confidence_tier = ?, extra = ? WHERE id = ?",
+            params![
+                original["target"].as_str().unwrap_or_default(),
+                original["target_name"].as_str().unwrap_or_default(),
+                original["confidence"].as_f64().unwrap_or(1.0),
+                original["confidence_tier"].as_str().unwrap_or("EXTRACTED"),
+                extra_json(&original["extra"])?,
+                id
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+/// `file::app` of every Hono app (`file::default` for a default export
+/// that is one) -> the File that declares it.
 fn hono_apps(tx: &Transaction<'_>) -> Result<HashMap<String, String>> {
     let mut stmt = tx.prepare(
         "SELECT qualified_name, json_extract(extra, '$.hono_apps') FROM nodes \
@@ -120,8 +174,9 @@ fn hono_apps(tx: &Transaction<'_>) -> Result<HashMap<String, String>> {
     Ok(apps)
 }
 
-/// A reference to an app from outside its File: whoever holds the app can
-/// send it a request.
+/// A value reference to an app from outside its File: whoever holds the
+/// app can send it a request. A type reference (`hc<typeof app>`, an RPC
+/// client's type) carries a role and sends nothing.
 fn app_references(tx: &Transaction<'_>, apps: &HashMap<String, String>) -> Result<Vec<NewCall>> {
     let mut stmt = tx.prepare(
         "SELECT source_qualified, target_qualified, file_path, line FROM edges \
@@ -157,31 +212,49 @@ fn app_references(tx: &Transaction<'_>, apps: &HashMap<String, String>) -> Resul
 /// of the repository resolution bound the name to.
 fn retarget_dispatches(tx: &Transaction<'_>, apps: &HashMap<String, String>) -> Result<i64> {
     let mut stmt = tx.prepare(
-        "SELECT id, target_name, json_extract(extra, '$.receiver_import'), extra FROM edges \
-         WHERE kind = 'CALLS' AND json_extract(extra, '$.receiver_import') IS NOT NULL",
+        "SELECT id, target_qualified, target_name, confidence, confidence_tier, extra, \
+                json_extract(extra, '$.receiver_import.value'), \
+                json_extract(extra, '$.receiver_import.member') FROM edges \
+         WHERE kind = 'CALLS' AND json_extract(extra, '$.receiver_import.value') IS NOT NULL",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok((
             row.get::<_, i64>(0)?,
             row.get::<_, String>(1)?,
             row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
+            row.get::<_, f64>(3)?,
+            row.get::<_, String>(4)?,
+            row.get::<_, String>(5)?,
+            row.get::<_, String>(6)?,
+            row.get::<_, Option<String>>(7)?,
         ))
     })?;
     let mut moves = Vec::new();
     for row in rows {
-        let (id, target_name, receiver, extra) = row?;
-        let member = target_name.rsplit('.').next().unwrap_or(&target_name);
-        if let Some(file) = apps.get(&receiver)
-            && DISPATCH_MEMBERS.contains(&member)
-        {
-            let mut extra: Value = serde_json::from_str(&extra).unwrap_or_else(|_| json!({}));
-            if let Some(map) = extra.as_object_mut() {
-                map.remove("receiver_unknown");
-                map.insert("framework".to_string(), json!("hono"));
-            }
-            moves.push((id, file.clone(), extra));
+        let (id, target, target_name, confidence, tier, extra, receiver, member) = row?;
+        let Some(file) = apps.get(&receiver) else {
+            continue;
+        };
+        if !member.is_some_and(|member| DISPATCH_MEMBERS.contains(&member.as_str())) {
+            continue;
         }
+        let original: Value = serde_json::from_str(&extra).unwrap_or_else(|_| json!({}));
+        let mut moved = original.clone();
+        if let Some(map) = moved.as_object_mut() {
+            map.remove("receiver_unknown");
+            map.insert("framework".to_string(), json!("hono"));
+            map.insert(
+                ORIGINAL.to_string(),
+                json!({
+                    "target": target,
+                    "target_name": target_name,
+                    "confidence": confidence,
+                    "confidence_tier": tier,
+                    "extra": original,
+                }),
+            );
+        }
+        moves.push((id, file.clone(), moved));
     }
     drop(stmt);
     for (id, file, extra) in &moves {
@@ -200,12 +273,13 @@ fn retarget_dispatches(tx: &Transaction<'_>, apps: &HashMap<String, String>) -> 
     Ok(moves.len() as i64)
 }
 
-/// A caller of `SELF.fetch` -> the worker's `default.fetch`.
-fn self_fetches(tx: &Transaction<'_>) -> Result<Vec<NewCall>> {
+/// A caller of `SELF.fetch` -> the worker's `default.fetch`, or the File
+/// whose default export is the app (`export default app`).
+fn self_fetches(tx: &Transaction<'_>, apps: &HashMap<String, String>) -> Result<Vec<NewCall>> {
     let mut stmt = tx.prepare(
-        "SELECT e.source_qualified, e.target_qualified FROM edges e \
-         WHERE e.kind = 'CROSS_ARTIFACT' \
-           AND json_extract(e.extra, '$.relationship_role') = 'worker_entry'",
+        "SELECT source_qualified, target_qualified FROM edges \
+         WHERE kind = 'CROSS_ARTIFACT' \
+           AND json_extract(extra, '$.relationship_role') = 'worker_entry'",
     )?;
     let entries: Vec<(String, String)> = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
@@ -238,23 +312,28 @@ fn self_fetches(tx: &Transaction<'_>) -> Result<Vec<NewCall>> {
         let Some((_, main)) = entry else {
             continue;
         };
-        let target = format!("{main}::default.fetch");
+        let handler = format!("{main}::default.fetch");
         let exists: Option<i64> = tx
             .query_row(
                 "SELECT 1 FROM nodes WHERE qualified_name = ?",
-                [&target],
+                [&handler],
                 |row| row.get(0),
             )
             .optional()?;
-        if exists.is_some() {
-            calls.push(NewCall {
-                source,
-                target,
-                file_path,
-                line,
-                framework: "cloudflare:test",
-            });
-        }
+        let target = if exists.is_some() {
+            handler
+        } else if let Some(file) = apps.get(&format!("{main}::default")) {
+            file.clone()
+        } else {
+            continue;
+        };
+        calls.push(NewCall {
+            source,
+            target,
+            file_path,
+            line,
+            framework: "cloudflare:test",
+        });
     }
     Ok(calls)
 }

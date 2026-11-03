@@ -7,9 +7,10 @@ use super::js_members::{
     javascript_written_bases, resolve_javascript_type_name,
 };
 use super::js_modules::{
-    JavaScriptExportResolution, JavaScriptParseContext, decode_javascript_string_literal,
-    javascript_external_symbol, javascript_module_index, resolve_javascript_call_target,
-    resolve_javascript_import_path_in, resolve_javascript_namespace_member,
+    JavaScriptExportResolution, JavaScriptImported, JavaScriptParseContext,
+    decode_javascript_string_literal, javascript_external_symbol, javascript_module_index,
+    resolve_javascript_call_target, resolve_javascript_import_path_in,
+    resolve_javascript_namespace_member,
 };
 use super::js_tests::{
     JavaScriptTestCall, javascript_is_test_api_call, javascript_test_call, javascript_test_title,
@@ -496,9 +497,9 @@ fn javascript_member_call_target(
 /// another file no import reaches (`store: GraphStore` from an ambient
 /// declaration), which resolution across files matches as
 /// `GraphStore.method`, or is an imported `PascalCase` value; otherwise
-/// `receiver_unknown`, with `receiver_import` when the receiver is another
-/// imported value of the repository (`app.fetch(..)` with `import { app }
-/// from "./app"`), and `receiver_from` when it is what a call returned
+/// `receiver_unknown`, with `receiver_import` (the value and the member)
+/// when the receiver is another imported value of the repository
+/// (`app.fetch(..)` with `import { app } from "./app"`), and `receiver_from` when it is what a call returned
 /// (`makeStore().save()`, `const s = await openStore(); s.save()`), whose
 /// declared return type resolution across files reads.
 fn javascript_unknown_receiver_extra(
@@ -512,16 +513,21 @@ fn javascript_unknown_receiver_extra(
         .or_else(|| {
             imported
                 .as_ref()
-                .filter(|(name, _)| name.starts_with(|c: char| c.is_ascii_uppercase()))
-                .and_then(|(_, qualified)| JavaScriptTypeRef::from_qualified(qualified))
+                .filter(|(name, _, _)| name.starts_with(|c: char| c.is_ascii_uppercase()))
+                .and_then(|(_, qualified, _)| JavaScriptTypeRef::from_qualified(qualified))
                 .map(|ty| ty.path)
         })
     {
         return json!({"receiver_type": type_name});
     }
     let mut extra = json!({"receiver_unknown": true});
-    if let Some((_, qualified)) = imported {
-        extra["receiver_import"] = json!(qualified);
+    if let Some((_, mut qualified, default)) = imported {
+        // A default import resolves under the importer's local name; the
+        // value is the module's `default`.
+        if default && let Some((file, _)) = qualified.split_once("::") {
+            qualified = format!("{file}::default");
+        }
+        extra["receiver_import"] = json!({"value": qualified, "member": method});
     }
     if let Some(origin) =
         object.and_then(|object| javascript_receiver_origin(object, method, context))
@@ -534,16 +540,17 @@ fn javascript_unknown_receiver_extra(
     extra
 }
 
-/// An imported value of a repository module, as its local name and the
-/// qualified name it resolves to. A `PascalCase` one (`IsoInstant.parse(..)`
-/// with `export const IsoInstant = { parse: schemaResult(schema) }`) types
+/// An imported value of a repository module, as its local name, the
+/// qualified name it resolves to, and whether it is a default import. A
+/// `PascalCase` one (`IsoInstant.parse(..)` with
+/// `export const IsoInstant = { parse: schemaResult(schema) }`) types
 /// the receiver, so a member the graph has no node for stays unresolved on
 /// it instead of being taken for a same-named standard method
 /// (`Date.parse`).
 fn javascript_imported_value_receiver(
     object: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-) -> Option<(String, String)> {
+) -> Option<(String, String, bool)> {
     if object.kind() != "identifier" {
         return None;
     }
@@ -563,7 +570,11 @@ fn javascript_imported_value_receiver(
     else {
         return None;
     };
-    Some((name, qualified))
+    Some((
+        name,
+        qualified,
+        binding.imported == JavaScriptImported::Default,
+    ))
 }
 
 /// A receiver rooted at a parameter the code gives no type

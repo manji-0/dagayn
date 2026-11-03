@@ -23,7 +23,16 @@ from .graph import GraphStore
 
 logger = logging.getLogger(__name__)
 
-_MANIFEST_FILENAMES = frozenset({"pyproject.toml", "package.json", "openapitools.json"})
+_MANIFEST_FILENAMES = frozenset(
+    {
+        "pyproject.toml",
+        "package.json",
+        "openapitools.json",
+        "wrangler.toml",
+        "wrangler.json",
+        "wrangler.jsonc",
+    }
+)
 
 
 def _should_scan_manifests(changed_files: list[str] | None) -> bool:

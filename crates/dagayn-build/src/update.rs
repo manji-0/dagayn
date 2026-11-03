@@ -19,7 +19,7 @@ use crate::parse_batch::{
     collect_changed_rust_owned_file_batch, collect_rust_owned_file_batch,
     collect_unowned_file_batch, file_mtime_ns, sha256_hex,
 };
-use crate::postprocess::{PostprocessLevel, after_update};
+use crate::postprocess::{PostprocessLevel, after_update, should_scan_manifests};
 use crate::vcs::{Vcs, changed_files, dedupe, detect_vcs, git_branch_info, resolve_commit_sha};
 
 const PARSE_BATCH_SIZE: usize = 500;
@@ -69,7 +69,10 @@ pub fn incremental_update(
     };
     let mut report = run_pipeline(repo_root, store, options, changed)?;
 
-    if report.files_updated > 0
+    // A manifest names no parsed file but still changes bridges.
+    let touched_manifest =
+        !report.changed_files.is_empty() && should_scan_manifests(Some(&report.changed_files));
+    if (report.files_updated > 0 || touched_manifest)
         && let Some(outcome) = after_update(
             repo_root,
             store,
