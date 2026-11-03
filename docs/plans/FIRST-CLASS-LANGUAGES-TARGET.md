@@ -378,7 +378,9 @@ method-call gap.
     handler, matched by path where the test's URL and the route's path
     allow it.
     Bar: most of tstodon's 470 request-boundary answers fixed, and tested
-    precision no lower, both measured against vitest coverage as M1 is.
+    precision at least 0.95, both measured against vitest coverage as M1
+    is. The owner revised the precision bar from "no lower" (0.996) after
+    the measurement below: no route-level rule exceeds 0.966 on tstodon.
     This replaces the first scope (lazy `await import()` routes and
     anonymous route arrows, if M1 gave them 10 or more wrong answers),
     because M1 gave that scope 0: tstodon has no lazy `await import()`,
@@ -390,6 +392,16 @@ method-call gap.
     M1's other causes with 10 or more answers are decided below
     ([decisions](#decisions-2026-11-03)): the hop limit (55 on tstodon)
     and call-valued module constants (#239, 11 on web-ui).
+    **Measured**
+    ([T3](./TYPESCRIPT-SUPPORT-MEASUREMENTS.md#t3-request-boundary-edges)):
+    met. All 470 are fixed, and tstodon's ran and called untested falls
+    from 482 to 10. Tested precision is 0.964, from 0.996: 34 functions
+    that did not run are now called tested, and 32 of them are on an
+    untaken path in a handler that ran. Matching by path does not recover
+    them. With each handler linked only if coverage says it ran, precision
+    was 0.966. So a request reaches every route of the app. tstodon is
+    close to the best case for that rule (245 of its 252 handlers ran).
+    web-ui does not change.
 14. **T4, eval coverage.** A refactor `pos_unused_typescript_export` case,
     and flow and architecture cases from the causes M1 finds.
 

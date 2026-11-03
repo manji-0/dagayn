@@ -492,6 +492,13 @@ def _run_postprocess(
     except (sqlite3.OperationalError, ImportError, RuntimeError) as e:
         _warn(warnings, "Native binding resolution", e)
 
+    try:
+        from dagayn.postprocessing import _resolve_request_boundaries
+
+        _resolve_request_boundaries(store, post_result, warnings)
+    except (sqlite3.OperationalError, ImportError, RuntimeError) as e:
+        _warn(warnings, "Request boundary resolution", e)
+
     if postprocess != "minimal":
         # -- Expensive: communities + summaries (only for "full") --
         incremental = not full_rebuild
@@ -681,7 +688,13 @@ def build_or_update_graph(
                 extra_files=extra_files,
                 change_file_sources=change_file_sources,
             )
-            if build_result.files_updated == 0:
+            from dagayn.postprocessing import _should_scan_manifests
+
+            # A manifest names no parsed file but still changes bridges.
+            touched_manifest = bool(build_result.changed_files) and _should_scan_manifests(
+                build_result.changed_files
+            )
+            if build_result.files_updated == 0 and not touched_manifest:
                 build_result.status = "ok"
                 build_result.build_type = "incremental"
                 build_result.summary = "No changes detected. Graph is up to date."
@@ -729,7 +742,13 @@ def build_or_update_graph(
             if scip_warnings:
                 build_result.warnings = [*(build_result.warnings or []), *scip_warnings]
             if _local_embedding_requested(local_embedding):
-                run_embedding = True
+                # A manifest-only hook update re-parses nothing to embed.
+                if hook_update and int(build_result.files_updated or 0) == 0:
+                    build_result.local_embedding_skipped = {
+                        "reason": "hook_update_no_changes",
+                    }
+                else:
+                    run_embedding = True
     finally:
         store.close()
         # Nothing of ours is open on graph.db from here on, so the structural

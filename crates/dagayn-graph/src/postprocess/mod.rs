@@ -1,8 +1,9 @@
 //! Post-processing passes over the stored graph: bare-name resolution,
 //! endpoint demotion, manifest and native-binding bridges, Terraform
-//! references, Rust `impl` members of types declared in another file, and
-//! TESTED_BY synchronisation. Each is an `impl GraphStore`
-//! block the Python pipeline (and dagayn-postproc) calls after parsing.
+//! references, Rust `impl` members of types declared in another file,
+//! calls across a Worker request, and TESTED_BY synchronisation. Each is an
+//! `impl GraphStore` block the Python pipeline (and dagayn-postproc) calls
+//! after parsing.
 
 mod bare_names;
 mod endpoints;
@@ -11,6 +12,7 @@ mod impl_members;
 mod manifest;
 mod native_bindings;
 mod reexports;
+mod request_boundary;
 mod returned;
 mod scip_overlay;
 mod terraform;

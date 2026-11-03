@@ -117,8 +117,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // `Function` node (`binding_role: "call_result"`), and a call of a
         // shorthand container member (`IpBlock.matches` for `{ matches }`)
         // targets the function it aliases.
+        // 15: a File records the Hono apps it declares (`hono_apps`), and a
+        // member call on another imported value of the repository records
+        // it (`receiver_import`), or on one of those apps (`receiver_app`),
+        // for the request-boundary pass.
         extractor: "javascript",
-        version: 14,
+        version: 15,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {

@@ -23,7 +23,16 @@ from .graph import GraphStore
 
 logger = logging.getLogger(__name__)
 
-_MANIFEST_FILENAMES = frozenset({"pyproject.toml", "package.json", "openapitools.json"})
+_MANIFEST_FILENAMES = frozenset(
+    {
+        "pyproject.toml",
+        "package.json",
+        "openapitools.json",
+        "wrangler.toml",
+        "wrangler.json",
+        "wrangler.jsonc",
+    }
+)
 
 
 def _should_scan_manifests(changed_files: list[str] | None) -> bool:
@@ -166,6 +175,18 @@ def _resolve_native_bindings(
     """
     with _warn_on_failure("Native binding resolution", _STEP_ERRORS, warnings):
         result.native_bindings_resolved = int(store.resolve_native_bindings())
+
+
+def _resolve_request_boundaries(
+    store: GraphStore, result: PostprocessResult, warnings: list[str]
+) -> None:
+    """Link worker tests' requests to the Hono apps they reach.
+
+    Runs after :func:`_apply_manifest_bridges`, whose wrangler bridges name
+    the worker entry modules.
+    """
+    with _warn_on_failure("Request boundary resolution", _STEP_ERRORS, warnings):
+        result.request_boundaries_resolved = int(store.resolve_request_boundaries())
 
 
 def _apply_manifest_bridges(

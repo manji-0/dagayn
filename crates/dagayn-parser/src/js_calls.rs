@@ -7,9 +7,10 @@ use super::js_members::{
     javascript_written_bases, resolve_javascript_type_name,
 };
 use super::js_modules::{
-    JavaScriptExportResolution, JavaScriptParseContext, decode_javascript_string_literal,
-    javascript_external_symbol, javascript_module_index, resolve_javascript_call_target,
-    resolve_javascript_import_path_in, resolve_javascript_namespace_member,
+    JavaScriptExportResolution, JavaScriptImported, JavaScriptParseContext,
+    decode_javascript_string_literal, javascript_external_symbol, javascript_module_index,
+    resolve_javascript_call_target, resolve_javascript_import_path_in,
+    resolve_javascript_namespace_member,
 };
 use super::js_tests::{
     JavaScriptTestCall, javascript_is_test_api_call, javascript_test_call, javascript_test_title,
@@ -495,22 +496,46 @@ fn javascript_member_call_target(
 /// resolve: `receiver_type` when the receiver is typed with a class of
 /// another file no import reaches (`store: GraphStore` from an ambient
 /// declaration), which resolution across files matches as
-/// `GraphStore.method`; otherwise `receiver_unknown`, with `receiver_from`
-/// when the receiver is what a call returned (`makeStore().save()`,
-/// `const s = await openStore(); s.save()`), whose declared return type
-/// resolution across files reads.
+/// `GraphStore.method`, or is an imported `PascalCase` value; otherwise
+/// `receiver_unknown`, with `receiver_import` (the value and the member)
+/// when the receiver is another imported value of the repository
+/// (`app.fetch(..)` with `import { app } from "./app"`), `receiver_app`
+/// (the same) when it is a Hono app the module declares, and
+/// `receiver_from` when it is what a call returned
+/// (`makeStore().save()`, `const s = await openStore(); s.save()`), whose
+/// declared return type resolution across files reads.
 fn javascript_unknown_receiver_extra(
     object: Option<tree_sitter::Node<'_>>,
     method: &str,
     context: &JavaScriptParseContext<'_>,
 ) -> Value {
-    if let Some(type_name) = object.and_then(|object| {
-        javascript_foreign_receiver(object, context)
-            .or_else(|| javascript_imported_value_receiver(object, context))
-    }) {
+    let imported = object.and_then(|object| javascript_imported_value_receiver(object, context));
+    if let Some(type_name) = object
+        .and_then(|object| javascript_foreign_receiver(object, context))
+        .or_else(|| {
+            imported
+                .as_ref()
+                .filter(|(name, _, _)| name.starts_with(|c: char| c.is_ascii_uppercase()))
+                .and_then(|(_, qualified, _)| JavaScriptTypeRef::from_qualified(qualified))
+                .map(|ty| ty.path)
+        })
+    {
         return json!({"receiver_type": type_name});
     }
     let mut extra = json!({"receiver_unknown": true});
+    if let Some((_, mut qualified, default)) = imported {
+        // A default import resolves under the importer's local name; the
+        // value is the module's `default`.
+        if default && let Some((file, _)) = qualified.split_once("::") {
+            qualified = format!("{file}::default");
+        }
+        extra["receiver_import"] = json!({"value": qualified, "member": method});
+    } else if let Some(app) = object.and_then(|object| javascript_own_hono_app(object, context)) {
+        extra["receiver_app"] = json!({
+            "value": qualify(&context.file_path, &app, None),
+            "member": method,
+        });
+    }
     if let Some(origin) =
         object.and_then(|object| javascript_receiver_origin(object, method, context))
     {
@@ -522,12 +547,9 @@ fn javascript_unknown_receiver_extra(
     extra
 }
 
-/// An imported `PascalCase` value of a repository module
-/// (`IsoInstant.parse(..)` with `export const IsoInstant = { parse:
-/// schemaResult(schema) }`): its declared name, so a member the graph has no
-/// node for stays unresolved on that receiver instead of being taken for a
-/// same-named standard method (`Date.parse`).
-fn javascript_imported_value_receiver(
+/// A Hono app this module declares, named by a receiver no local binding
+/// shadows.
+fn javascript_own_hono_app(
     object: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
 ) -> Option<String> {
@@ -535,10 +557,28 @@ fn javascript_imported_value_receiver(
         return None;
     }
     let name = node_text(object, context.source);
-    if !name.starts_with(|c: char| c.is_ascii_uppercase())
-        || context.bindings.borrow().is_bound(&name)
-        || javascript_is_local_name(context, &name)
-    {
+    (context.hono_apps.contains(&name)
+        && !context.bindings.borrow().is_bound(&name)
+        && !javascript_is_local_name(context, &name))
+    .then_some(name)
+}
+
+/// An imported value of a repository module, as its local name, the
+/// qualified name it resolves to, and whether it is a default import. A
+/// `PascalCase` one (`IsoInstant.parse(..)` with
+/// `export const IsoInstant = { parse: schemaResult(schema) }`) types
+/// the receiver, so a member the graph has no node for stays unresolved on
+/// it instead of being taken for a same-named standard method
+/// (`Date.parse`).
+fn javascript_imported_value_receiver(
+    object: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<(String, String, bool)> {
+    if object.kind() != "identifier" {
+        return None;
+    }
+    let name = node_text(object, context.source);
+    if context.bindings.borrow().is_bound(&name) || javascript_is_local_name(context, &name) {
         return None;
     }
     let binding = context.import_map.get(&name)?;
@@ -553,7 +593,11 @@ fn javascript_imported_value_receiver(
     else {
         return None;
     };
-    JavaScriptTypeRef::from_qualified(&qualified).map(|ty| ty.path)
+    Some((
+        name,
+        qualified,
+        binding.imported == JavaScriptImported::Default,
+    ))
 }
 
 /// A receiver rooted at a parameter the code gives no type

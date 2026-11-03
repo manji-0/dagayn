@@ -303,7 +303,11 @@ only a method of that receiver can bind it and the call is never taken for
 a standard method of the same name. A shorthand member that
 names a function of its module (`IpBlock.matches(..)` for `export const
 IpBlock = { schema, matches }`) targets that function, in the module and
-from its importers.
+from its importers. Any other imported
+value of the repository keeps `receiver_unknown` and also records the
+qualified name it resolves to and the member (`receiver_import: {"value":
+"src/app.ts::app", "member": "fetch"}` for `app.fetch(..)`), which the
+request-boundary pass reads (§7.9).
 
 ### 6.2 Imports
 
@@ -791,6 +795,65 @@ A class field holding a function literal is a method in both languages:
 `field_definition` is read like TypeScript's `public_field_definition`. A
 function-valued field no longer counts as a data field, so a class with one
 is not a property-only `data_container`. Implemented (#26).
+
+### 7.9 A Worker test's request is a call
+
+<!-- derived-from ./plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md#t3-request-boundary-edges -->
+
+A Cloudflare Worker test sends a request (`SELF.fetch(url)` from
+`cloudflare:test`), and Hono dispatches it to a handler registered at
+module scope (`app.get(path, (c) => ..)`). Neither step is a call in the
+source. The handler arrows have no node, so the File owns their calls
+(§5.1).
+
+A File records the Hono apps it declares at module scope (`hono_apps:
+["app"]`). An app is `new Hono()` with `Hono` imported from `hono` or a
+`hono/*` preset, or a method chained on it (`new Hono().basePath("/api")`).
+`default` is among the apps when the default export is one
+(`export default app`, the create-hono layout). A wrangler
+configuration's `main` is a `worker_entry` manifest bridge. The
+`request_boundary` post-processing pass then writes `CALLS` edges
+(`extra.framework` `cloudflare:test` or `hono`):
+
+- a caller of `cloudflare:test::SELF.fetch` to `<main>::default.fetch` of
+  the nearest wrangler configuration above it, or to `<main>` when its
+  default export is an app;
+- a value reference to an app from another file (`app.route("/", users)`)
+  to the File declaring that app. A type reference (`hc<typeof app>`)
+  sends no request and gets no edge;
+- `app.fetch(..)` / `app.request(..)` on an imported app
+  (`receiver_import: {"value": .., "member": ..}`, where a default import's
+  value is the module's `default`), or on an app of the caller's own
+  module (`receiver_app`, the same shape), to that File. The second is the
+  usual Worker when it also exports `scheduled` or `queue`:
+  `export default { fetch(req, env, ctx) { return app.fetch(req, env, ctx) } }`
+  with `app` declared above. The pass retargets the edge that name
+  resolution had bound by the member name alone. It keeps the original
+  target in `request_boundary_original`, and every run restores that
+  before it derives the edge again. When that target has been deleted
+  since, the edge goes back to the unresolved member name (`fetch`), not
+  to a target that no longer exists. Name resolution runs before the pass,
+  so the next post-processing run binds it again.
+
+Each run removes the edges its previous run wrote, and the TESTED_BY
+edges reconciled from them. It reconciles TESTED_BY again at the end. The
+graph is therefore the same after one post-processing run or several. A
+change to a wrangler configuration re-runs post-processing in an
+incremental update, although the configuration is no parsed file.
+
+A request reaches every route of the app, not only the route its path
+names. The measurement shows why this is enough for now.
+
+These layouts are not matched yet:
+
+- `export default { fetch: app.fetch }`: the property is no function, so
+  there is no `default.fetch` node for `SELF.fetch` to reach;
+- `export default new Hono()...`: only a default export that names a
+  declared app (`export default app`) makes `default` an app;
+- a sub-app that another file imports by default and mounts
+  (`import users from "./users"; app.route("/", users)`), unless the local
+  name is the name it was declared with: its `REFERENCES` edge carries the
+  importer's local name.
 
 ## 8. JavaScript parity
 

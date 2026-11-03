@@ -186,6 +186,9 @@ pub(super) struct JavaScriptParseContext<'a> {
     /// Every name the file binds anywhere ([`collect_javascript_bound_names`]):
     /// a global of the same name (`const console = logger`) is not the host's.
     pub(super) bound_names: &'a HashSet<String>,
+    /// The Hono apps the module declares at its top level
+    /// ([`super::js_frameworks::javascript_hono_apps`]).
+    pub(super) hono_apps: &'a [String],
 }
 
 pub(super) fn collect_javascript_defined_names(

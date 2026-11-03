@@ -888,7 +888,8 @@ fn load_native_libraries(tx: &Transaction<'_>) -> Result<Vec<NativeLibraryRow>> 
     Ok(libraries)
 }
 
-fn path_under(dir: &str, file: &str) -> bool {
+/// Whether repo-relative *file* is inside *dir* (`""` is the root).
+pub(super) fn path_under(dir: &str, file: &str) -> bool {
     dir.is_empty()
         || file
             .strip_prefix(dir)

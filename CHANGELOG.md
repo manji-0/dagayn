@@ -10,6 +10,36 @@ Removed).
 
 ### Added
 
+- A Cloudflare Worker test's request counts as calls (T3 of the
+  first-class languages plan). A caller of `SELF.fetch` from
+  `cloudflare:test` calls the worker's `default.fetch`, or the entry module
+  itself when its default export is a Hono app (`export default app`). The
+  worker comes from the `main` of the nearest `wrangler.toml` /
+  `wrangler.json` / `wrangler.jsonc` (a new `worker_entry` manifest bridge;
+  a change to one re-runs post-processing in an incremental update). A Hono
+  app (`new Hono()` at module scope, or a chain on it such as
+  `.basePath("/api")`) stands for the file that registers its routes:
+  `app.route(prefix, sub)`, `app.fetch(..)`, and `app.request(..)` call
+  that file, whether the app is imported or declared in the caller's own
+  module (a Worker whose default export also has `scheduled`). The
+  `app.fetch` call was previously bound to an unrelated `fetch` method.
+  The pass restores that edge and its own TESTED_BY edges on every run, so
+  a graph is the same after one post-processing run or several; an edge
+  whose original target has been deleted goes back to the bare member
+  name. A hook update that touches only a manifest re-runs
+  post-processing but still skips local embedding. On tstodon, the functions that ran but are called untested fall
+  from 482 to 10, and tested precision falls from 0.996 to 0.964, because a
+  request reaches every route. web-ui does not change
+  (docs/plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md#t3-request-boundary-edges).
+  Not matched yet: `export default { fetch: app.fetch }` (no
+  `default.fetch` node), `export default new Hono()...`, and a sub-app
+  imported by default and mounted under another local name. The javascript
+  extractor is now version 15: a File records its Hono apps (`hono_apps`),
+  and a member call on an imported repository value records the value and
+  the member (`receiver_import`), or on an app of its own module
+  (`receiver_app`).
+  `strip_jsonc_comments` keeps non-ASCII text and leaves commas inside
+  strings alone.
 - The test-reach eval (`eval/run_test_reach_eval.py`) reads an istanbul
   `coverage-final.json`, which vitest's `json` reporter writes from either
   coverage provider, as TypeScript and JavaScript coverage (M1 of the

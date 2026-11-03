@@ -16,7 +16,14 @@ use crate::local_time::local_timestamp;
 
 const MIN_COMMUNITY_SIZE: i64 = 2;
 /// A changed file with one of these names can change manifest bridges.
-const MANIFEST_FILENAMES: [&str; 3] = ["pyproject.toml", "package.json", "openapitools.json"];
+const MANIFEST_FILENAMES: [&str; 6] = [
+    "pyproject.toml",
+    "package.json",
+    "openapitools.json",
+    "wrangler.toml",
+    "wrangler.json",
+    "wrangler.jsonc",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PostprocessLevel {
@@ -252,6 +259,11 @@ fn minimal_steps(
     }) {
         outcome.set("native_bindings_resolved", count);
     }
+    if let Some(count) = outcome.step("Request boundary resolution", || {
+        store.resolve_request_boundaries()
+    }) {
+        outcome.set("request_boundaries_resolved", count);
+    }
 }
 
 fn prune_orphans(store: &mut GraphStore, outcome: &mut PostprocessOutcome) {
@@ -271,7 +283,7 @@ fn record_level(store: &GraphStore, level: PostprocessLevel) -> Result<(), Graph
 }
 
 /// `_should_scan_manifests`: an update that touched no manifest keeps them.
-fn should_scan_manifests(changed_files: Option<&[String]>) -> bool {
+pub(crate) fn should_scan_manifests(changed_files: Option<&[String]>) -> bool {
     match changed_files {
         Some(files) if !files.is_empty() => files.iter().any(|path| {
             Path::new(path)
