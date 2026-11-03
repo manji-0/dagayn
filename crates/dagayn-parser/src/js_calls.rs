@@ -495,22 +495,34 @@ fn javascript_member_call_target(
 /// resolve: `receiver_type` when the receiver is typed with a class of
 /// another file no import reaches (`store: GraphStore` from an ambient
 /// declaration), which resolution across files matches as
-/// `GraphStore.method`; otherwise `receiver_unknown`, with `receiver_from`
-/// when the receiver is what a call returned (`makeStore().save()`,
-/// `const s = await openStore(); s.save()`), whose declared return type
-/// resolution across files reads.
+/// `GraphStore.method`, or is an imported `PascalCase` value; otherwise
+/// `receiver_unknown`, with `receiver_import` when the receiver is another
+/// imported value of the repository (`app.fetch(..)` with `import { app }
+/// from "./app"`), and `receiver_from` when it is what a call returned
+/// (`makeStore().save()`, `const s = await openStore(); s.save()`), whose
+/// declared return type resolution across files reads.
 fn javascript_unknown_receiver_extra(
     object: Option<tree_sitter::Node<'_>>,
     method: &str,
     context: &JavaScriptParseContext<'_>,
 ) -> Value {
-    if let Some(type_name) = object.and_then(|object| {
-        javascript_foreign_receiver(object, context)
-            .or_else(|| javascript_imported_value_receiver(object, context))
-    }) {
+    let imported = object.and_then(|object| javascript_imported_value_receiver(object, context));
+    if let Some(type_name) = object
+        .and_then(|object| javascript_foreign_receiver(object, context))
+        .or_else(|| {
+            imported
+                .as_ref()
+                .filter(|(name, _)| name.starts_with(|c: char| c.is_ascii_uppercase()))
+                .and_then(|(_, qualified)| JavaScriptTypeRef::from_qualified(qualified))
+                .map(|ty| ty.path)
+        })
+    {
         return json!({"receiver_type": type_name});
     }
     let mut extra = json!({"receiver_unknown": true});
+    if let Some((_, qualified)) = imported {
+        extra["receiver_import"] = json!(qualified);
+    }
     if let Some(origin) =
         object.and_then(|object| javascript_receiver_origin(object, method, context))
     {
@@ -522,23 +534,21 @@ fn javascript_unknown_receiver_extra(
     extra
 }
 
-/// An imported `PascalCase` value of a repository module
-/// (`IsoInstant.parse(..)` with `export const IsoInstant = { parse:
-/// schemaResult(schema) }`): its declared name, so a member the graph has no
-/// node for stays unresolved on that receiver instead of being taken for a
-/// same-named standard method (`Date.parse`).
+/// An imported value of a repository module, as its local name and the
+/// qualified name it resolves to. A `PascalCase` one (`IsoInstant.parse(..)`
+/// with `export const IsoInstant = { parse: schemaResult(schema) }`) types
+/// the receiver, so a member the graph has no node for stays unresolved on
+/// it instead of being taken for a same-named standard method
+/// (`Date.parse`).
 fn javascript_imported_value_receiver(
     object: tree_sitter::Node<'_>,
     context: &JavaScriptParseContext<'_>,
-) -> Option<String> {
+) -> Option<(String, String)> {
     if object.kind() != "identifier" {
         return None;
     }
     let name = node_text(object, context.source);
-    if !name.starts_with(|c: char| c.is_ascii_uppercase())
-        || context.bindings.borrow().is_bound(&name)
-        || javascript_is_local_name(context, &name)
-    {
+    if context.bindings.borrow().is_bound(&name) || javascript_is_local_name(context, &name) {
         return None;
     }
     let binding = context.import_map.get(&name)?;
@@ -553,7 +563,7 @@ fn javascript_imported_value_receiver(
     else {
         return None;
     };
-    JavaScriptTypeRef::from_qualified(&qualified).map(|ty| ty.path)
+    Some((name, qualified))
 }
 
 /// A receiver rooted at a parameter the code gives no type

@@ -323,7 +323,9 @@ fn read_javascript_tsconfig(path: &Path) -> Option<Value> {
     serde_json::from_str(&stripped).ok()
 }
 
-fn strip_jsonc_comments(text: &str) -> String {
+/// JSON with comments (`tsconfig.json`, `wrangler.jsonc`) as plain JSON:
+/// comments and trailing commas removed.
+pub fn strip_jsonc_comments(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = String::with_capacity(text.len());
     let mut i = 0;

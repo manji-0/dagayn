@@ -1453,3 +1453,74 @@ export function main() { cee(); dee(); thing(); }
     );
     let _ = std::fs::remove_dir_all(&repo_root);
 }
+
+#[test]
+fn typescript_records_hono_apps_and_imported_receivers() {
+    let mut repo_root = std::env::temp_dir();
+    repo_root.push(format!("dagayn-parser-ts-hono-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&repo_root);
+    std::fs::create_dir_all(repo_root.join("src/routes")).unwrap();
+    let app = r#"import { Hono as Router } from "hono";
+import { Hono } from "./not-hono";
+import { users } from "./routes/users";
+
+export const app = new Router<{ Bindings: Env }>();
+const admin = new Router(), other = new Hono();
+app.route("/", users);
+
+export function local() {
+  const inner = new Router();
+  return inner;
+}
+"#;
+    let users = "import { Hono } from \"hono/tiny\";\nexport const users = new Hono();\n";
+    let entry = r#"import { app } from "./app";
+import { Store } from "./store";
+export default {
+  fetch: (request, env, ctx) => app.fetch(request, env, ctx),
+  load: () => Store.load(),
+};
+"#;
+    for (path, body) in [
+        ("src/app.ts", app),
+        ("src/routes/users.ts", users),
+        ("src/index.ts", entry),
+        ("src/store.ts", "export const Store = { save() {} };\n"),
+    ] {
+        std::fs::write(repo_root.join(path), body).unwrap();
+    }
+    let mut parser = RustOwnedParser::new();
+    let mut apps = |file: &str, source: &str| {
+        let (nodes, _edges) = parser.parse_file_in_repo(Some(&repo_root), file, source.as_bytes());
+        nodes[0].extra["hono_apps"].clone()
+    };
+    // A Hono app is a module-scope `new Hono()` of `hono` or a `hono/*`
+    // preset, under any local name; not another module's `Hono`, and not
+    // one a function builds.
+    assert_eq!(apps("src/app.ts", app), serde_json::json!(["app", "admin"]));
+    assert_eq!(
+        apps("src/routes/users.ts", users),
+        serde_json::json!(["users"])
+    );
+    assert_eq!(apps("src/index.ts", entry), serde_json::Value::Null);
+
+    let (_nodes, edges) =
+        parser.parse_file_in_repo(Some(&repo_root), "src/index.ts", entry.as_bytes());
+    let fetch = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.target == "fetch")
+        .unwrap_or_else(|| panic!("{edges:?}"));
+    assert_eq!(fetch.extra["receiver_unknown"], true, "{fetch:?}");
+    assert_eq!(
+        fetch.extra["receiver_import"], "src/app.ts::app",
+        "{fetch:?}"
+    );
+    // A `PascalCase` import still types the receiver instead.
+    let load = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.target == "load")
+        .unwrap_or_else(|| panic!("{edges:?}"));
+    assert_eq!(load.extra["receiver_type"], "Store", "{load:?}");
+    assert!(load.extra.get("receiver_import").is_none(), "{load:?}");
+    let _ = std::fs::remove_dir_all(&repo_root);
+}

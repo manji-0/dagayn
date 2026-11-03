@@ -43,6 +43,8 @@ mod js_calls;
 mod js_declarations;
 #[path = "js_decorators.rs"]
 mod js_decorators;
+#[path = "js_frameworks.rs"]
+mod js_frameworks;
 #[path = "js_heritage.rs"]
 mod js_heritage;
 #[path = "js_like.rs"]
@@ -115,6 +117,7 @@ pub use discovery::{
     filter_incremental_candidates, filter_parseable_files, load_ignore_patterns,
 };
 pub use extractor_version::{EXTRACTOR_VERSIONS, ExtractorVersion, extractor_versions};
+pub use js_resolve::strip_jsonc_comments;
 pub use js_sfc::{parse_svelte, parse_vue};
 pub use types::{EdgeKind, FilePath, NodeKind, ParsedEdge, ParsedNode};
 
