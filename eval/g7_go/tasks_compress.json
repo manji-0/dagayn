@@ -1,0 +1,66 @@
+{
+ "_about": "G7 (docs/plans/FIRST-CLASS-LANGUAGES-TARGET.md, item 10): four Go questions on klauspost/compress v1.20.1 (5d880f2) with the change in compress-change.patch as the last commit. Keys were built without dagayn; eval/g7_go/PREREG.md says how.",
+ "source_commit": "5d880f230c38a0fc806b9ca1613103a44feff0ac",
+ "change": {
+  "patch": "compress-change.patch",
+  "message": "flate: reset the compressor once in Writer.Reset"
+ },
+ "preamble": "このリポジトリ (カレントディレクトリ。Go のモジュール github.com/klauspost/compress v1.20.1 のチェックアウト) について、次の質問に答えてください。\n- リポジトリのファイルは変更しないこと。一時ファイルが必要なら /tmp の下に作ること。\n- テストやリポジトリのコードは実行しないこと (go test や go run は使わない。読む・検索する・解析用のスクリプトを書いて実行するのはよい)。\n- 回答の最後に、次の形式の JSON コードブロックを 1 つだけ置くこと: ```json\n{\"answer\": [...]}\n```\n\n質問: ",
+ "condition_line": {
+  "graph": "- dagayn の MCP ツール (サーバ名 dagayn) が使える。まずそれで調べ、必要なら他の道具で確かめること。\n",
+  "none": "- dagayn の MCP ツールは使えない。標準の道具 (検索・ファイルの読み込み・シェル) で調べること。\n"
+ },
+ "tasks": {
+  "C1": {
+   "prompt": "`flate/stateless.go` の関数 `statelessEnc` の本体は、どのテストを実行したときに実行されるか。`func TestXxx(t *testing.T)` の形のテスト関数のうち、そのテストを 1 つだけ実行したとき (`go test -run '^TestXxx$'` で、そのサブテストを含む。`-short` は付けない) に `statelessEnc` の本体が実行されるものをすべて挙げてください。対象はリポジトリのすべてのパッケージのテスト。`Benchmark`・`Fuzz`・`Example` で始まる関数は数えない。形式は \"ファイルパス::テスト関数名\" (ファイルパスはリポジトリルートから)。",
+   "kind": "symbols",
+   "truth": [
+    "flate/flate_test.go::TestRegressions",
+    "flate/writer_test.go::TestWriterMemUsage",
+    "gzhttp/compress_test.go::TestNewGzipLevelHandler",
+    "gzip/gzip_test.go::TestFile1xM3"
+   ]
+  },
+  "C2": {
+   "prompt": "`zstd/internal/xxhash/xxhash.go` のメソッド `(*Digest).Reset` を直接呼んでいる関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.Reset()` は、x の静的な型がこのパッケージの `*Digest` (または `Digest`) なら数える。インタフェース型 (`hash.Hash64` など) の値を通した呼び出し、ほかの型の `Reset`、標準ライブラリや外部パッケージの関数・メソッドは数えない。コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "truth": [
+    "zstd/decoder.go::Decoder.nextBlock",
+    "zstd/decoder_test.go::TestNewReaderMismatch",
+    "zstd/enc_base.go::fastBase.resetBase",
+    "zstd/enc_base.go::fastBase.resetBasePrefix",
+    "zstd/framedec.go::frameDec.reset",
+    "zstd/internal/xxhash/bench_test.go::BenchmarkDigestBytes",
+    "zstd/internal/xxhash/bench_test.go::BenchmarkDigestSTW",
+    "zstd/internal/xxhash/xxhash.go::New",
+    "zstd/internal/xxhash/xxhash_test.go::TestDigestIsPreemptible",
+    "zstd/internal/xxhash/xxhash_test.go::TestReset"
+   ]
+  },
+  "C3": {
+   "prompt": "`flate/deflate.go` のメソッド `(*compressor).storeFast` を直接呼び得る関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。関数値 (変数・構造体のフィールド・引数に入ったメソッド式やメソッド値) を通した呼び出しは、実行時にその値が `(*compressor).storeFast` になり得るなら数える。値を代入したり渡したりするだけで呼び出さない関数は数えない。コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "truth": [
+    "flate/deflate.go::compressor.close",
+    "flate/deflate.go::compressor.syncFlush",
+    "flate/deflate.go::compressor.write"
+   ]
+  },
+  "C4": {
+   "prompt": "最後のコミットは `flate/deflate.go` のメソッド `(*Writer).Reset` の振る舞いを変えた。このコミットの時点で、flate パッケージの `(*Writer).Reset` を直接呼んでいる関数・メソッドのうち、このコミットで変更されていないものをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.Reset(...)` は、x の静的な型が flate パッケージの `*Writer` なら数える。インタフェース型の値を通した呼び出し、ほかの型の `Reset` (`gzip.Writer`、`zlib.Writer`、標準ライブラリの型など) は数えない。「変更された」は、コミットの差分が、その関数・メソッドの定義 (`func` の行から本体の最後の行まで) の中の行を変えた・足した・消したこと。コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "truth": [
+    "flate/deflate_test.go::TestWriterReset",
+    "flate/deflate_test.go::testResetOutput",
+    "flate/example_test.go::Example_reset",
+    "flate/flate_test.go::TestRegressions",
+    "flate/fuzz_test.go::FuzzEncoding",
+    "flate/writer_test.go::TestWriteError",
+    "flate/writer_test.go::TestWriterRegression",
+    "flate/writer_test.go::benchmarkEncoder",
+    "gzip/gzip.go::Writer.init",
+    "huff0/compress_test.go::BenchmarkDeflate"
+   ]
+  }
+ }
+}

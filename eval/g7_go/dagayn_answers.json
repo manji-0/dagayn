@@ -1,0 +1,222 @@
+{
+ "T1": {
+  "target": "assert/assertions.go::CollectT.Errorf",
+  "tests_for": {
+   "rows": 10,
+   "top_level_tests": 0,
+   "test_reach": {
+    "counts_as_tested": false,
+    "hop_limit": 4,
+    "hops": null,
+    "nearest_test": null
+   }
+  },
+  "callers_of_depth6": {
+   "rows": 62,
+   "top_level_tests": 0,
+   "results_complete": false
+  },
+  "found": 0,
+  "key": 7,
+  "missing": [
+   "assert/assertions_test.go::TestEventuallyWithTFailNow",
+   "assert/assertions_test.go::TestEventuallyWithTFalse",
+   "assert/assertions_test.go::TestEventuallyWithTTrue",
+   "assert/assertions_test.go::TestEventuallyWithT_ConcurrencySafe",
+   "assert/assertions_test.go::TestEventuallyWithT_ReturnsTheLatestFinishedConditionErrors",
+   "require/requirements_test.go::TestEventuallyWithTFalse",
+   "require/requirements_test.go::TestEventuallyWithTTrue"
+  ],
+  "extra": []
+ },
+ "T2": {
+  "target": "assert/assertion_forward.go::Assertions.Equal",
+  "callers_of": {
+   "rows": 10,
+   "summary": "Found 10 result(s) for callers_of('assert/assertion_forward.go::Assertions.Equal'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "found": 9,
+  "key": 9,
+  "missing": [],
+  "extra": [
+   "assert/assertion_forward.go::Assertions.Equal"
+  ]
+ },
+ "T3": {
+  "target": "suite/suite.go::Suite.T",
+  "callers_of": {
+   "rows": 13,
+   "summary": "Found 13 result(s) for callers_of('suite/suite.go::Suite.T'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "found": 13,
+  "key": 14,
+  "missing": [
+   "suite/suite.go::Run"
+  ],
+  "extra": []
+ },
+ "T4": {
+  "target": "assert/assertions.go::ObjectsAreEqual",
+  "callers_of": {
+   "rows": 12,
+   "summary": "Found 12 result(s) for callers_of('assert/assertions.go::ObjectsAreEqual'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "review_summary": "1 changed file(s), 3 changed symbol(s). Findings: 3 tests_to_run.",
+  "review_unchanged_callers": [],
+  "edited_callers_in_rows": [
+   "assert/assertions.go::NotEqual",
+   "assert/assertions.go::isType"
+  ],
+  "found": 10,
+  "key": 10,
+  "missing": [],
+  "extra": [
+   "assert/assertions.go::NotEqual",
+   "assert/assertions.go::isType"
+  ]
+ },
+ "C1": {
+  "target": "flate/stateless.go::statelessEnc",
+  "tests_for": {
+   "rows": 0,
+   "top_level_tests": 0,
+   "test_reach": {
+    "counts_as_tested": true,
+    "hop_limit": 4,
+    "hops": 1,
+    "nearest_test": "flate/flate_test.go::TestRegressions"
+   }
+  },
+  "callers_of_depth6": {
+   "rows": 97,
+   "top_level_tests": 65,
+   "results_complete": true
+  },
+  "found": 4,
+  "key": 4,
+  "missing": [],
+  "extra": [
+   "gzhttp/compress_test.go::Test1xxResponses",
+   "gzhttp/compress_test.go::TestGzipHandlerAlreadyCompressed",
+   "gzhttp/compress_test.go::TestGzipHandlerNilContentType",
+   "gzhttp/compress_test.go::TestGzipHandlerSmallBodyNoCompression",
+   "gzhttp/compress_test.go::TestGzipOnlyClientGetsGzip",
+   "gzhttp/compress_test.go::TestGzipPreferredByQValue",
+   "gzhttp/compress_test.go::TestMustNewGzipHandler",
+   "gzhttp/compress_test.go::TestRequestContentEncodingOrder",
+   "gzhttp/compress_test.go::TestZstdHandler",
+   "gzhttp/compress_test.go::TestZstdOnlyClientGetsZstd",
+   "gzhttp/compress_test.go::TestZstdPreferredOverGzip",
+   "gzhttp/transport_test.go::TestDefaultTransport",
+   "gzhttp/transport_test.go::TestTransport",
+   "gzhttp/transport_test.go::TestTransportCustomEval",
+   "gzhttp/transport_test.go::TestTransportForced",
+   "gzhttp/transport_test.go::TestTransportForcedDisabled",
+   "gzhttp/transport_test.go::TestTransportInvalid",
+   "gzhttp/transport_test.go::TestTransportReuseRequest",
+   "gzhttp/transport_test.go::TestTransportTransportAlwaysDecompress",
+   "gzhttp/transport_test.go::TestTransportZstd",
+   "gzhttp/transport_test.go::TestTransportZstdDisabled",
+   "gzhttp/transport_test.go::TestTransportZstdInvalid",
+   "gzip/gunzip_test.go::TestBufferedPartialCopyGzip",
+   "gzip/gunzip_test.go::TestTruncatedGunzip",
+   "gzip/gunzip_test.go::TestWriteTo",
+   "gzip/gzip_test.go::TestConcat",
+   "gzip/gzip_test.go::TestDeterministicL1",
+   "gzip/gzip_test.go::TestDeterministicL2",
+   "gzip/gzip_test.go::TestDeterministicL3",
+   "gzip/gzip_test.go::TestDeterministicL4",
+   "gzip/gzip_test.go::TestDeterministicL5",
+   "gzip/gzip_test.go::TestDeterministicL6",
+   "gzip/gzip_test.go::TestDeterministicL7",
+   "gzip/gzip_test.go::TestDeterministicL8",
+   "gzip/gzip_test.go::TestDeterministicL9",
+   "gzip/gzip_test.go::TestDeterministicLM2",
+   "gzip/gzip_test.go::TestEmpty",
+   "gzip/gzip_test.go::TestFile10",
+   "gzip/gzip_test.go::TestFile1x0",
+   "gzip/gzip_test.go::TestFile1x1",
+   "gzip/gzip_test.go::TestFile1x2",
+   "gzip/gzip_test.go::TestFile1x3",
+   "gzip/gzip_test.go::TestFile1x4",
+   "gzip/gzip_test.go::TestFile1x5",
+   "gzip/gzip_test.go::TestFile1x6",
+   "gzip/gzip_test.go::TestFile1x7",
+   "gzip/gzip_test.go::TestFile1x8",
+   "gzip/gzip_test.go::TestFile1x9",
+   "gzip/gzip_test.go::TestFile1xM1",
+   "gzip/gzip_test.go::TestFile1xM2",
+   "gzip/gzip_test.go::TestFile200",
+   "gzip/gzip_test.go::TestFile50",
+   "gzip/gzip_test.go::TestFileWindow",
+   "gzip/gzip_test.go::TestGzip100K",
+   "gzip/gzip_test.go::TestGzip10M",
+   "gzip/gzip_test.go::TestGzip1K",
+   "gzip/gzip_test.go::TestGzip1M",
+   "gzip/gzip_test.go::TestLatin1RoundTrip",
+   "gzip/gzip_test.go::TestRoundTrip",
+   "gzip/gzip_test.go::TestWriterFlush",
+   "gzip/gzip_test.go::TestWriterReset"
+  ]
+ },
+ "C2": {
+  "target": "zstd/internal/xxhash/xxhash.go::Digest.Reset",
+  "callers_of": {
+   "rows": 10,
+   "summary": "Found 10 result(s) for callers_of('zstd/internal/xxhash/xxhash.go::Digest.Reset'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "found": 10,
+  "key": 10,
+  "missing": [],
+  "extra": []
+ },
+ "C3": {
+  "target": "flate/deflate.go::compressor.storeFast",
+  "callers_of": {
+   "rows": 0,
+   "summary": "Found 0 result(s) for callers_of('flate/deflate.go::compressor.storeFast')",
+   "results_complete": true,
+   "confidence": "low"
+  },
+  "found": 0,
+  "key": 3,
+  "missing": [
+   "flate/deflate.go::compressor.close",
+   "flate/deflate.go::compressor.syncFlush",
+   "flate/deflate.go::compressor.write"
+  ],
+  "extra": []
+ },
+ "C4": {
+  "target": "flate/deflate.go::Writer.Reset",
+  "callers_of": {
+   "rows": 11,
+   "summary": "Found 11 result(s) for callers_of('flate/deflate.go::Writer.Reset'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "review_summary": "3 changed file(s), 3 changed symbol(s). Findings: 1 untested_change, 7 tests_to_run.",
+  "review_unchanged_callers": [],
+  "edited_callers_in_rows": [
+   "zip/register.go::newFlateWriter",
+   "zlib/writer.go::Writer.Reset"
+  ],
+  "found": 9,
+  "key": 10,
+  "missing": [
+   "flate/deflate_test.go::testResetOutput"
+  ],
+  "extra": [
+   "zip/register.go::newFlateWriter",
+   "zlib/writer.go::Writer.Reset"
+  ]
+ }
+}

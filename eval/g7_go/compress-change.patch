@@ -1,0 +1,57 @@
+diff --git a/flate/deflate.go b/flate/deflate.go
+index 238b1bc..2e6e6a1 100644
+--- a/flate/deflate.go
++++ b/flate/deflate.go
+@@ -1000,15 +1000,10 @@ func (w *Writer) Close() error {
+ // the result of NewWriter or NewWriterDict called with dst
+ // and w's level and dictionary.
+ func (w *Writer) Reset(dst io.Writer) {
+-	if len(w.dict) > 0 {
+-		// w was created with NewWriterDict
+-		w.d.reset(dst)
+-		if dst != nil {
+-			w.d.fillWindow(w.dict)
+-		}
+-	} else {
+-		// w was created with NewWriter
+-		w.d.reset(dst)
++	w.d.reset(dst)
++	// A writer created with NewWriterDict starts from its dictionary again.
++	if len(w.dict) > 0 && dst != nil {
++		w.d.fillWindow(w.dict)
+ 	}
+ }
+ 
+diff --git a/zip/register.go b/zip/register.go
+index 8ea8889..a2b29da 100644
+--- a/zip/register.go
++++ b/zip/register.go
+@@ -33,7 +33,7 @@ func newFlateWriter(w io.Writer) io.WriteCloser {
+ 	if ok {
+ 		fw.Reset(w)
+ 	} else {
+-		fw, _ = flate.NewWriter(w, 5)
++		fw, _ = flate.NewWriter(w, flate.DefaultCompression)
+ 	}
+ 	return &pooledFlateWriter{fw: fw}
+ }
+diff --git a/zlib/writer.go b/zlib/writer.go
+index cab9ef3..10a938e 100644
+--- a/zlib/writer.go
++++ b/zlib/writer.go
+@@ -79,6 +79,7 @@ func NewWriterLevelDict(w io.Writer, level int, dict []byte) (*Writer, error) {
+ // to w.
+ func (z *Writer) Reset(w io.Writer) {
+ 	z.w = w
++	z.err = nil
+ 	// z.level and z.dict left unchanged.
+ 	if z.compressor != nil {
+ 		z.compressor.Reset(w)
+@@ -86,7 +87,6 @@ func (z *Writer) Reset(w io.Writer) {
+ 	if z.digest != nil {
+ 		z.digest.Reset()
+ 	}
+-	z.err = nil
+ 	z.scratch = [4]byte{}
+ 	z.wroteHeader = false
+ }
