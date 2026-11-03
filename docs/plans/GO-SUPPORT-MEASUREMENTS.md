@@ -6,8 +6,8 @@
 
 What does dagayn answer about Go code, measured against coverage, before
 and after Go tests and Go packages are in the graph? These are the
-measurements of work items M2, G1, G2, G2b, G3, G4, and G5 of the first-class
-languages plan (`docs/plans/FIRST-CLASS-LANGUAGES-TARGET.md`, PR #217). Each item ships
+measurements of work items M2, G1, G2, G2b, G3, G4, G5, and G6 of the
+first-class languages plan (`docs/plans/FIRST-CLASS-LANGUAGES-TARGET.md`, PR #217). Each item ships
 only if it meets the bar the plan sets for it.
 
 ## Corpora
@@ -753,3 +753,292 @@ read by hand are unused: compress `dict/builder.go::hash3` and
 `gzhttp/compress.go::acceptsGzip`. In both, grep finds the name only in
 its doc comment and its definition. G5 does not change this. It costs
 recall, not precision.
+
+## G6: the scip-go comparison
+
+<!-- derived-from ./SCIP-CALL-RESOLUTION.md#measured-comparison -->
+
+No extractor change ships with this measurement. It found one extractor
+bug, which [#250](https://github.com/manji-0/dagayn/pull/250) fixes
+([below](#the-bare-call-bug)). The question is
+whether scip-go's call targets can be authoritative for Go, as
+rust-analyzer's and dagayn's own TypeScript and Python indexers are. The bar
+from the plan: dagayn's own node edges agree with scip-go on at least 0.95.
+
+### Setup
+
+scip-go v0.2.7 needs Go 1.25, and the local Go is 1.24.13. The module
+cache holds the `golang.org/toolchain` 1.25.3 module, so `GOTOOLCHAIN`
+selects it with no other install:
+
+```bash
+GOTOOLCHAIN=go1.25.3 GOBIN="$PWD/bin" \
+  go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.7
+cd MODULE && GOTOOLCHAIN=go1.25.3 scip-go --output MODULE.scip
+```
+
+`go install` needs the network once: with `GOPROXY=off` it fails on the
+module's deprecation lookup. The indexer must run under the same
+`GOTOOLCHAIN`, because it loads packages with the `go` it finds.
+
+| Repository | Version | scip-go first run | warm run | Peak memory |
+|---|---|---|---|---|
+| scip-go | v0.2.7 | 1.66 s | 0.26 s | 101 MB first, 49 MB warm |
+| compress | v1.20.1 | 1.80 s | 0.42 s | 264 MB first, 251 MB warm |
+| testify | v1.12.1 | not timed | 0.22 s | 102 MB warm |
+
+The corpora are the G5 copies of the Go module cache. testify is not in
+the plan's row. It was added because the bug class that decides the
+result is nearly invisible on the two named modules (36 edges on compress,
+0 on scip-go) and large on testify (310). The graphs are full builds with
+main at `709c89a8` (go extractor 12), checked as before: `last_build_type`
+`full` and `go=12`. After the fix, the same copies were rebuilt at go 13.
+
+### Method
+
+The join is the [Rust proof of concept's](./SCIP-CALL-RESOLUTION.md#measured-comparison)
+and the overlay's (`scip_overlay.rs`). For every `CALLS` edge in a `.go`
+file, the script finds the whole-word columns of the called name on the
+edge's line, or on one of the next eight lines for a chain, and takes the
+SCIP reference occurrence covering a column. A member call takes only
+columns after `.`. The scripts were kept outside the repository, as the
+proof of concept's were:
+
+- a Go program over `github.com/scip-code/scip/bindings/go/scip` prints
+  every occurrence as one row;
+- `compare.py` joins the rows with the graph and labels each edge by
+  what dagayn concluded and what SCIP answered;
+- `classify.py` assigns each disagreement a cause, and seeded samples
+  (`random.seed(6)`) were read in the source.
+
+The population is the edges of files the index has a document for.
+scip-go indexes the host's build (darwin/arm64), so files of another
+`GOARCH` or build tag (`seqdec_amd64.go`) are left out: 704 edges on
+compress, 59 on scip-go, 56 on testify.
+
+scip-go writes byte columns (`token.Position.Column`) and leaves the
+document's position encoding unspecified. The overlay reads an
+unspecified encoding as UTF-16. The join was run both ways. The counts
+are identical on all three modules, because no call on these lines
+follows a non-ASCII character. scip-go emits no occurrence for builtin
+functions (`len`, `append`, `println`), conversions to basic types
+(`uint64(n)`), the `error` interface's `Error`, or `unsafe`.
+
+### Agreement
+
+Before the fix (go 12). "Same" counts edges where SCIP names the node
+dagayn bound, or the same package. "No single answer" counts edges with no
+reference at the name or several distinct references.
+
+| dagayn edge | compress | scip-go | testify |
+|---|---|---|---|
+| Node, all tiers | **7,003 / 7,017** same; 156 no single answer | **287 / 287** same | **4,503 / 4,836** same; 310 dagayn wrong, 22 SCIP local; 93 no single answer |
+| Node, `MEDIUM` | 4,737 / 4,737; 86 no single answer | 100 / 100 | 2,206 / 2,207; 92 no single answer |
+| Node, `HIGH` | 282 / 282; 24 | 72 / 72 | 642 / 642 |
+| Node, `EXTRACTED` | 1,984 / 1,998; 46 | 115 / 115 | 1,655 / 1,987; 1 |
+| Package, `HIGH` | 8,663 / 8,671 same (8 the same method by another path); 121 no single answer | 505 / 505; 7 | 2,133 / 2,133; 28 |
+| Package, `MEDIUM` | 415 / 745 same; 4,698 no single answer (4,654 builtins) | 42 / 52; 85 | 164 / 171; 949 |
+| `LOW` that SCIP resolves | 1,123 / 5,099, and 610 locals | 133 / 203, and 48 locals | 1,015 / 1,501, and 117 locals |
+
+After the fix (go 13):
+
+| dagayn edge | compress | scip-go | testify |
+|---|---|---|---|
+| Node, all tiers | **7,005 / 7,009** same | **287 / 287** | **4,813 / 4,836** same; 22 SCIP local, 1 join artifact |
+| Node, `MEDIUM` | 4,739 / 4,739 | 100 / 100 | 2,516 / 2,517 |
+
+The bar is met on both named modules, before and after the fix: 0.998
+and 1.000 before, 0.9994 and 1.000 after. testify is at 0.931 before and
+0.995 after. Without its 22 locals, which dagayn binds correctly (below),
+it is 4,813 of 4,814.
+
+The ratio uses edges with one SCIP answer as its denominator. With every
+node edge in the denominator, compress is 7,003 / 7,173 (0.976) before and
+`MEDIUM` 4,737 / 4,823 (0.982). The overlay leaves an edge with no single
+answer as resolution left it, so those edges carry no risk under either
+mode. The ratio over answered edges is the one that measures risk.
+
+### Every disagreement
+
+Node edges, before the fix:
+
+| Cause | compress | testify | Who is right |
+|---|---|---|---|
+| A call without a selector bound to a method | 7, and 3 that the join confirms by mistake | 310 | SCIP |
+| A declaration nested in a function | 0 | 22 | dagayn |
+| An interface method bound to one implementation | 4 | 0 | SCIP, statically |
+| Join: the name's reference taken from a later line | 0 | 1 | dagayn |
+
+- **A call without a selector.** testify's `Assertions.Equal` is
+  `return Equal(a.t, expected, actual, msgAndArgs...)`, and dagayn bound
+  the call to `Assertions.Equal` itself. In compress, `comp =
+  compressor(method)` in `Writer.compressor` (`zip/writer.go:533`), `return
+  encodeBlock(obuf, uncompressed)` in `Writer.encodeBlock`, and the local
+  closure `write := func(b []byte) error` in `Writer.AddSkippableBlock`
+  (`s2/writer.go:304`) were bound to the methods of their names, all
+  `EXTRACTED`. Go reaches a method only through a selector. Another 26
+  such edges are conversions (`records := uint64(len(w.dir))` bound to
+  `writeBuf.uint64`), for which scip-go has no occurrence, so they are
+  among the 156 with no single answer. The 3 false agreements are of this
+  kind too: `diskNbr: uint32(b.uint16())` (`zip/reader.go:630`) has no
+  reference for the conversion, so the window takes `b.uint32()` four
+  lines down, which is the method dagayn bound.
+- **Nested declarations.** `type customInt int` inside `TestCompare`
+  and `type sPtr *s` inside `TestSame` are nodes in dagayn
+  (`TestCompare.customInt`). scip-go gives them `local` symbols. dagayn
+  is right, as with Rust's closures in the proof of concept.
+- **Interface methods.** `crcWriter := crcer(crc32.NewIEEE())`, later
+  `crcWriter = &crcUpdater{z: z}` (`gzip/gunzip.go:321`): dagayn binds
+  `crcWriter.Sum32()` and `crcWriter.Reset()` to `crcUpdater`'s methods.
+  SCIP names the interface `crcer`, which has no node. `rc.BytesRead()` in
+  `s2/cmd/s2d/main.go:313` is the same, through an anonymous interface.
+  SCIP is right about the static target. The overlay leaves these edges,
+  since the interface method has no node.
+- **Join.** `mockedService.` ends line 653 of `mock/mock_test.go` and
+  `On(...)` begins 654. The member check needs a `.` before the name on
+  the same line, so the window reaches `mock1.On` on line 658, which is
+  `Call.On`. dagayn's `Mock.On` is right.
+
+Package edges, before the fix:
+
+| Cause | compress | scip-go | testify | Who is right |
+|---|---|---|---|---|
+| A package function shadows a builtin | 234 | 0 | 0 | SCIP |
+| Observed-method guess | 91 | 10 | 7 | SCIP |
+| The same method by another path | 8 | 0 | 0 | both |
+| Join: the name's reference taken from a later line | 4 | 0 | 0 | dagayn |
+| A variable shadowed in an inner scope | 1 | 0 | 0 | SCIP |
+
+- **Shadowed builtin.** `zstd/zstd.go:101` declares `func println(a
+  ...any)`. dagayn takes every `println(...)` of package `zstd` for the
+  builtin. Package-level declarations are known only across files, after
+  extraction, so this needs resolution, not the extractor.
+- **Observed-method guess.** The package is guessed from the method's
+  name: `defer f.Close()` on an `*os.File` is recorded as `io`,
+  `level.String()` on `zstd.EncoderLevel` as `bytes`, `rng.Uint32()` on a
+  `*rand.Rand` as `encoding/binary`, `pkg.Fset.File(..).Name()` (a
+  `*token.File`) as `go/types`, and `args.Error(3)` on `mock.Arguments` as
+  `testing`. Of the observed-method edges SCIP answers, 108 of 606 are
+  wrong (compress 91 of 393, scip-go 10 of 51, testify 7 of 162). The
+  others name the package SCIP names.
+- **Same method, other path.** `r.hash.Write(b)` on a `hash.Hash32` is
+  `io.Writer.Write` to SCIP (embedded in `hash.Hash`), and `info.IsDir()`
+  on an `os.FileInfo` is `io/fs.FileInfo.IsDir` (an alias). Both are right.
+- **Join.** `return (len(in) + 5) * 8, true` (`flate/huffman_bit_writer.go:431`):
+  `len` has no occurrence, so the window takes `h.len()` eight lines down,
+  `hcode.len`. dagayn's builtin is right.
+- **Shadowed variable.** In `TestWriterUTF8` (`zip/writer_test.go`), the
+  loop's `w, err := w.CreateHeader(h)` shadows the outer `w := NewWriter(buf)`.
+  dagayn types the outer `w.Close()` from the inner assignment.
+
+Of the edges SCIP gives no single answer, almost all are builtins (4,654
+of 4,698 on compress) and conversions. The others are `err.Error()` on
+the `error` interface (dagayn records `testing`, also an observed-method
+guess), `unsafe.Pointer`, and chains whose `.` ends the line before the
+name: all 5 read of testify's 92 node edges without an answer are
+`mockedService.` followed by `On(...).` and `Return(...)` on the next lines.
+
+### LOW edges SCIP resolves
+
+On compress, 1,123 unresolved calls get a target from SCIP. Most are
+member calls on a receiver dagayn cannot type: a variable from another
+package's call (`w.Header().Set(..)` is `net/http.Header.Set`), a field of
+another file's struct, or a package-level variable
+(`fixedLiteralEncoding.bitLength(..)`). Of the 416 that SCIP binds to a
+node, 232 name a function declared more than once in its package's
+directory: 142 calls without a selector, 69 package-qualified calls
+(`le.Load64`, `race.WriteSlice`), and 21 member calls. Every one read is a
+pair of build-tag alternates: `internal/le/unsafe_enabled.go` and
+`unsafe_disabled.go`, `s2/encode_asm.go` and `encode_go.go`,
+`huff0/decompress_amd64.go` and `decompress_arm64.go`. dagayn leaves them
+unresolved, because the call is ambiguous without a build configuration.
+scip-go answers with the host's file. testify's 794 that
+SCIP names without a node are interface methods (`h.Helper()` on
+`tHelper`, `t.FailNow()` on `TestingT`).
+
+### The bare-call bug
+
+The shared same-file resolver (`resolve_same_file_call_target` in
+`crates/dagayn-parser/src/core.rs`) binds a bare name with no top-level
+match to a method of the caller's type, or to the first method of the
+name. That is right for languages where a bare name in a method can
+mean `this.name`. It is never right for Go. The fix (go extractor 13)
+keeps a Go call without a selector off methods. It then resolves across
+the package as any bare call does: testify's 310 forwarders reach the
+package's functions at `MEDIUM`, compress's `compressor(method)` reaches
+`zip/register.go::compressor`, and a closure stays unresolved with
+`callee_local`. A script that lists bare Go calls bound to a method
+finds 36 on compress, 310 on testify, 10 on kong (`interpolate(..)` in
+`Kong.interpolate`), and 0 on scip-go before the fix, and 0 on all four
+after.
+
+Test reach on testify ([M2](#m2-test-reach-against-go-coverage), the same
+coverage run): untested precision 0.954 → 0.961, recall 0.991 both, tested
+precision 0.985 → 0.986, over 735 functions.
+
+On compress the fix also splits 17 edges that the resolver had merged.
+`b.uint16(uint16(len(w.dir)))` gave one edge to `writeBuf.uint16` for both
+calls, and the conversion is now its own unresolved edge. A plain build
+leaves it unresolved, which is right. `build --scip` binds it to
+`writeBuf.uint16` at `HIGH`, because a bare call's name may match the
+column after a `.`. The overlay cannot drop that column by itself: a
+selector call that resolution bound to a method of the same file keeps no
+receiver key, so the edge does not say whether its call had a selector.
+Counted, a plain build loses 36 wrong edges on compress and 310 on testify,
+and a `--scip` build of compress gains 17.
+
+### What `--scip` already does for Go
+
+The overlay runs before the inference passes. In fill mode it keeps only
+what the extractor resolved by itself: same-file bindings and packages.
+Every call the extractor leaves open is settled by SCIP, so cross-file
+binding and observed-method inference already come from scip-go in a
+`--scip` build: a plain build of compress has 450 observed-method edges,
+and the `--scip` build keeps the 43 that scip-go has no answer for. A real `dagayn build --scip` of compress at go 13
+(scip-go on `PATH`, `GOTOOLCHAIN=go1.25.3`) reports 26,524 calls: 10,655
+confirmed, 5,488 moved to nodes, 988 to packages, 614 marked local, 252
+ambiguous, 8,089 unmatched, and 438 left.
+
+The same build with the Go index made authoritative (in memory, through a
+driver script) differs in exactly 238 edges. All 238 were extractor
+edges to `builtin`. 234 move to `zstd/zstd.go::println`, which is right,
+and 4 move to `hcode.len` through the window, which is wrong. Nothing else
+changes, because after the fix every other node edge the extractor
+resolved agrees with scip-go, and the 4 interface calls have no node to
+move to.
+
+### Decision
+
+The bar is met on both named modules. dagayn's node edges agree with
+scip-go on 7,003 of 7,017 compress edges (0.998) and 287 of 287 on
+scip-go. After the fix, the counts are 7,005 of 7,009 and 287 of 287. The
+owner decides whether Go becomes authoritative. The recommendation is
+yes, after the window flaw is fixed, for these reasons:
+
+- On compress, the only change authoritative mode makes is the 238 edges
+  above: 234 right, and 4 wrong because of the window. With the window
+  fixed, it changes 234 edges and all of them become right.
+- The window flaw: a name that stands on the edge's own line with no
+  reference there must stop the search on that line. It costs the 4
+  `len` calls under authoritative, and 3 `uint32(..)` conversions in fill
+  mode once the fix is in (`zip/reader.go:630`).
+- The column flaw: a bare call takes the column after a `.`. It costs the
+  17 conversions above in fill mode. Authoritative mode does not make it
+  worse. Fixing it needs a marker on the edge for a call without a
+  selector.
+- Read scip-go's unspecified position encoding as UTF-8. It changes
+  nothing on these modules, but scip-go writes bytes.
+
+Two properties hold in either mode and are worth stating to users:
+
+- A name that is declared more than once under build tags binds to the
+  indexing host's file. The 232 such compress calls that dagayn leaves
+  ambiguous get the darwin/arm64 file on this machine.
+- scip-go needs a Go toolchain of the version it was built with (1.25 for
+  v0.2.7, 1.26 for v0.2.8). `GOTOOLCHAIN` provides it, so it stays an
+  answer key and an opt-in, not a build requirement, as the plan says.
+
+If Go becomes authoritative, it joins the
+[freeze table](./SCIP-CALL-RESOLUTION.md#freezing-the-inference-layer).
+108 of the 606 observed-method edges that scip-go answers are wrong
+(0.18), and a `--scip` build already replaces them.
