@@ -919,13 +919,47 @@ fn javascript_imported_member_target(
         format!("{}.{}", container.path, rest.join("."))
     };
     let member_path = format!("{owner}.{method}");
-    let known = if container.file == context.file_path.as_str() {
-        context.member_paths.contains(&member_path)
-    } else {
-        javascript_module_index(&container.file, context)
-            .is_some_and(|index| index.member_paths.contains(&member_path))
-    };
-    known.then(|| qualify(&container.file, method, Some(&owner)))
+    if container.file == context.file_path.as_str() {
+        return javascript_member_alias_target(
+            &container.file,
+            &member_path,
+            context.member_aliases,
+            |name| context.defined_names.contains(name),
+        )
+        .or_else(|| {
+            context
+                .member_paths
+                .contains(&member_path)
+                .then(|| qualify(&container.file, method, Some(&owner)))
+        });
+    }
+    let index = javascript_module_index(&container.file, context)?;
+    javascript_member_alias_target(
+        &container.file,
+        &member_path,
+        &index.member_aliases,
+        |name| index.declares(name),
+    )
+    .or_else(|| {
+        index
+            .member_paths
+            .contains(&member_path)
+            .then(|| qualify(&container.file, method, Some(&owner)))
+    })
+}
+
+/// The module-scope function a shorthand member aliases (`IpBlock.matches`
+/// for `export const IpBlock = { schema, matches }` is `matches`).
+fn javascript_member_alias_target(
+    file: &str,
+    member_path: &str,
+    aliases: &std::collections::HashMap<String, String>,
+    declares: impl Fn(&str) -> bool,
+) -> Option<String> {
+    aliases
+        .get(member_path)
+        .filter(|alias| declares(alias))
+        .map(|alias| qualify(file, alias, None))
 }
 
 /// `fs.readFile` / `React.useEffect` / `z.object` where the root is an
@@ -955,7 +989,7 @@ fn javascript_object_member_target(
     context: &JavaScriptParseContext<'_>,
     owner_path: Option<&str>,
 ) -> Option<String> {
-    if context.member_paths.is_empty() {
+    if context.member_paths.is_empty() && context.member_aliases.is_empty() {
         return None;
     }
     if let (Some(owner), Some(object), Some(property)) = (
@@ -974,10 +1008,18 @@ fn javascript_object_member_target(
     let path = javascript_member_path(callee, context.source)?;
     let (owner, method) = path.rsplit_once('.')?;
     let root = owner.split('.').next()?;
-    if context.bindings.borrow().is_bound(root) || !context.member_paths.contains(&path) {
+    if context.bindings.borrow().is_bound(root) {
         return None;
     }
-    Some(qualify(&context.file_path, method, Some(owner)))
+    javascript_member_alias_target(&context.file_path, &path, context.member_aliases, |name| {
+        context.defined_names.contains(name)
+    })
+    .or_else(|| {
+        context
+            .member_paths
+            .contains(&path)
+            .then(|| qualify(&context.file_path, method, Some(owner)))
+    })
 }
 
 /// Dotted text of a pure identifier member chain (`a.b.c`), or `None` when

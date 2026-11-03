@@ -567,6 +567,126 @@ function helper() {}
 }
 
 #[test]
+fn parses_called_call_valued_constants() {
+    let source = br#"import { schemaResult } from "./schema";
+type Parser = (raw: unknown) => unknown;
+const parseRow = schemaResult(RowSchema);
+export const parseAccount: Parser = schemaResult(AccountSchema);
+export const RowSchema = z.object({ id: z.string() });
+const unused = schemaResult(RowSchema);
+const loaded = require("./m");
+const styles = css`color: red`;
+let later = schemaResult(RowSchema);
+namespace N { export const inner = schemaResult(RowSchema); }
+export const query = factory("SELECT 1") as (id: string) => unknown;
+export namespace query { export type Result = number; }
+export function read(raw: unknown) {
+  loaded();
+  styles();
+  later();
+  N.inner(raw);
+  return parseRow(raw) ?? parseAccount(raw);
+}
+"#;
+    let file = "rows.ts";
+    let (nodes, edges) = parse_javascript_like(file, source, "typescript");
+    let named = |name: &str| {
+        nodes
+            .iter()
+            .filter(|node| node.name == name)
+            .collect::<Vec<_>>()
+    };
+    for (name, line) in [("parseRow", 3), ("parseAccount", 4)] {
+        let constant = named(name);
+        assert_eq!(constant.len(), 1, "{name}: {nodes:?}");
+        assert_eq!(constant[0].kind, "Function");
+        assert_eq!(constant[0].extra["binding_role"], "call_result");
+        assert_eq!((constant[0].line_start, constant[0].line_end), (line, line));
+    }
+    assert_eq!(named("parseAccount")[0].extra["exported"], true);
+    // Never called, a `require`, a tagged template, a `let`, a namespace member.
+    for name in ["RowSchema", "unused", "loaded", "styles", "later", "inner"] {
+        assert!(named(name).is_empty(), "{name}: {nodes:?}");
+    }
+    // A namespace of the same name does not make an uncalled constant a node.
+    let query = named("query");
+    assert_eq!(query.len(), 1, "{nodes:?}");
+    assert_eq!(query[0].extra["type_role"], "namespace");
+    let has_edge = |kind: &str, source: &str, target: &str| {
+        edges
+            .iter()
+            .any(|edge| edge.kind == kind && edge.source == source && edge.target == target)
+    };
+    for target in ["rows.ts::parseRow", "rows.ts::parseAccount"] {
+        assert!(
+            has_edge("CALLS", "rows.ts::read", target),
+            "{target}: {edges:?}"
+        );
+    }
+    // The factory runs when the module loads.
+    assert!(has_edge("CALLS", file, "schemaResult"), "{edges:?}");
+    assert!(
+        !edges
+            .iter()
+            .any(|edge| edge.kind == "CALLS" && edge.source == "rows.ts::parseRow"),
+        "{edges:?}"
+    );
+    assert!(
+        has_edge("REFERENCES", "rows.ts::parseAccount", "rows.ts::Parser"),
+        "{edges:?}"
+    );
+}
+
+#[test]
+fn resolves_shorthand_members_to_the_binding_they_alias() {
+    let source = br#"const matches = (ip: string) => ip.length > 0;
+function other() {}
+const schema = make();
+export const IpBlock = { schema, matches };
+export const Replaced = { matches, matches: other };
+namespace N { function matches() {} export const Inner = { matches, f() {} }; }
+export function check(ip: string) {
+  return IpBlock.matches(ip) && IpBlock.schema(ip) && Replaced.matches(ip) && N.Inner.matches();
+}
+"#;
+    let (nodes, edges) = parse_javascript_like("ip.ts", source, "typescript");
+    assert!(
+        !nodes
+            .iter()
+            .any(|node| node.parent_name.as_deref() == Some("IpBlock") && node.name == "matches"),
+        "{nodes:?}"
+    );
+    let targets: Vec<&str> = edges
+        .iter()
+        .filter(|edge| edge.kind == "CALLS" && edge.source == "ip.ts::check")
+        .map(|edge| edge.target.as_str())
+        .collect();
+    // `IpBlock.matches` only: not the replaced key, not the namespace's own `matches`.
+    let to_matches = targets
+        .iter()
+        .filter(|target| **target == "ip.ts::matches")
+        .count();
+    assert_eq!(to_matches, 1, "{targets:?}");
+    // `schema` aliases a constant that is not a function node.
+    assert!(!targets.contains(&"ip.ts::schema"), "{targets:?}");
+}
+
+#[test]
+fn walks_the_other_declarators_of_a_called_constant() {
+    let source =
+        b"const parse = make(), other = run();\nexport function f() { return parse(1); }\n";
+    let (_nodes, edges) = parse_javascript_like("multi.ts", source, "typescript");
+    for target in ["make", "run"] {
+        assert!(
+            edges.iter().any(|edge| edge.kind == "CALLS"
+                && edge.source == "multi.ts"
+                && edge.target == target),
+            "{target}: {edges:?}"
+        );
+    }
+}
+
+#[test]
 fn parses_call_valued_members_of_a_companion_object() {
     let source = br#"function schemaResult(schema: unknown) { return (raw: unknown) => raw; }
 const schema = make();
