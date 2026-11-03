@@ -413,6 +413,26 @@ method-call gap.
     web-ui does not change.
 14. **T4, eval coverage.** A refactor `pos_unused_typescript_export` case,
     and flow and architecture cases from the causes M1 finds.
+    **Met** (2026-11-03): six cases, each failing on the code before its
+    rule or with its rule disabled.
+
+    | Case | Cause | Fails when |
+    |---|---|---|
+    | refactor `pos_unused_typescript_export` | an application's exports are not API | TypeScript exports are left out as `exported_api`, as Go's are |
+    | flow `pos_typescript_worker_route_handler` | request boundary (T3) | the request-boundary pass is off: the entry is `src/app.ts` (`module_level`) |
+    | flow `pos_typescript_shorthand_member` | #239 shorthand member | shorthand aliases are off: the target is its own `uncalled` entry |
+    | flow `pos_typescript_call_valued_constant` | #239 call-valued constant | called constants get no node: no target |
+    | architecture `neg_typescript_helper_tested_through_request` | request boundary (T3) | the request-boundary pass is off: `untested_core` on the helper |
+    | architecture `neg_typescript_helper_tested_six_hops_away` | hop limit | on `main`: `untested_core` walked 4 hops in every language |
+
+    The last case found a gap: `untested_core` kept its own 4-hop limit
+    when `untested_change` moved to 8 for TypeScript and JavaScript. It
+    now uses the same per-language limit (no limit for Rust). On tstodon
+    and dagayn's own graph its findings do not change (tstodon keeps
+    `unitKind`, called at module load). A `format` imported from
+    `date-fns` still hides an unused local `format` from `dead_code`: the
+    source scan counts any occurrence of the name, so the refactor case
+    uses a name no other file mentions.
 
 ### Python work
 

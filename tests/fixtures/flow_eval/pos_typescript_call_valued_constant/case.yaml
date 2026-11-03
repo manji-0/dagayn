@@ -1,0 +1,21 @@
+description: A module-scope constant holds the function a call returns (`const parseUser = schemaResult(..)`), and its own file calls it. The constant is a function, so the exported caller is its entry point.
+target: src/user.ts::parseUser
+files:
+  package.json: |
+    {"name": "app", "private": true}
+  src/schema.ts: |
+    export function schemaResult(fields: string[]): (raw: unknown) => boolean {
+      return (raw) => typeof raw === "object" && raw !== null && fields.every((f) => f in raw);
+    }
+  src/user.ts: |
+    import { schemaResult } from "./schema";
+
+    const parseUser = schemaResult(["id", "name"]);
+
+    export function loadUser(raw: unknown): boolean {
+      return parseUser(raw);
+    }
+expected_entry_points:
+- entry_point: src/user.ts::loadUser
+  kind: uncalled
+  chain: [src/user.ts::loadUser, src/user.ts::parseUser]

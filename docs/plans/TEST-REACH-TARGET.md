@@ -198,7 +198,8 @@ function (`cargo llvm-cov report --json`) and gates it with
 `eval/test_reach_rust_thresholds.yaml`: untested precision 0.387, recall
 0.233, tested precision 0.943 on 3,199 functions (0.464 / 0.267 / 0.944
 on 2,972 since the trait step below). `untested_core` in the
-architecture overview still walks 4 hops in every language.
+architecture overview walks the same hops per language since T4
+([first-class languages](./FIRST-CLASS-LANGUAGES-TARGET.md#typescript-work)).
 The walk keeps no visit cap (unlike `flow_tool`'s entry points, which stop
 at 10,000): it ends at the nearest test, its `seen` set bounds it, and the
 deepest Rust path here is 12 hops; asking it of all 3,199 Rust functions

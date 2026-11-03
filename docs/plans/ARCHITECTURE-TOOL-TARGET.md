@@ -197,7 +197,7 @@ ship.
 | Kind | Fires when | Evidence | Action |
 |---|---|---|---|
 | `import_cycle` | modules form a strongly connected component in a language where import order matters at load time (Python, JavaScript, TypeScript), counting only module-level runtime imports | the component's import edges; the smallest set of edges whose removal breaks it, each with file:line | break the cycle at the listed import(s) |
-| `untested_core` | a production symbol is referenced from at least the repository's p95 count of other files, and no direct test reaches it through its callers up to 4 hops | inbound edges and test edges; same path classification as `untested_change` | write or point to a test |
+| `untested_core` | a production symbol is referenced from at least the repository's p95 count of other files, and no direct test reaches it through its callers within the hops `untested_change` walks for its language (4; 8 for TypeScript and JavaScript; no limit for Rust) | inbound edges and test edges; same path classification as `untested_change` | write or point to a test |
 | `broken_doc_link` | an authored doc directive (`constrained-by`, `derived-from`, `dagayn: discusses-artifact`, …) points inside the repository at a file, section, or symbol that does not exist; file existence is checked on disk, not in the graph, and targets outside the repository are skipped | the directive's source line and the missing target | fix or remove the link |
 
 Each kind keeps 10 findings and counts the rest in `findings_omitted`. On

@@ -1,0 +1,72 @@
+description: A helper used from six TypeScript modules has no test of its own. A test reaches it six caller
+  hops away (through layout, page, section, row, and reportLine), within the eight hops TypeScript test
+  reach walks.
+negative: true
+files:
+  package.json: |
+    {"name": "app", "private": true, "devDependencies": {"vitest": "^3.2.0"}}
+  src/format.ts: |
+    export function pad(value: string): string {
+      return value.padStart(8, " ");
+    }
+  src/report.ts: |
+    import { pad } from "./format";
+
+    export function reportLine(value: string): string {
+      return pad(value);
+    }
+  src/invoice.ts: |
+    import { pad } from "./format";
+
+    export function invoiceLine(value: string): string {
+      return pad(value);
+    }
+  src/receipt.ts: |
+    import { pad } from "./format";
+
+    export function receiptLine(value: string): string {
+      return pad(value);
+    }
+  src/ledger.ts: |
+    import { pad } from "./format";
+
+    export function ledgerLine(value: string): string {
+      return pad(value);
+    }
+  src/summary.ts: |
+    import { pad } from "./format";
+
+    export function summaryLine(value: string): string {
+      return pad(value);
+    }
+  src/statement.ts: |
+    import { pad } from "./format";
+
+    export function statementLine(value: string): string {
+      return pad(value);
+    }
+  src/view.ts: |
+    import { reportLine } from "./report";
+
+    export function row(value: string): string {
+      return reportLine(value);
+    }
+
+    export function section(value: string): string {
+      return row(value);
+    }
+
+    export function page(value: string): string {
+      return section(value);
+    }
+
+    export function layout(value: string): string {
+      return page(value);
+    }
+  test/view.test.ts: |
+    import { expect, it } from "vitest";
+    import { layout } from "../src/view";
+
+    it("lays out a report", () => {
+      expect(layout("a")).toBe("       a");
+    });
