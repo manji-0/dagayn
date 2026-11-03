@@ -170,15 +170,15 @@ Removed).
 - `dagayn build --scip` for Go was compared edge by edge with scip-go
   v0.2.7 (G6 of the first-class languages plan). dagayn's own node edges
   agree on 7,003 of 7,017 on klauspost/compress and 287 of 287 on scip-go,
-  which meets the plan's 0.95 bar. Go stays fill-only until the owner
-  decides. In fill mode a `--scip` build already takes every call the
-  extractor leaves open from scip-go, including cross-file calls and
-  observed-method guesses, of which scip-go shows 108 of the 606 it
-  answers wrong. Authoritative mode would change 238 more edges on compress:
-  234 `println` calls that the package's own `println` shadows, and 4
-  `len` calls that the overlay's chain window binds to a later line's
-  `.len()`. A name declared more than once under build tags binds to the
-  indexing host's file. scip-go v0.2.7 needs Go 1.25, for which
+  which meets the plan's 0.95 bar. scip-go's answer now replaces the
+  extractor's, as Rust's, TypeScript's, and Python's indexes do: on
+  compress this moves 234 `println` calls from the builtin to the
+  package's own `println`, which shadows it, and changes nothing on testify
+  and scip-go. A `--scip` build already took every call the extractor
+  leaves open from scip-go, including cross-file calls and observed-method
+  guesses, of which scip-go shows 108 of the 606 it answers wrong. A name
+  declared more than once under build tags binds to the indexing host's
+  file. scip-go v0.2.7 needs Go 1.25, for which
   `GOTOOLCHAIN=go1.25.3` suffices (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
 - `untested_change` and `tests_for`'s `test_reach` count a test up to 8
   caller hops away for TypeScript and JavaScript, up from 4

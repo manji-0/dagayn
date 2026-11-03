@@ -1084,7 +1084,41 @@ Two properties hold in either mode and are worth stating to users:
   v0.2.7, 1.26 for v0.2.8). `GOTOOLCHAIN` provides it, so it stays an
   answer key and an opt-in, not a build requirement, as the plan says.
 
-If Go becomes authoritative, it joins the
+Go joins the
 [freeze table](./SCIP-CALL-RESOLUTION.md#freezing-the-inference-layer).
 108 of the 606 observed-method edges that scip-go answers are wrong
 (0.18), and a `--scip` build already replaces them.
+
+### Authoritative Go
+
+<!-- blocked-by #the-chain-window -->
+
+The owner chose authoritative. `dagayn build --scip` now lets scip-go's
+answer replace the extractor's, as rust-analyzer's and dagayn's own
+TypeScript and Python indexers do. The bar: on compress, every edge that
+authoritative mode changes against fill mode is right.
+
+Measured with the window fix ([#259](https://github.com/manji-0/dagayn/pull/259))
+on the same copies, at go 13, `last_build_type` `full`. The authoritative
+graph is the fill build with the Go index made authoritative in memory,
+the driver used above. A plain `dagayn build --scip` of compress with Go
+authoritative in `INDEXERS` gives the same `CALLS` edges (none differ):
+
+| Module | Edges authoritative mode changes | Their new target |
+|---|---|---|
+| compress v1.20.1 | 234 (238 before the window fix) | `zstd/zstd.go::println`, all 234 |
+| testify v1.12.1 | 0 | |
+| scip-go v0.2.7 | 0 | |
+
+All 234 were extractor edges to `builtin` (`MEDIUM`) in files of
+directory `zstd/` with `package zstd`, and `zstd/zstd.go:101` is the only
+file there declaring `func println(a ...any)`; no file of the 234
+declares a local or a method named `println`. A sample of 15
+(`random.seed(6)` over the sorted edges) was read in source: every one is
+a `println(..)` statement in a `zstd` function (`blockDec.reset`,
+`frameDec.consumeCRC`, `sequenceDecs.decode` in the build-tagged
+`seqdec_asm.go`, ...), which calls the package's function, since a
+package-level declaration shadows the builtin. No edge outside the 234
+changes, so none needed reading. testify's 22 nested declarations that
+scip-go calls `local` stay at dagayn's node: the overlay marks a local
+only on an unresolved edge.

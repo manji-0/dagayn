@@ -173,7 +173,7 @@ these calls with no import at all.
 | C3 | **missing in the graph** | `is_test: false` everywhere (`go.rs:195`, `:263`): `TestX`, `BenchmarkX`, `FuzzX`, and `ExampleX` are `Function` nodes, and no `TESTED_BY` edge exists. Only the tools' path rule (`_test.` in `findings.rs:229-239`) knows the files are tests |
 | C4 | partial | method calls on a receiver of a declared type (`go.rs:588`); interfaces are satisfied implicitly and no edge records it (0 `IMPLEMENTS`) |
 | C5 | partial | a `go.mod` is one unit (`units.rs:223-229`), with no `require` dependencies; packages, Go's unit of import, are not units |
-| C6 | partial | wired to fill only; [G6](./GO-SUPPORT-MEASUREMENTS.md#g6-the-scip-go-comparison) measured it: node edges agree with scip-go on 7,003 of 7,017 (compress) and 287 of 287 (scip-go); authoritative is open |
+| C6 | present | authoritative under `build --scip`; [G6](./GO-SUPPORT-MEASUREMENTS.md#g6-the-scip-go-comparison) measured it: node edges agree with scip-go on 7,003 of 7,017 (compress) and 287 of 287 (scip-go), and the 234 edges authoritative mode changes on compress are all right ([authoritative Go](./GO-SUPPORT-MEASUREMENTS.md#authoritative-go)) |
 | C7 | **missing** | no harness; testify measured [above](#tool-answers) |
 | C8 | **missing** | no case in any eval |
 | C9 | present | `init` and protocol methods (`dead_code_verify.rs:319-330`); exported names of importable packages (`go_exported_api`, G5); `Benchmark` / `Fuzz` / `Example` functions are `Test` nodes (G1) |
@@ -357,9 +357,11 @@ method-call gap.
    on scip-go. testify, added because its forwarders exercise the case,
    was at 4,503 of 4,836 through a bare-call bug that
    [#250](https://github.com/manji-0/dagayn/pull/250) fixes (4,813 after).
-   Whether Go becomes authoritative is the owner's call; the
-   recommendation is yes once the overlay's chain window stops on the
-   edge's own line.
+   The owner made Go authoritative once the overlay's chain window
+   stopped on the edge's own line
+   ([#259](https://github.com/manji-0/dagayn/pull/259)): on compress the
+   234 edges it changes against fill mode are all right
+   ([authoritative Go](./GO-SUPPORT-MEASUREMENTS.md#authoritative-go)).
 10. **G7, Go agent experiment.** After G1 to G3, the same design as E13,
     with an answer key from scip-go.
     Bar: tokens or time at most 0.85x at equal accuracy. Go is first-class
