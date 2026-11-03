@@ -1020,6 +1020,50 @@ fn a_missing_or_foreign_graph_goes_to_python() {
     ));
 }
 
+/// #195: a node the graph has, with no edge of the kind asked for, is not
+/// a node the graph lacks.
+#[test]
+fn a_node_with_no_edges_is_not_reported_missing() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("no-edges", false);
+    repo.build();
+    let context = repo.context();
+    for (pattern, target, says) in [
+        (
+            "callers_of",
+            "test_app.py::test_main",
+            "nothing in it calls",
+        ),
+        ("callees_of", "app.py::helper", "calls nothing"),
+        ("importers_of", "test_app.py", "nothing in it imports"),
+        ("tests_for", "test_app.py::test_main", "no test"),
+    ] {
+        for detail in ["minimal", "standard"] {
+            let reply = answer(
+                &context,
+                "query_graph_tool",
+                json!({"pattern": pattern, "target": target, "detail_level": detail}),
+            );
+            assert_eq!(reply["exact_match_count"], 1, "{pattern} {reply}");
+            assert_eq!(reply["result_count"], 0, "{pattern} {reply}");
+            assert_eq!(
+                reply["zero_result_reason"], "node_has_no_matching_edges",
+                "{pattern} {reply}"
+            );
+            let summary = reply["summary"].as_str().unwrap_or_default();
+            assert!(summary.contains(says), "{pattern}: {summary}");
+            assert!(!reply.to_string().contains("refresh the graph"), "{reply}");
+        }
+    }
+    let missing = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "no_such_symbol"}),
+    );
+    assert_eq!(missing["status"], "not_found");
+    assert_eq!(missing["zero_result_reason"], "target_not_found_in_graph");
+}
+
 #[test]
 fn search_without_embeddings_ranks_fts_hits() {
     // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
