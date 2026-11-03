@@ -365,6 +365,16 @@ Removed).
   whose target changes, 4 were wrong (`graph.close()` taken for a later
   `emb_store.close()`) and 3 right by chance
   (docs/plans/GO-SUPPORT-MEASUREMENTS.md, G6).
+- `tests_for` no longer lists a test double's method as a test of the
+  method it shares a name with (#254). The Go and Rust extractors mark
+  every declaration in test code `is_test`, and the heuristic took each
+  such Function as a test. On testify, `tests_for` on `CollectT.Errorf`
+  returned the `Errorf` methods of 10 test doubles and no test. A Function
+  in test code is now a test candidate only when its name looks like a
+  test, the same rule as for other code; tests are `Test` nodes. This
+  removes 173 test-code Functions from the candidates on testify and 153
+  on klauspost/compress. `test_reach`, `dead_code`, and test reach do not
+  change. G7 found the defect (eval/g7_go/RESULTS.md).
 - A Go call without a selector no longer binds to a method of the same
   name. Go reaches a method only through a selector, but same-file
   resolution bound `Equal(a.t, ...)` in testify's forwarder
