@@ -170,15 +170,15 @@ Removed).
 - `dagayn build --scip` for Go was compared edge by edge with scip-go
   v0.2.7 (G6 of the first-class languages plan). dagayn's own node edges
   agree on 7,003 of 7,017 on klauspost/compress and 287 of 287 on scip-go,
-  which meets the plan's 0.95 bar. Go stays fill-only until the owner
-  decides. In fill mode a `--scip` build already takes every call the
-  extractor leaves open from scip-go, including cross-file calls and
-  observed-method guesses, of which scip-go shows 108 of the 606 it
-  answers wrong. Authoritative mode would change 238 more edges on compress:
-  234 `println` calls that the package's own `println` shadows, and 4
-  `len` calls that the overlay's chain window binds to a later line's
-  `.len()`. A name declared more than once under build tags binds to the
-  indexing host's file. scip-go v0.2.7 needs Go 1.25, for which
+  which meets the plan's 0.95 bar. scip-go's answer now replaces the
+  extractor's, as Rust's, TypeScript's, and Python's indexes do: on
+  compress this moves 234 `println` calls from the builtin to the
+  package's own `println`, which shadows it, and changes nothing on testify
+  and scip-go. A `--scip` build already took every call the extractor
+  leaves open from scip-go, including cross-file calls and observed-method
+  guesses, of which scip-go shows 108 of the 606 it answers wrong. A name
+  declared more than once under build tags binds to the indexing host's
+  file. scip-go v0.2.7 needs Go 1.25, for which
   `GOTOOLCHAIN=go1.25.3` suffices (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
 - `untested_change` and `tests_for`'s `test_reach` count a test up to 8
   caller hops away for TypeScript and JavaScript, up from 4
@@ -187,6 +187,16 @@ Removed).
   to 483 and tested precision from 0.995 to 0.996, and leaves cfwdon's
   web-ui unchanged (docs/plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md). Python
   and Go keep 4 hops and Rust keeps no limit.
+- A TypeScript or JavaScript import of a package (one that resolves to no
+  repository file and is not a tsconfig alias) carries `external: true`
+  and `external_package`, and the `HIGH` tier, as the calls through it
+  already did (T1 of the first-class languages plan). The target keeps the
+  specifier as written (`hono/cors`, with `external_package: "hono"`). On
+  tstodon the imports with no mark fall from 1,026 of 3,425 (0.300) to 1,
+  a missing relative module, which stays unmarked; 94 of the 1,025 are
+  `cloudflare:test` and `cloudflare:workers`, which no `package.json`
+  names. Other edges are unchanged. The javascript extractor
+  is now version 16.
 - The architecture overview's `untested_core` looks for a test as far as
   `untested_change` does for the symbol's language: 8 caller hops for
   TypeScript and JavaScript and no limit for Rust, where it walked 4 in
@@ -338,6 +348,23 @@ Removed).
 
 ### Fixed
 
+- `dagayn build --scip` no longer takes a call's target from a later line
+  when the call's own line calls the name and the index has no reference
+  there. The overlay searches the next eight lines for a chain the
+  extractor records at its first line; for a Go builtin or conversion,
+  which scip-go gives no occurrence, it took the next line's method of the
+  name. On klauspost/compress, fill mode no longer binds `uint32(..)` to
+  `readBuf.uint32` / `writeBuf.uint32` (3 edges), or confirms 11
+  `err.Error()` calls from a later `t.Error(..)`; with Go authoritative,
+  4 `len(..)` calls no longer move to `hcode.len`. A variable of the name on
+  the edge's line (`let entry = map` before `.entry(..)`) does not stop
+  the search. The Rust and TypeScript overlays move no edge on dagayn's own
+  sources and tstodon. The Python overlay now leaves 55 calls on dagayn's
+  own sources that ty gives no reference, which it had settled from another
+  line's call of the name; 47 keep their target at `MEDIUM`, and of the 8
+  whose target changes, 4 were wrong (`graph.close()` taken for a later
+  `emb_store.close()`) and 3 right by chance
+  (docs/plans/GO-SUPPORT-MEASUREMENTS.md, G6).
 - `tests_for` no longer lists a test double's method as a test of the
   method it shares a name with (#254). The Go and Rust extractors mark
   every declaration in test code `is_test`, and the heuristic took each

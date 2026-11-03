@@ -34,10 +34,8 @@ pub(super) fn javascript_package_name(specifier: &str) -> Option<&str> {
 }
 
 /// The imported specifiers of `importer` that name external packages, with
-/// their package names (a relative module missing from the repository maps
-/// to itself): a package-name specifier that resolves to no
-/// repository file and is not a tsconfig alias (an in-repo module that
-/// failed to resolve is not a package).
+/// their package names ([`javascript_external_package`]); a relative module
+/// missing from the repository maps to itself.
 pub(super) fn collect_javascript_external_packages(
     import_map: &JavaScriptImportMap,
     importer: &str,
@@ -61,16 +59,27 @@ pub(super) fn collect_javascript_external_packages(
             packages.insert(module.to_string(), module.to_string());
             continue;
         }
-        let Some(package) = javascript_package_name(module) else {
-            continue;
-        };
-        if resolve_javascript_module(module, importer, repo_root, caches).is_none()
-            && !javascript_is_repo_alias(module, importer, repo_root, caches)
-        {
+        if let Some(package) = javascript_external_package(module, importer, repo_root, caches) {
             packages.insert(module.to_string(), package.to_string());
         }
     }
     packages
+}
+
+/// The package `module`, imported by `importer`, names when it is external:
+/// a package-name specifier that resolves to no repository file and is not
+/// a tsconfig alias (an in-repo module that failed to resolve is not a
+/// package).
+pub(super) fn javascript_external_package<'m>(
+    module: &'m str,
+    importer: &str,
+    repo_root: Option<&Path>,
+    caches: JavaScriptCaches<'_>,
+) -> Option<&'m str> {
+    let package = javascript_package_name(module)?;
+    (resolve_javascript_module(module, importer, repo_root, caches).is_none()
+        && !javascript_is_repo_alias(module, importer, repo_root, caches))
+    .then_some(package)
 }
 
 /// Whether `module` names a repository path through the nearest tsconfig:

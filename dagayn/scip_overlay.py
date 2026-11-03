@@ -18,9 +18,9 @@ stay unsettled. The Python indexer is given the project's environment
 explicitly: its ``.venv`` (or one in a directory above it, up to the
 repository root), else the active ``VIRTUAL_ENV``.
 
-Rust, TypeScript, and Python indexes are authoritative: their answer replaces
-the extractor's. The others, not yet measured against dagayn's own resolution,
-keep what the extractor resolved and settle the rest, before the inference
+Rust, TypeScript, Python, and Go indexes are authoritative: their answer
+replaces the extractor's. The others, not yet measured against dagayn's own
+resolution, keep what the extractor resolved and settle the rest, before the inference
 passes run. scip-java runs the project's build (`gradle clean ...` /
 `mvn clean verify`), so it runs only with ``DAGAYN_SCIP_ALLOW_BUILD=1``.
 
@@ -218,6 +218,7 @@ INDEXERS: tuple[Indexer, ...] = (
         commands=(("scip-go",),),
         arguments=_go_arguments,
         install="go install github.com/scip-code/scip-go/cmd/scip-go@latest",
+        authoritative=True,
     ),
     Indexer(
         language="python",

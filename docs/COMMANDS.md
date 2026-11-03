@@ -72,7 +72,7 @@ dagayn, the others run when this machine has them:
 | -------- | ------- | -------------- | ------ |
 | Rust | `rust-analyzer scip` | outermost `Cargo.toml` | replaces the extractor's |
 | TypeScript / JavaScript | dagayn's own (`python -m dagayn.scip_typescript`, the tsrs checker; no install) | `tsconfig.json`; without `node_modules` (in the project or up to the repository root) a hint is printed and calls into packages stay unsettled | replaces the extractor's |
-| Go | `scip-go` | `go.mod` | fills |
+| Go | `scip-go` | `go.mod` | replaces the extractor's |
 | Python | dagayn's own (`python -m dagayn.scip_python`, the ty checker; no install) | outermost `pyproject.toml` / `setup.py` / `setup.cfg`; the project's `.venv` (in the project or up to the repository root), else `VIRTUAL_ENV`, is passed as its environment, and without one a hint is printed and calls into installed packages resolve only in what ty finds itself | replaces the extractor's |
 | Java / Kotlin | `scip-java` (or `coursier launch`) | outermost `pom.xml` / `build.gradle(.kts)` / `settings.gradle(.kts)` | fills; runs only with `DAGAYN_SCIP_ALLOW_BUILD=1` |
 | C / C++ | `scip-clang` | `compile_commands.json` or `build/compile_commands.json` | fills |
