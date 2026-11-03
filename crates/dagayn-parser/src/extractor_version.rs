@@ -309,8 +309,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // local closure) never binds to a same-named method of the file.
         // 14: a method expression used as a value (`(*T).m`, `T.m` for a
         // type of the file) is a REFERENCES edge to the method.
+        // 15: a `test_*.go` file at the repository root is not test code;
+        // a Go file is a test only by its `_test.go` suffix.
         extractor: "go",
-        version: 14,
+        version: 15,
         languages: &["go"],
     },
     ExtractorVersion {

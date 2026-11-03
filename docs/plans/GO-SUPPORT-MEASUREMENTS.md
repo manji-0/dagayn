@@ -609,7 +609,9 @@ through `e.global.Composer()` (`extractor.go:102`) without importing it,
 which Go allows. testify's missing pair is `http` → `mock`: the only
 importer is `http/test_round_tripper.go`, which the shared test-path rule
 (`test_` prefix) reads as a test, though Go tests end in `_test.go`
-([#240](https://github.com/manji-0/dagayn/issues/240)).
+([#240](https://github.com/manji-0/dagayn/issues/240)). With #240 fixed,
+the overview of testify v1.12.1 has the pair: 10 unit edges for the 10
+source pairs.
 
 kong's units are the root package and the three programs under
 `_examples`. Go's `./...` leaves out `_` directories, but they are packages
