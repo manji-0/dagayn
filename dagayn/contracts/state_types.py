@@ -64,6 +64,7 @@ class ChangeEdgeRecord(_OpenTypedDict, total=False):
     line: int
     confidence: float
     confidence_tier: ConfidenceTier
+    resolved_by: str
     extra: JsonObject
     change_status: Literal["existing", "added", "unknown"]
 

@@ -101,16 +101,9 @@ pub(crate) fn docs_section(
     ))
 }
 
-/// `Path.read_text(encoding="utf-8", errors="replace")`: each maximal invalid
-/// UTF-8 subpart reads as one U+FFFD (the rule Python's decoder and
-/// `from_utf8_lossy` share), then universal newlines. `None` when the file
-/// cannot be read, where Python raises.
-pub(crate) fn read_text(path: &std::path::Path) -> Option<String> {
-    let bytes = std::fs::read(path).ok()?;
-    Some(decode_text(&bytes))
-}
-
-/// [`read_text`]'s decoding of `bytes`.
+/// `bytes` as `Path.read_text(encoding="utf-8", errors="replace")` decodes
+/// them: each maximal invalid UTF-8 subpart reads as one U+FFFD (the rule
+/// Python's decoder and `from_utf8_lossy` share), then universal newlines.
 pub(crate) fn decode_text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes)
         .replace("\r\n", "\n")

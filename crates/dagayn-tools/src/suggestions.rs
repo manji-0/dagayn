@@ -410,13 +410,15 @@ fn is_test_file_path(file_path: &str) -> bool {
     let name = normalized.rsplit('/').next().unwrap_or("");
     normalized.contains("/tests/")
         || normalized.contains("/__tests__/")
-        || name == "tests.rs"
-        || name == "test.rs"
-        || name.ends_with("_tests.rs")
-        || name.ends_with("_test.rs")
-        || name.starts_with("test_")
-        || name.contains(".test.")
-        || name.contains(".spec.")
+        || dagayn_parser::go_test_file(name).unwrap_or_else(|| {
+            name == "tests.rs"
+                || name == "test.rs"
+                || name.ends_with("_tests.rs")
+                || name.ends_with("_test.rs")
+                || name.starts_with("test_")
+                || name.contains(".test.")
+                || name.contains(".spec.")
+        })
 }
 
 /// `_is_test_artifact` for a record's test flag, file, language, and line.
@@ -1041,7 +1043,20 @@ mod tests {
     use dagayn_graph::{ConfidenceTier, GraphEdge, GraphNode};
     use serde_json::Value;
 
-    use super::{branch_count, callee_scope, comment_line_count, concern_profile, parameter_names};
+    use super::{
+        branch_count, callee_scope, comment_line_count, concern_profile, is_test_file_path,
+        parameter_names,
+    };
+
+    #[test]
+    fn go_test_files_end_in_test_go() {
+        assert!(is_test_file_path("pkg/test_app.py"));
+        assert!(!is_test_file_path("http/test_round_tripper.go"));
+        assert!(is_test_file_path("http/round_tripper_test.go"));
+        assert_eq!(dagayn_parser::go_test_file("a/b_test.go"), Some(true));
+        assert_eq!(dagayn_parser::go_test_file("a\\test_b.go"), Some(false));
+        assert_eq!(dagayn_parser::go_test_file("a/test_b.py"), None);
+    }
 
     fn lines(text: &[&str]) -> Vec<String> {
         text.iter().map(|line| line.to_string()).collect()

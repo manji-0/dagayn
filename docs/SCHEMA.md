@@ -21,7 +21,9 @@ Core node kinds include:
 Nodes store file path, qualified name, language, line range, and an `extra` payload for format-specific metadata.
 
 `is_test` marks test code. A File node has it when its path is a test path
-(`tests/`, `test/`, a `test_` prefix, and each language's own suffixes). In
+(`tests/`, `test/`, a `test_` prefix, and each language's own suffixes; a Go
+file's name counts only by its `_test.go` suffix, so `test_helpers.go` is
+not one). In
 Rust, a file compiled only under test is a test file whatever its name: under
 `tests/` or `test/`, or the target of a `#[cfg(test)] mod name;` declaration
 (`#[path]` included, `cfg(all(test, ...))` too) or a module below one, in

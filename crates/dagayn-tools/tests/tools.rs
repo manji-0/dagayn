@@ -930,6 +930,75 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
 }
 
 #[test]
+fn call_rows_say_which_edges_a_scip_index_settled() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("query-scip", false);
+    repo.write(
+        "app.py",
+        "def main():\n    helper()\n    return helper()\n\n\ndef other():\n    return helper()\n\
+         \n\ndef helper():\n    pass\n",
+    );
+    repo.build();
+    // What `dagayn build --scip` records on an edge the index settled: every
+    // call of `other`, and one of `main`'s two.
+    let conn = rusqlite::Connection::open(repo.0.join(".dagayn/graph.db")).expect("open");
+    let settled = conn
+        .execute(
+            "UPDATE edges SET extra = json_set(COALESCE(extra, '{}'), '$.resolved_by', 'scip') \
+             WHERE kind = 'CALLS' AND target_qualified = 'app.py::helper' \
+               AND (source_qualified = 'app.py::other' \
+                    OR (source_qualified = 'app.py::main' AND line = 2))",
+            [],
+        )
+        .expect("settle");
+    assert_eq!(settled, 2);
+    drop(conn);
+    let context = repo.context();
+
+    for detail in ["standard", "minimal"] {
+        let callers = answer(
+            &context,
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": "app.py::helper", "detail_level": detail}),
+        );
+        let row = |name: &str| {
+            callers["results"]
+                .as_array()
+                .expect("rows")
+                .iter()
+                .find(|row| row["qualified_name"] == name)
+                .cloned()
+                .unwrap_or_else(|| panic!("{detail}: no row for {name}: {callers}"))
+        };
+        assert_eq!(row("app.py::other")["resolved_by"], "scip", "{detail}");
+        // One of `main`'s calls was inferred: the merged row does not claim
+        // the index settled both.
+        assert!(row("app.py::main").get("resolved_by").is_none(), "{detail}");
+    }
+    let callees = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callees_of", "target": "app.py::other"}),
+    );
+    assert_eq!(callees["results"][0]["resolved_by"], "scip");
+    let full = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"}),
+    );
+    let edges = full["edges"].as_array().expect("edges");
+    let by_line = |line: i64| {
+        edges
+            .iter()
+            .find(|edge| edge["line"] == line)
+            .unwrap_or_else(|| panic!("no edge on line {line}: {full}"))
+    };
+    assert_eq!(by_line(2)["resolved_by"], "scip");
+    assert!(by_line(3).get("resolved_by").is_none());
+    assert_eq!(by_line(7)["resolved_by"], "scip");
+}
+
+#[test]
 fn query_graph_answers_trimmed_unread_and_dotted_targets() {
     // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
     let repo = Repo::new("query-gaps", false);
@@ -2236,6 +2305,31 @@ fn ensure_graph_leaves_a_tree_outside_git_to_python() {
     assert!(declines(&repo.context(), "ensure_graph_tool", json!({})));
 }
 
+/// The new file a whole-file unified diff describes: its context and added
+/// lines, after the `---`/`+++`/`@@` headers.
+fn new_side(diff: &str) -> String {
+    let body = diff.splitn(4, '\n').nth(3).expect("diff headers");
+    let mut out = String::new();
+    let mut rest = body;
+    while !rest.is_empty() {
+        // Each diff line is a marker and a source line with its own end.
+        let (marker, tail) = rest.split_at(1);
+        let end = tail
+            .char_indices()
+            .find_map(|(i, c)| match c {
+                '\n' => Some(i + 1),
+                '\r' if !tail[i + 1..].starts_with('\n') => Some(i + 1),
+                _ => None,
+            })
+            .unwrap_or(tail.len());
+        if marker != "-" {
+            out.push_str(&tail[..end]);
+        }
+        rest = &tail[end..];
+    }
+    out
+}
+
 #[test]
 fn a_rename_preview_is_applied_or_shown_as_a_diff() {
     // dagayn: tests crates/dagayn-tools/src/refactor.rs::refactor
@@ -2279,8 +2373,8 @@ fn a_rename_preview_is_applied_or_shown_as_a_diff() {
         format!("Refactor '{id}' not found or expired.")
     );
 
-    // Bytes that are not UTF-8 are replaced, and the file is written back
-    // that way with `\n` line ends, as `read_text`/`write_text` do.
+    // CRLF line ends are kept (#180), and bytes that are not UTF-8 are
+    // replaced and written back that way. The diff shows what is written.
     let id = rename("main", "start");
     std::fs::write(
         repo.0.join("app.py"),
@@ -2292,19 +2386,16 @@ fn a_rename_preview_is_applied_or_shown_as_a_diff() {
         "apply_refactor_tool",
         json!({"refactor_id": id, "dry_run": true}),
     );
+    let diff = dry["diffs"]["app.py"].as_str().expect("diff");
     assert!(
-        dry["diffs"]["app.py"]
-            .as_str()
-            .expect("diff")
-            .contains("+def start():\n     return '\u{fffd}'\n"),
+        diff.contains("-def main():\r\n+def start():\r\n     return '\u{fffd}'\r\n"),
         "{dry}"
     );
     let applied = answer(&context, "apply_refactor_tool", json!({"refactor_id": id}));
     assert_eq!(applied["status"], "ok", "{applied}");
-    assert_eq!(
-        std::fs::read_to_string(repo.0.join("app.py")).expect("app.py"),
-        "def start():\n    return '\u{fffd}'\n"
-    );
+    let written = std::fs::read_to_string(repo.0.join("app.py")).expect("app.py");
+    assert_eq!(written, "def start():\r\n    return '\u{fffd}'\r\n");
+    assert_eq!(new_side(diff), written);
 
     // A preview Python would have stored: a path that does not exist yet
     // is skipped, an empty name matches nothing, and a float line counts.
@@ -2314,6 +2405,37 @@ fn a_rename_preview_is_applied_or_shown_as_a_diff() {
             json!({"created_at": dagayn_tools::pending::now(), "edits": edits}).to_string(),
         );
     };
+    // A lone `\r` and a `\n` beside `\r\n` stay as they are; the line an
+    // edit names counts each of them as a line end.
+    std::fs::write(
+        repo.0.join("ends.py"),
+        b"x = 1\r\ny = old_n\rz = old_n\n\r\nw = old_n\r",
+    )
+    .expect("write");
+    stored(
+        "ends",
+        json!([
+            {"file": "ends.py", "line": 2, "old": "old_n", "new": "new_n"},
+            {"file": "ends.py", "line": 5, "old": "old_n", "new": "new_n"},
+        ]),
+    );
+    let dry = answer(
+        &context,
+        "apply_refactor_tool",
+        json!({"refactor_id": "ends", "dry_run": true}),
+    );
+    assert_eq!(dry["edits_applied"], 2, "{dry}");
+    let diff = dry["diffs"]["ends.py"].as_str().expect("diff").to_string();
+    let applied = answer(
+        &context,
+        "apply_refactor_tool",
+        json!({"refactor_id": "ends"}),
+    );
+    assert_eq!(applied["status"], "ok", "{applied}");
+    let written = std::fs::read(repo.0.join("ends.py")).expect("ends.py");
+    assert_eq!(written, b"x = 1\r\ny = new_n\rz = old_n\n\r\nw = new_n\r");
+    assert_eq!(new_side(&diff).as_bytes(), written);
+
     stored(
         "odd",
         json!([
@@ -4258,5 +4380,142 @@ fn request_boundary_calls_follow_incremental_updates() {
         edge_rows(&repo, &["CALLS"])
             .iter()
             .any(|row| row.contains("-> src/index.ts::default.fetch"))
+    );
+}
+
+/// The `tests_to_run` findings of `review`, as (targets, command) pairs.
+fn tests_to_run_of(review: &Value) -> Vec<(Vec<String>, String)> {
+    review["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|finding| finding["kind"] == "tests_to_run")
+        .map(|finding| {
+            let targets = finding["targets"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|target| target.as_str().map(str::to_string))
+                .collect();
+            (
+                targets,
+                finding["command"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect()
+}
+
+/// Go: `tests_to_run` names the `Test` and `Benchmark` that reach a changed
+/// function through helpers of the test file, not the helpers, and runs the
+/// benchmark with `-bench`; a `test_*.go` file is production code (#240,
+/// #255).
+#[test]
+fn go_tests_to_run_names_the_tests_behind_helpers() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    let repo = Repo::new("go-tests-to-run", true);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    let math = |op: &str| {
+        format!(
+            "package mathx\n\nfunc Add(a, b int) int {{\n\treturn a {op} b\n}}\n\nfunc Mul(a, b int) int {{\n\treturn a * b {op} 0\n}}\n"
+        )
+    };
+    let helpers = |op: &str| {
+        format!(
+            "package mathx\n\n// Sum is production code, though its file starts with test_.\nfunc Sum(xs ...int) int {{\n\ttotal := 0\n\tfor _, x := range xs {{\n\t\ttotal = total {op} x\n\t}}\n\treturn total\n}}\n"
+        )
+    };
+    repo.write("mathx/math.go", &math("+"));
+    repo.write("mathx/test_helpers.go", &helpers("+"));
+    repo.write(
+        "mathx/math_test.go",
+        "package mathx\n\nimport \"testing\"\n\nfunc checkAdd(t *testing.T) {\n\tif Add(1, 2) != 3 {\n\t\tt.Fatal(\"Add\")\n\t}\n}\n\nfunc TestAdd(t *testing.T) {\n\tcheckAdd(t)\n}\n\nfunc benchMul(b *testing.B) {\n\tfor i := 0; i < b.N; i++ {\n\t\tMul(2, 3)\n\t}\n}\n\nfunc BenchmarkMul(b *testing.B) {\n\tbenchMul(b)\n}\n",
+    );
+    // A suite method: `suite.Run` calls it by reflection, so no test is seen
+    // to reach it, and the package's tests are the command.
+    repo.write(
+        "mathx/suite_test.go",
+        "package mathx\n\ntype mathSuite struct{}\n\nfunc (s *mathSuite) TestMul() {\n\t_ = Mul(2, 3)\n}\n",
+    );
+    commit_all(&repo, "go");
+    repo.build();
+    repo.write("mathx/math.go", &math("-"));
+    repo.write("mathx/test_helpers.go", &helpers("-"));
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let review = answer(
+        &context,
+        "review_tool",
+        json!({"mode": "changes", "base": "HEAD"}),
+    );
+    assert_eq!(
+        tests_to_run_of(&review),
+        vec![
+            (
+                vec![
+                    "mathx/math_test.go::BenchmarkMul".to_string(),
+                    "mathx/math_test.go::TestAdd".to_string(),
+                ],
+                "go test ./mathx -run '^TestAdd$' -bench '^BenchmarkMul$'".to_string(),
+            ),
+            (
+                vec!["mathx/suite_test.go::mathSuite.TestMul".to_string()],
+                "go test ./mathx".to_string(),
+            ),
+        ],
+        "{review}"
+    );
+    let untested: Vec<&Value> = review["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|finding| finding["kind"] == "untested_change")
+        .collect();
+    assert_eq!(untested.len(), 1, "{review}");
+    assert_eq!(untested[0]["qualified_name"], "mathx/test_helpers.go::Sum");
+}
+
+/// Rust: a function under `tests/` that the tests call is a helper, though
+/// its path makes it a `Test` node; `tests_to_run` names the test calling
+/// it, whose `cargo test` filter runs something.
+#[test]
+fn rust_tests_to_run_names_the_test_behind_an_integration_helper() {
+    // dagayn: tests crates/dagayn-tools/src/review.rs::review
+    let repo = Repo::new("rust-tests-to-run", true);
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub fn add(a: i64, b: i64) -> i64 {\n    a + b\n}\n",
+    );
+    repo.write(
+        "tests/it.rs",
+        "fn helper() -> i64 {\n    demo::add(1, 2)\n}\n\n#[test]\nfn adds() {\n    assert_eq!(helper(), 3);\n}\n",
+    );
+    commit_all(&repo, "rust");
+    repo.build();
+    repo.write(
+        "src/lib.rs",
+        "pub fn add(a: i64, b: i64) -> i64 {\n    b + a\n}\n",
+    );
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    let review = answer(
+        &context,
+        "review_tool",
+        json!({"mode": "changes", "base": "HEAD"}),
+    );
+    assert_eq!(
+        tests_to_run_of(&review),
+        vec![(
+            vec!["tests/it.rs::adds".to_string()],
+            "cargo test -p demo --test it adds".to_string(),
+        )],
+        "{review}"
     );
 }

@@ -89,8 +89,11 @@ them.
 Highest (state it as fact):
 - `HIGH` and `EXTRACTED` edges. The parser settles them from what the code
   writes (same-file definitions, imports, typed receivers, standard-library and
-  package calls); `dagayn build --scip` lets a compiler-grade index settle them
-  (`resolved_by: "scip"`). Both count.
+  package calls); `dagayn build --scip` lets a compiler-grade index settle them,
+  and a `callers_of` / `callees_of` row (or a `full` reply's edge) it settled
+  says `resolved_by: "scip"`. Both count. Rows without the field were resolved
+  by dagayn alone, or sit in files `dagayn update` re-parsed since the last
+  `build --scip`.
 - `source_of` spans: the live source of a node.
 - Authored doc contracts: `implemented_by` / `implements_contract` links with
   `evidence_type=authored` whose target exists (a section or symbol missing
@@ -173,7 +176,7 @@ Important CLI commands:
 - `dagayn serve`
 - `dagayn register` / `dagayn repos` / `dagayn daemon`
 
-`dagayn build --scip` settles call targets with the SCIP indexers installed for the repository's projects (Rust and TypeScript answers replace the extractor's; Go, Python, Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, and R fill what it left unresolved). Missing indexers print a `hint:` and keep dagayn's own resolution. Edges an index settled carry `resolved_by: "scip"`.
+`dagayn build --scip` settles call targets with the SCIP indexers installed for the repository's projects (Rust and TypeScript answers replace the extractor's; Go, Python, Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, and R fill what it left unresolved). Missing indexers print a `hint:` and keep dagayn's own resolution. `callers_of` / `callees_of` rows whose calls an index settled say `resolved_by: "scip"` at every detail level, as do those edges in a `full` reply; the field is absent otherwise, including on calls of files `dagayn update` re-parsed since the last `build --scip`.
 
 `dagayn serve` exposes the compact workflow MCP surface by default. Use `--tools` when a deployment needs an exact allow-list; `--tools all` exposes every advanced/maintenance tool.
 

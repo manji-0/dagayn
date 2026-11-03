@@ -61,7 +61,8 @@ effect from a reproduction; keep them apart in a claim. Full rules:
 
 - **Highest** — on a current graph (`sync.state` is `commit_synced` or
   `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
-  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
+  SCIP index settled them (a `callers_of` / `callees_of` row the index
+  settled says `resolved_by: "scip"`); `source_of` spans;
   authored doc contracts (`implemented_by` / `implements_contract` links whose
   target exists — `evidence_type=authored` alone is on every Markdown result).
 - **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
@@ -86,7 +87,8 @@ effect from a reproduction; keep them apart in a claim. Full rules:
 - If a query returns nothing, read `zero_result_reason`, `next`,
   and `missingness` before ruling a path out. Unresolved
   (`LOW`) calls can hide the real callee; where SCIP indexers are installed,
-  `dagayn build --scip` settles them (settled edges carry `resolved_by: "scip"`).
+  `dagayn build --scip` settles them (their call rows then say
+  `resolved_by: "scip"`).
 - Pass `detail_level="minimal"` to tools that take it; use `"standard"` on
   `query_graph_tool` when you need every related node.
 

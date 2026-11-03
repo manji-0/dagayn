@@ -160,16 +160,21 @@ pub(super) fn dedupe_edges(edges: Vec<ParsedEdge>) -> Vec<ParsedEdge> {
 }
 
 pub(super) fn is_test_file(file_path: &str) -> bool {
+    let by_name = || {
+        super::go_test_file(file_path).unwrap_or_else(|| {
+            starts_with_ascii_ignore_case(file_path, "test_")
+                || ends_with_ascii_ignore_case(file_path, "_test.md")
+                || ends_with_ascii_ignore_case(file_path, ".test.md")
+                || ends_with_ascii_ignore_case(file_path, "_test.py")
+                || ends_with_ascii_ignore_case(file_path, ".test.py")
+                || ends_with_ascii_ignore_case(file_path, ".spec.py")
+        })
+    };
     contains_ascii_ignore_case(file_path, "/test/")
         || contains_ascii_ignore_case(file_path, "/tests/")
         || starts_with_ascii_ignore_case(file_path, "test/")
         || starts_with_ascii_ignore_case(file_path, "tests/")
-        || starts_with_ascii_ignore_case(file_path, "test_")
-        || ends_with_ascii_ignore_case(file_path, "_test.md")
-        || ends_with_ascii_ignore_case(file_path, ".test.md")
-        || ends_with_ascii_ignore_case(file_path, "_test.py")
-        || ends_with_ascii_ignore_case(file_path, ".test.py")
-        || ends_with_ascii_ignore_case(file_path, ".spec.py")
+        || by_name()
 }
 
 /// Records the namespaces (or packages) a file declares on its `File` node.
