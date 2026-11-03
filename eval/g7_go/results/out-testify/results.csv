@@ -1,0 +1,81 @@
+id,setup,task,ok,f1,exact,total_tokens,cost_usd,duration_s,turns,tool_calls,dagayn_calls,dagayn_reply_max,dagayn_replies_over_budget,dagayn_tools,mcp_status
+000-T3-candidate,candidate,T3,True,1.0,1,210957,0.0097,36.32,8,6,1,3961,0,query_graph_tool,dagayn:connected
+001-T3-baseline,baseline,T3,True,1.0,1,153905,0.0093,33.82,7,6,0,0,0,,
+002-T4-baseline,baseline,T4,True,1.0,1,124198,0.0051,19.91,6,5,0,0,0,,
+003-T4-candidate,candidate,T4,True,1.0,1,76915,0.0042,15.39,5,3,1,3522,0,query_graph_tool,dagayn:connected
+004-T2-candidate,candidate,T2,True,1.0,1,570385,0.0212,88.15,16,14,2,3256,0,query_graph_tool query_graph_tool,dagayn:connected
+005-T2-candidate,candidate,T2,True,0.5,0,275949,0.0101,49.95,10,8,3,3256,0,query_graph_tool semantic_search_nodes_tool query_graph_tool,dagayn:connected
+006-T1-baseline,baseline,T1,True,1.0,1,144360,0.0088,34.67,9,8,0,0,0,,
+007-T4-baseline,baseline,T4,True,1.0,1,155772,0.0078,28.09,5,4,0,0,0,,
+008-T2-baseline,baseline,T2,True,1.0,1,689620,0.0265,156.92,16,15,0,0,0,,
+009-T3-candidate,candidate,T3,True,1.0,1,151759,0.0079,28.04,8,6,1,3747,0,query_graph_tool,dagayn:connected
+010-T1-candidate,candidate,T1,True,1.0,1,153622,0.0085,53.91,8,7,1,1326,0,query_graph_tool,dagayn:connected
+011-T3-candidate,candidate,T3,True,1.0,1,146705,0.0072,239.83,8,6,1,3961,0,query_graph_tool,dagayn:connected
+012-T2-baseline,baseline,T2,True,0.5,0,263961,0.0097,41.98,10,9,0,0,0,,
+013-T4-baseline,baseline,T4,True,1.0,1,155298,0.0062,30.64,6,5,0,0,0,,
+014-T3-candidate,candidate,T3,True,1.0,1,148493,0.0079,42.9,8,6,1,3747,0,query_graph_tool,dagayn:connected
+015-T2-baseline,baseline,T2,True,1.0,1,388816,0.0165,80.21,13,12,0,0,0,,
+016-T1-candidate,candidate,T1,True,0.9231,0,184926,0.0095,29.9,10,8,1,1346,0,query_graph_tool,dagayn:connected
+017-T2-baseline,baseline,T2,True,1.0,1,465393,0.0191,82.66,13,12,0,0,0,,
+018-T3-baseline,baseline,T3,True,1.0,1,254483,0.0102,42.23,9,8,0,0,0,,
+019-T3-baseline,baseline,T3,True,1.0,1,154082,0.0085,29.61,6,5,0,0,0,,
+020-T3-candidate,candidate,T3,True,1.0,1,158869,0.0063,27.08,6,4,1,3961,0,query_graph_tool,dagayn:connected
+021-T3-candidate,candidate,T3,True,1.0,1,188025,0.0093,35.52,9,7,1,3747,0,query_graph_tool,dagayn:connected
+022-T2-baseline,baseline,T2,True,1.0,1,317462,0.0184,55.65,7,6,0,0,0,,
+023-T4-candidate,candidate,T4,True,1.0,1,201725,0.0079,34.25,8,7,4,3242,0,query_graph_tool query_graph_tool query_graph_tool query_graph_tool,dagayn:connected
+024-T1-candidate,candidate,T1,True,1.0,1,182911,0.0097,38.34,11,9,1,5327,0,query_graph_tool,dagayn:connected
+025-T3-baseline,baseline,T3,True,1.0,1,222176,0.0099,36.67,8,7,0,0,0,,
+026-T3-baseline,baseline,T3,True,1.0,1,278054,0.013,61.35,9,8,0,0,0,,
+027-T3-candidate,candidate,T3,True,1.0,1,290366,0.0116,54.76,11,9,2,3961,0,query_graph_tool get_minimal_context_tool,dagayn:connected
+028-T2-candidate,candidate,T2,True,1.0,1,447485,0.0169,75.82,14,12,2,3256,0,query_graph_tool get_minimal_context_tool,dagayn:connected
+029-T4-candidate,candidate,T4,True,1.0,1,180684,0.0085,34.5,7,5,1,3522,0,query_graph_tool,dagayn:connected
+030-T2-baseline,baseline,T2,True,1.0,1,470812,0.0169,73.69,14,13,0,0,0,,
+031-T3-candidate,candidate,T3,True,1.0,1,347212,0.0151,65.07,11,9,1,2009,0,query_graph_tool,dagayn:connected
+032-T4-candidate,candidate,T4,True,1.0,1,102984,0.0049,17.24,5,3,1,3242,0,query_graph_tool,dagayn:connected
+033-T4-baseline,baseline,T4,True,1.0,1,153223,0.0062,29.19,6,5,0,0,0,,
+034-T4-candidate,candidate,T4,True,1.0,1,164689,0.0067,28.95,6,4,1,3522,0,query_graph_tool,dagayn:connected
+035-T1-baseline,baseline,T1,True,1.0,1,179892,0.009,39.18,8,7,0,0,0,,
+036-T4-baseline,baseline,T4,True,1.0,1,211953,0.009,35.55,8,7,0,0,0,,
+037-T1-baseline,baseline,T1,True,1.0,1,185838,0.0102,38.85,10,9,0,0,0,,
+038-T1-candidate,candidate,T1,True,1.0,1,152130,0.0096,42.35,10,9,3,2067,0,query_graph_tool query_graph_tool query_graph_tool,dagayn:connected
+039-T2-baseline,baseline,T2,True,1.0,1,268887,0.0159,56.24,8,7,0,0,0,,
+040-T1-candidate,candidate,T1,True,1.0,1,193260,0.0097,38.5,10,8,2,6213,0,query_graph_tool query_graph_tool,dagayn:connected
+041-T1-candidate,candidate,T1,True,1.0,1,216545,0.0092,33.12,11,9,1,1396,0,query_graph_tool,dagayn:connected
+042-T2-candidate,candidate,T2,True,1.0,1,359811,0.0133,46.97,13,11,1,3256,0,query_graph_tool,dagayn:connected
+043-T2-candidate,candidate,T2,True,1.0,1,416294,0.0153,55.29,12,10,1,3256,0,query_graph_tool,dagayn:connected
+044-T3-baseline,baseline,T3,True,1.0,1,148199,0.0081,29.13,6,5,0,0,0,,
+045-T4-candidate,candidate,T4,True,1.0,1,76658,0.0042,16.7,4,2,1,3242,0,query_graph_tool,dagayn:connected
+046-T2-baseline,baseline,T2,True,1.0,1,477197,0.0211,71.5,19,18,0,0,0,,
+047-T3-baseline,baseline,T3,True,1.0,1,201281,0.0093,40.01,8,7,0,0,0,,
+048-T3-baseline,baseline,T3,True,1.0,1,169037,0.0101,32.84,8,7,0,0,0,,
+049-T1-baseline,baseline,T1,True,1.0,1,115966,0.0081,38.41,8,7,0,0,0,,
+050-T1-candidate,candidate,T1,True,1.0,1,214634,0.0118,42.47,10,8,1,14839,1,query_graph_tool,dagayn:connected
+051-T1-candidate,candidate,T1,True,1.0,1,179778,0.0096,39.3,11,9,1,5327,0,query_graph_tool,dagayn:connected
+052-T1-candidate,candidate,T1,True,1.0,1,163519,0.0102,38.88,10,8,2,14839,1,query_graph_tool query_graph_tool,dagayn:connected
+053-T2-baseline,baseline,T2,True,1.0,1,303236,0.0154,74.23,10,9,0,0,0,,
+054-T1-baseline,baseline,T1,True,0.9231,0,253185,0.0103,42.61,11,10,0,0,0,,
+055-T1-baseline,baseline,T1,True,1.0,1,215006,0.0095,76.22,8,7,0,0,0,,
+056-T4-candidate,candidate,T4,True,1.0,1,77467,0.0047,21.07,5,3,1,3242,0,query_graph_tool,dagayn:connected
+057-T2-candidate,candidate,T2,True,1.0,1,357461,0.014,52.14,11,9,1,3287,0,query_graph_tool,dagayn:connected
+058-T3-baseline,baseline,T3,True,1.0,1,233288,0.0125,47.88,16,15,0,0,0,,
+059-T3-candidate,candidate,T3,True,1.0,1,161249,0.0065,26.32,6,4,1,3961,0,query_graph_tool,dagayn:connected
+060-T2-candidate,candidate,T2,True,1.0,1,451567,0.02,72.15,11,9,2,3256,0,query_graph_tool query_graph_tool,dagayn:connected
+061-T4-candidate,candidate,T4,True,1.0,1,167469,0.009,32.82,10,8,1,3242,0,query_graph_tool,dagayn:connected
+062-T4-baseline,baseline,T4,True,1.0,1,134782,0.0066,32.11,6,5,0,0,0,,
+063-T4-baseline,baseline,T4,True,1.0,1,97241,0.0045,17.38,5,4,0,0,0,,
+064-T3-candidate,candidate,T3,True,1.0,1,167926,0.0073,29.73,7,5,2,3961,0,query_graph_tool get_minimal_context_tool,dagayn:connected
+065-T4-baseline,baseline,T4,True,1.0,1,75087,0.0048,23.52,5,4,0,0,0,,
+066-T3-baseline,baseline,T3,True,1.0,1,176543,0.0083,57.11,7,6,0,0,0,,
+067-T2-candidate,candidate,T2,True,1.0,1,317676,0.0134,42.01,9,7,1,3256,0,query_graph_tool,dagayn:connected
+068-T1-baseline,baseline,T1,True,1.0,1,116307,0.0075,29.05,9,8,0,0,0,,
+069-T4-candidate,candidate,T4,True,1.0,1,191265,0.0078,35.62,8,6,1,3522,0,query_graph_tool,dagayn:connected
+070-T4-baseline,baseline,T4,True,1.0,1,198577,0.0089,33.25,8,7,0,0,0,,
+071-T2-baseline,baseline,T2,True,1.0,1,523845,0.0181,98.44,16,15,0,0,0,,
+072-T4-candidate,candidate,T4,True,1.0,1,86071,0.0061,19.47,4,2,0,0,0,,dagayn:connected
+073-T1-candidate,candidate,T1,True,1.0,1,187074,0.0097,43.58,11,9,1,1340,0,query_graph_tool,dagayn:connected
+074-T1-baseline,baseline,T1,True,1.0,1,158133,0.0097,37.12,8,7,0,0,0,,
+075-T2-candidate,candidate,T2,True,1.0,1,258856,0.0128,40.11,8,6,2,3256,0,query_graph_tool get_minimal_context_tool,dagayn:connected
+076-T4-baseline,baseline,T4,True,1.0,1,155319,0.006,27.0,7,6,0,0,0,,
+077-T2-candidate,candidate,T2,True,1.0,1,341094,0.0141,59.41,11,9,1,3256,0,query_graph_tool,dagayn:connected
+078-T1-baseline,baseline,T1,True,1.0,1,105999,0.0065,25.77,7,6,0,0,0,,
+079-T1-baseline,baseline,T1,True,1.0,1,185588,0.0093,35.56,10,9,0,0,0,,

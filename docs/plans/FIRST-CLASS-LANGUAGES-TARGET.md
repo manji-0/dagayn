@@ -177,7 +177,7 @@ these calls with no import at all.
 | C7 | **missing** | no harness; testify measured [above](#tool-answers) |
 | C8 | **missing** | no case in any eval |
 | C9 | present | `init` and protocol methods (`dead_code_verify.rs:319-330`); exported names of importable packages (`go_exported_api`, G5); `Benchmark` / `Fuzz` / `Example` functions are `Test` nodes (G1) |
-| C10 | **missing** | no experiment |
+| C10 | **failed** | G7, on questions a script cannot answer: tokens 1.00x, time 0.91x, neither significant ([results](../../eval/g7_go/RESULTS.md)) |
 | C11 | present | cgo and wasm bridges (`go.rs:280`, `:1316`) |
 
 ## Why Python cost agents tokens
@@ -355,6 +355,17 @@ method-call gap.
     with an answer key from scip-go.
     Bar: tokens or time at most 0.85x at equal accuracy. Go is first-class
     when this and the M2 gate both hold.
+    **Measured, not met** (2026-11-03,
+    [pre-registration](../../eval/g7_go/PREREG.md),
+    [results](../../eval/g7_go/RESULTS.md)): four questions on testify
+    v1.12.1 and four on compress v1.20.1, 160 runs, keys from scip-go and
+    per-test coverage. Tokens 1.00x (Holm p = 1.0), time 0.91x (Holm p =
+    0.21), 78 against 74 of 80 exact. dagayn helped where its answer was
+    complete and the question was about receiver types and a diff (C4:
+    0.79x tokens, 10 against 6 exact) and cost where it was empty (a call
+    through a field holding a method expression, C3: 1.36x, Holm p = 0.022)
+    or listed 65 tests for 4 that run the function (C1). Go is not
+    first-class. The defects the runs show are listed in the results.
 
 ### TypeScript work
 

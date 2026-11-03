@@ -49,6 +49,16 @@ Removed).
   only through `SELF.fetch`; on cfwdon's web-ui tested precision is 0.765,
   mostly calls inside event handlers the tests never fire
   (docs/plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md). No floor is set.
+- G7, the pre-registered Go agent experiment of the first-class languages
+  plan (`eval/g7_go/`): eight questions in M3's four kinds on testify
+  v1.12.1 and compress v1.20.1, with answer keys from scip-go v0.2.7 and
+  per-test Go coverage, each entry read against the source. Over 160 runs
+  (Claude Haiku 5.5), agents with dagayn used 1.00x the tokens (Holm p =
+  1.0) and 0.91x the time (Holm p = 0.21) of agents without it, at 78
+  against 74 of 80 exact. The bar (0.85x tokens or time) is not met, so Go
+  is not first-class (eval/g7_go/RESULTS.md). `run_agent_tokens_eval.py`
+  reads Go spellings of a method (`(*T).M`, `*T.M`, `T[K].M`) and a subtest
+  suffix as the same symbol.
 - M3, the pre-registered Python agent experiment of the first-class
   languages plan (`eval/m3_python/`): eight questions a short script cannot
   answer (test reach, callers on an unnamed receiver type, callers through
