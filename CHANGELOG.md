@@ -112,6 +112,18 @@ Removed).
   (`package a_test`) importing a package that imports `a` is no cycle. New
   architecture cases `neg_layered_go_packages` and
   `pos_unstable_dependency_go` (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
+- `dead_code` and the `unused_symbol` findings of `refactor_tool` leave out
+  a Go name that another module can use: a capitalized name in a package
+  other than `main`, outside any `internal` directory. They count it under
+  `suppressed` as `exported_api`. An unused exported name of a `main` or
+  `internal` package is still reported. Over kong v1.15.0, testify v1.12.1,
+  compress v1.20.1, and scip-go v0.2.7, reports go from 3 to 1. The two
+  removed reports are `RoundTrip` methods behind `http.RoundTripper`. The
+  one kept is `FormatCode` in scip-go's `internal/symbols`, which nothing
+  calls. Benchmark, fuzz, and example functions have not been reported
+  since Go tests became `Test` nodes. New refactor cases
+  `pos_unused_go_function`, `pos_unused_go_internal_export`, and
+  `neg_exported_go_function` (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
 
 ### Changed
 

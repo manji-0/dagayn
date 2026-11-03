@@ -1,0 +1,44 @@
+description: An unexported Go function nothing calls, next to an exported one that only a benchmark, a fuzz test, and an example call.
+files:
+  go.mod: |
+    module example.com/calc
+
+    go 1.22
+  calc.go: |
+    package calc
+
+    // Double returns twice x.
+    func Double(x int) int {
+    	return x * 2
+    }
+
+    func staleTriple(x int) int {
+    	return x * 3
+    }
+  calc_test.go: |
+    package calc
+
+    import (
+    	"fmt"
+    	"testing"
+    )
+
+    func BenchmarkDouble(b *testing.B) {
+    	for i := 0; i < b.N; i++ {
+    		Double(i)
+    	}
+    }
+
+    func FuzzDouble(f *testing.F) {
+    	f.Fuzz(func(t *testing.T, x int) {
+    		Double(x)
+    	})
+    }
+
+    func ExampleDouble() {
+    	fmt.Println(Double(2))
+    	// Output: 4
+    }
+expected_findings:
+- kind: unused_symbol
+  target: calc.go::staleTriple

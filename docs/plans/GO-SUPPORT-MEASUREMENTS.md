@@ -6,7 +6,7 @@
 
 What does dagayn answer about Go code, measured against coverage, before
 and after Go tests and Go packages are in the graph? These are the
-measurements of work items M2, G1, G2, G2b, G3, and G4 of the first-class
+measurements of work items M2, G1, G2, G2b, G3, G4, and G5 of the first-class
 languages plan (`docs/plans/FIRST-CLASS-LANGUAGES-TARGET.md`, PR #217). Each item ships
 only if it meets the bar the plan sets for it.
 
@@ -649,3 +649,107 @@ metrics count test files' imports, as for every language. Without them
 stands on production imports alone. It is right by the principle's
 definition. Whether it calls for a change is a design question: `huff0` is
 a codec only `zstd` uses.
+
+## G5: Go dead-code rules
+
+<!-- derived-from #g1-go-tests-in-the-graph -->
+
+No extractor change. The last check of `dead_code`
+(`structural_reason` in `crates/dagayn-tools/src/dead_code_verify.rs`)
+leaves out a Go name that another module can use. Such a name is
+capitalized, its file's `package` clause is not `main`, and its path has
+no `internal` directory. The check counts it under `suppressed` as
+`exported_api`. Capitalization is Go's only visibility, so an exported
+name of an importable package is that package's API whether or not the
+repository uses it. An unused exported name of a `main` or `internal`
+package is still reported, since no other module can import it. Rust
+excludes an unused `pub(crate)` item from public API for the same reason
+(`dead_code.rs:291`). The rule is stricter than the one for Rust `pub` and
+TypeScript `export`. Those items are still reported, with
+`public_api_candidate` and low confidence.
+
+Benchmark, fuzz, and example functions needed no new rule. Since G1 (go
+9), every node of a `_test.go` file is `is_test`, and its top-level
+`TestX`, `BenchmarkX`, `FuzzX`, and `ExampleX` functions are `Test` nodes.
+`dead_code` takes only `Function` and `Class` nodes as candidates and drops
+`is_test` ones (`dead_code.rs:124`). `go test` runs no function outside a
+`_test.go` file, so a name rule would add nothing.
+
+The graphs are full builds at go 12 (main at `34ae14a2`) of kong v1.15.0,
+testify v1.12.1, compress v1.20.1, and scip-go v0.2.7. They are copies of
+the Go module cache, each a fresh `git init` with no commit, so the text
+search lists their files with `git ls-files --others`. Before and after
+run `dead_code` on the same graph, first with main's `_core` and then with
+the branch's. The `go` extractor version did not change.
+
+### The bar
+
+| Clause | Before | After | Met |
+|---|---|---|---|
+| kong reports neither benchmark | 0 reports | 0 reports | yes, since G1 |
+| `pos_unused_go_function` | passes | passes | yes |
+| `neg_exported_go_function` | fails: `Area` and `Rect.Perimeter` reported | passes | yes |
+| `ProvideFoo` (reflection) stays a known false report | not a candidate | not a candidate | see below |
+
+The plan counted three reports on kong at go 8: two benchmarks and
+`providerCLI.ProvideFoo`. Since G1, the benchmarks
+(`benchmark_test.go::BenchmarkKong_interpolate` and
+`Benchmark_interpolateValue`) are `Test` nodes. `ProvideFoo` is declared in
+`kong_test.go`, so it is test code and is not a candidate. The reflection
+case is still not covered: a production `Provide` method of a `main` or
+`internal` package that only reflection reaches would be reported. In an
+importable package, `exported_api` now leaves it out.
+
+`pos_unused_go_function` also has a benchmark, a fuzz test, and an example
+that call `Double`. None of them is reported. The third new case,
+`pos_unused_go_internal_export`, expects an unused exported function of
+an `internal` package to be reported. It passes before and after and keeps
+the exception in the gate. In `neg_exported_go_function`, no doc comment
+names `Area` or `Perimeter`. With a doc comment, the case passes on main
+too, for the reason given [below](#what-the-text-search-hides).
+
+The refactor eval (`DAGAYN_REFACTOR_EVAL=1`) has 10 cases. `unused_symbol`
+has 4 true positives, 0 false positives, and 0 misses, and all 5 negative
+cases report no findings.
+
+### The four modules
+
+| Repository | Candidates | Reported before / after | `exported_api` after | `implicit_protocol_method` before / after | `name_referenced_in_source` before / after |
+|---|---|---|---|---|---|
+| kong | 99 | 0 / 0 | 45 | 4 / 0 | 95 / 54 |
+| testify | 15 | 1 / 0 | 4 | 3 / 3 | 11 / 8 |
+| compress | 172 | 1 / 0 | 68 | 28 / 6 | 143 / 98 |
+| scip-go | 94 | 1 / 1 | 0 | 2 / 2 | 91 / 91 |
+
+Every report before, read in the source:
+
+| Report | What it is | After |
+|---|---|---|
+| testify `http/test_round_tripper.go::TestRoundTripper.RoundTrip` | exported API: a method of an exported type of the importable package `http`, and the `net/http` `RoundTripper` interface | left out, `exported_api` |
+| compress `gzhttp/transport.go::gzRoundtripper.RoundTrip` | an interface method: `Transport` returns the unexported `gzRoundtripper` as an `http.RoundTripper` (`transport.go:20`) | left out, `exported_api` |
+| scip-go `internal/symbols/symbols.go::FormatCode` | unused: the name occurs only at its definition, and only scip-go's own packages can import `internal/symbols` | still reported |
+
+Three reports before, one after, and that one is right. The rule runs
+before the protocol-method list and the text search. A capitalized name
+that one of those used to leave out is now counted under `exported_api`
+first. Of compress's 68, 22 were protocol methods, 45 had their name
+elsewhere in the source, and 1 was the report. kong's 45 are 4 and 41, and
+testify's 4 are 3 and 1. scip-go has only `cmd/scip-go` (`package main`)
+and `internal/` packages, so nothing moves. Only the two `RoundTrip`
+reports change the output. Every other move renames the reason for a name
+that was already left out.
+
+### What the text search hides
+
+The text search treats a name as used when it occurs anywhere outside its
+definition, and that includes the doc comment directly above the
+definition. A Go doc comment starts with the name it documents. A script
+read every candidate's name occurrences, and counted the candidates whose
+only occurrences outside the definition are in the comment block directly
+above it. It found 29: kong 9, testify 1, compress 19, and scip-go 0. By
+G5's rules, 16 of them are exported API or protocol methods. 13 are not,
+by their names and paths (inferred, not read one by one). Two that were
+read by hand are unused: compress `dict/builder.go::hash3` and
+`gzhttp/compress.go::acceptsGzip`. In both, grep finds the name only in
+its doc comment and its definition. G5 does not change this. It costs
+recall, not precision.

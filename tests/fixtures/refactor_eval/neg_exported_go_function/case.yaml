@@ -1,0 +1,25 @@
+description: Exported names of an importable Go package are its API for other modules, so none is unused though nothing in the repository calls them. No doc comment names them, so only the export rule keeps them.
+negative: true
+files:
+  go.mod: |
+    module example.com/shapes
+
+    go 1.22
+  shapes.go: |
+    package shapes
+
+    type Rect struct {
+    	W, H float64
+    }
+
+    func Area(r Rect) float64 {
+    	return r.W * r.H
+    }
+
+    func (r Rect) Perimeter() float64 {
+    	return double(r.W + r.H)
+    }
+
+    func double(x float64) float64 {
+    	return 2 * x
+    }

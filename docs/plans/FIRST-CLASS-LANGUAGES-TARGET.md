@@ -169,14 +169,14 @@ these calls with no import at all.
 | # | Status | Evidence |
 |---|---|---|
 | C1 | **missing** | an import is recorded as its path string (`go.rs:133-162`) and never bound to the package's directory, though `go_module_path` (`go.rs:1393`) knows the module path. The package a file declares is not recorded as its namespace: C#, Java, Kotlin, PHP, and Scala call `set_declared_namespaces` (`util.rs:182`), `go.rs` does not. So bare-name binding (`bare_names.rs:399-410`, same file, an import, or a namespace) never binds a call to another file of the same package |
-| C2 | **missing** | `modifiers: None` for every type and function (`go.rs:194`, `:262`). Exported means capitalized, and `external_api_candidate` (`dead_code.rs:277-310`) has no Go rule |
+| C2 | **missing** | `modifiers: None` for every type and function (`go.rs:194`, `:262`). Exported means capitalized; `external_api_candidate` (`dead_code.rs:277-310`) has no Go rule, and `dead_code` reads the name instead (G5) |
 | C3 | **missing in the graph** | `is_test: false` everywhere (`go.rs:195`, `:263`): `TestX`, `BenchmarkX`, `FuzzX`, and `ExampleX` are `Function` nodes, and no `TESTED_BY` edge exists. Only the tools' path rule (`_test.` in `findings.rs:229-239`) knows the files are tests |
 | C4 | partial | method calls on a receiver of a declared type (`go.rs:588`); interfaces are satisfied implicitly and no edge records it (0 `IMPLEMENTS`) |
 | C5 | partial | a `go.mod` is one unit (`units.rs:223-229`), with no `require` dependencies; packages, Go's unit of import, are not units |
 | C6 | partial | wired to fill only, run once on a small module ([open questions](./SCIP-CALL-RESOLUTION.md#open-questions)); `scip-go` is not installed here |
 | C7 | **missing** | no harness; testify measured [above](#tool-answers) |
 | C8 | **missing** | no case in any eval |
-| C9 | partial | `init` and protocol methods (`dead_code_verify.rs:319-330`); no rule for `Benchmark` / `Fuzz` / `Example` functions or for exported names |
+| C9 | present | `init` and protocol methods (`dead_code_verify.rs:319-330`); exported names of importable packages (`go_exported_api`, G5); `Benchmark` / `Fuzz` / `Example` functions are `Test` nodes (G1) |
 | C10 | **missing** | no experiment |
 | C11 | present | cgo and wasm bridges (`go.rs:280`, `:1316`) |
 
@@ -336,6 +336,16 @@ method-call gap.
    Bar: kong reports neither benchmark, and `pos_unused_go_function` plus a
    `neg_exported_go_function` refactor case pass. `ProvideFoo` (reflection)
    is not covered; it stays a known false report.
+   **Met** (2026-11-03,
+   [Go measurements](./GO-SUPPORT-MEASUREMENTS.md#g5-go-dead-code-rules)):
+   a capitalized name of a package other than `main`, outside `internal`,
+   is left out as `exported_api`. Over kong, testify, compress, and
+   scip-go, reports go from 3 to 1. The two removed are `RoundTrip`
+   methods behind `http.RoundTripper`, and the one kept, scip-go's
+   `internal/symbols` `FormatCode`, is unused. Since G1, kong reports
+   nothing: its benchmarks are `Test` nodes and `ProvideFoo` is in
+   `kong_test.go`, so neither is a candidate. Both refactor cases pass,
+   and so does `pos_unused_go_internal_export`.
 9. **G6, the SCIP comparison for Go.** `scip-go` on compress and scip-go,
    compared edge by edge as the proof of concept did. It decides whether
    Go SCIP becomes authoritative.
