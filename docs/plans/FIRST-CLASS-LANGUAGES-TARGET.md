@@ -136,7 +136,7 @@ these calls with no import at all.
 
 | # | Status | Evidence |
 |---|---|---|
-| C1 | present | tsconfig `paths` and workspace packages (`js_resolve.rs:76-143`, `js_workspace.rs`, #212); 0.74 of imports reach a file. Package imports (`zod`, `hono`, `@prisma/client`) carry no `external` mark (`extra: {}`), unlike Python's: 0.26 of imports on tstodon |
+| C1 | present | tsconfig `paths` and workspace packages (`js_resolve.rs:76-143`, `js_workspace.rs`, #212); 0.74 of imports reach a file. Package imports (`zod`, `hono`, `@prisma/client`) carried no `external` mark (`extra: {}`), unlike Python's: 0.26 of imports on tstodon, 0 since T1 |
 | C2 | present | `js_declarations.rs:592-626` (`public` / `private` / `protected`, `readonly`, `abstract`, ...); `exported` in `extra` (`js_like.rs:870-885`) |
 | C3 | present | test runner calls (`js_tests.rs`); 662 `Test` nodes on tstodon |
 | C4 | partial | `member_shape` and heritage edges; on tstodon, 1,235 unresolved method calls name a repository method. On Hono, method-call precision 0.95 and recall 0.70 ([E14 and E15](./AGENT-WORKFLOW-TARGET.md#order-of-work)). Lazy `await import()` routes and anonymous route arrows are not resolved ([open measurements](./OPEN-MEASUREMENTS.md#flow-entry-points)) |
@@ -385,6 +385,21 @@ method-call gap.
     `external: true` and `external_package`.
     Bar: tstodon's unmarked imports 0.26 → under 0.01, with no change to
     `calls_to_node`, the review eval, or the architecture eval.
+    **Met** (2026-11-03): on a fresh build, 1,026 of tstodon's 3,425
+    TypeScript imports (0.300) reached no file and had no mark: 931 name a
+    package its `package.json` files declare (`zod`, `hono`,
+    `@prisma/client/...`), 94 are `cloudflare:test` and
+    `cloudflare:workers`, which no `package.json` names, and 1 is a
+    missing relative module (`./query_compiler_fast_bg.wasm?module`). The
+    rule is the one calls through these imports already used (a package
+    name that resolves to no file and is not a tsconfig alias), not a
+    `package.json` lookup, which would have left the 94 (0.027). A missing
+    relative module stays unmarked: it is a missing file or a build output,
+    not a package. Unmarked imports are now that 1 (0.0003). The import
+    targets keep the specifier as written. Every other edge is unchanged
+    (`calls_to_node` 9,149 of 26,642 before and after), and so are the
+    architecture overview and import cycles of tstodon, and the review,
+    architecture, flow, and refactor evals.
 12. **T2, TypeScript under `--scip`.** M1 rerun on a `build --scip` graph,
     as the Rust steps table did.
     Bar: the numbers recorded. Whether to gate `--scip` follows the Rust

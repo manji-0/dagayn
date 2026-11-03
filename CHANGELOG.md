@@ -187,6 +187,16 @@ Removed).
   to 483 and tested precision from 0.995 to 0.996, and leaves cfwdon's
   web-ui unchanged (docs/plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md). Python
   and Go keep 4 hops and Rust keeps no limit.
+- A TypeScript or JavaScript import of a package (one that resolves to no
+  repository file and is not a tsconfig alias) carries `external: true`
+  and `external_package`, and the `HIGH` tier, as the calls through it
+  already did (T1 of the first-class languages plan). The target keeps the
+  specifier as written (`hono/cors`, with `external_package: "hono"`). On
+  tstodon the imports with no mark fall from 1,026 of 3,425 (0.300) to 1,
+  a missing relative module, which stays unmarked; 94 of the 1,025 are
+  `cloudflare:test` and `cloudflare:workers`, which no `package.json`
+  names. Other edges are unchanged. The javascript extractor
+  is now version 16.
 - The architecture overview's `untested_core` looks for a test as far as
   `untested_change` does for the symbol's language: 8 caller hops for
   TypeScript and JavaScript and no limit for Rust, where it walked 4 in

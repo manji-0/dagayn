@@ -691,7 +691,11 @@ language's standard library does (the rules shared by every language are in
 
 **Metadata.** These edges carry `extra.external: true` and
 `extra.external_package`, the package name without a subpath
-(`@testing-library/react`, `lodash` for `lodash/fp`). Standard-library
+(`@testing-library/react`, `lodash` for `lodash/fp`). So does the file's
+`IMPORTS_FROM` edge to an external specifier, including a side-effect
+`import "pkg"`, `export * from "pkg"`, and a dynamic `import("pkg")`, at
+`HIGH`. Its target stays the specifier as written (`hono/cors`), so it lines
+up with the `hono/cors::cors` calls. Standard-library
 edges, in every language (`node:fs`, `globalThis`, `subprocess`,
 `builtins`, `std`, `fmt`, `java.util`, `System`, `libc`, ...), also carry
 `extra.stdlib: true`, the name in `extra.external_symbol`, and the tier
