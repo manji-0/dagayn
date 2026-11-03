@@ -30,7 +30,9 @@ use super::js_objects::{
     collect_javascript_called_constants, collect_javascript_local_exports,
     collect_javascript_member_paths,
 };
-use super::js_resolve::{collect_javascript_external_packages, resolve_javascript_module};
+use super::js_resolve::{
+    collect_javascript_external_packages, javascript_external_package, resolve_javascript_module,
+};
 use super::js_tests::{is_javascript_test_file, is_test_runner_name};
 use super::js_types::{
     javascript_emit_type_references, javascript_emit_type_roots, javascript_merge_type_references,
@@ -39,7 +41,7 @@ use super::js_types::{
 use super::member_calls::MemberCallBindings;
 use super::parsers::*;
 use super::stdlib::javascript::node_builtin_package;
-use super::stdlib::{StdlibEvidence, mark_stdlib_edge};
+use super::stdlib::{StdlibEvidence, mark_external_edge, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{
     direct_child_text, ends_with_ascii_ignore_case, line_count, node_text,
@@ -822,7 +824,9 @@ fn javascript_is_type_only_statement(node: tree_sitter::Node<'_>) -> bool {
 }
 
 /// An `IMPORTS_FROM` edge from the file to the module `specifier` names
-/// (resolved to a repo file when possible, the raw specifier otherwise).
+/// (resolved to a repo file when possible, the raw specifier otherwise). A
+/// builtin targets its package (`node:fs`); a specifier naming an external
+/// package is marked `external` with its `external_package`.
 /// `import_kind` marks imports other than static `import` / `export from`.
 fn javascript_push_import(
     node: tree_sitter::Node<'_>,
@@ -842,10 +846,25 @@ fn javascript_push_import(
     let mut target = target;
     // A Node.js builtin the repository does not shadow (a tsconfig alias
     // resolving `fs` to a file): its package, `node:fs` for `fs/promises`.
-    if target == specifier
-        && let Some(builtin) = node_builtin_package(specifier)
-    {
-        mark_stdlib_edge(&mut target, &mut extra, &builtin, StdlibEvidence::Certain);
+    if target == specifier {
+        if let Some(builtin) = node_builtin_package(specifier) {
+            mark_stdlib_edge(&mut target, &mut extra, &builtin, StdlibEvidence::Certain);
+        } else if let Some(package) = javascript_external_package(
+            specifier,
+            &context.file_path,
+            context.repo_root,
+            context.caches,
+        ) {
+            // The target keeps the specifier as written, as the
+            // `<specifier>::` targets of calls through the import do, and is
+            // certain as they are.
+            mark_external_edge(
+                &mut package.to_string(),
+                &mut extra,
+                package,
+                StdlibEvidence::Certain,
+            );
+        }
     }
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::ImportsFrom,

@@ -955,6 +955,71 @@ test("renders", () => {
     let _ = std::fs::remove_dir_all(&repo_root);
 }
 
+/// An import that resolves to no repository file and names a package is
+/// marked as the calls through it are, keeping the specifier as written;
+/// in-repo modules, aliases that fail to resolve, missing relative
+/// modules, and builtins are not.
+#[test]
+fn marks_imports_of_external_packages() {
+    let repo_root = workspace_fixture(
+        "external-imports",
+        &[
+            (
+                "tsconfig.json",
+                r#"{ "compilerOptions": { "baseUrl": ".", "paths": { "@app/*": ["src/*"] } } }"#,
+            ),
+            ("src/helper.ts", "export function helper() {}\n"),
+        ],
+    );
+    let source = br#"import { z } from "zod";
+import { cors } from "hono/cors";
+import { SELF } from "cloudflare:test";
+import "@scope/polyfill/auto";
+export * from "neverthrow";
+import { helper } from "./helper";
+import { missing } from "@app/missing";
+import * as fs from "node:fs";
+const lib = require("lib-cjs");
+const lazy = () => import("lazy-pkg");
+import { gone } from "./gone";
+"#;
+    let mut parser = RustOwnedParser::new();
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.ts", source);
+    let import_at = |line: i64| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "IMPORTS_FROM" && edge.line == line)
+            .unwrap_or_else(|| panic!("no import on line {line}: {edges:#?}"))
+    };
+    for (line, target, package) in [
+        (1, "zod", "zod"),
+        (2, "hono/cors", "hono"),
+        (3, "cloudflare:test", "cloudflare:test"),
+        (4, "@scope/polyfill/auto", "@scope/polyfill"),
+        (5, "neverthrow", "neverthrow"),
+        (9, "lib-cjs", "lib-cjs"),
+        (10, "lazy-pkg", "lazy-pkg"),
+    ] {
+        let import = import_at(line);
+        assert_eq!(import.target, target, "line {line}");
+        assert_eq!(import.extra["external"], true, "line {line}");
+        assert_eq!(import.extra["external_package"], package, "line {line}");
+        assert_eq!(import.extra["confidence_tier"], "HIGH", "line {line}");
+        assert!(import.extra.get("stdlib").is_none(), "line {line}");
+        assert!(import.extra.get("external_symbol").is_none(), "line {line}");
+    }
+    assert_eq!(import_at(9).extra["import_kind"], "require");
+    assert_eq!(import_at(10).extra["import_kind"], "dynamic");
+    for (line, target) in [(6, "src/helper.ts"), (7, "@app/missing"), (11, "./gone")] {
+        let import = import_at(line);
+        assert_eq!(import.target, target, "line {line}");
+        assert!(import.extra.get("external").is_none(), "line {line}");
+    }
+    assert_eq!(import_at(8).extra["stdlib"], true);
+
+    let _ = std::fs::remove_dir_all(&repo_root);
+}
+
 #[test]
 fn resolves_typescript_base_url_and_nearest_config_imports() {
     let mut repo_root = std::env::temp_dir();

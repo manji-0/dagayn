@@ -164,6 +164,16 @@ Removed).
   to 483 and tested precision from 0.995 to 0.996, and leaves cfwdon's
   web-ui unchanged (docs/plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md). Python
   and Go keep 4 hops and Rust keeps no limit.
+- A TypeScript or JavaScript import of a package (one that resolves to no
+  repository file and is not a tsconfig alias) carries `external: true`
+  and `external_package`, and the `HIGH` tier, as the calls through it
+  already did (T1 of the first-class languages plan). The target keeps the
+  specifier as written (`hono/cors`, with `external_package: "hono"`). On
+  tstodon the imports with no mark fall from 1,026 of 3,425 (0.300) to 1,
+  a missing relative module, which stays unmarked; 94 of the 1,025 are
+  `cloudflare:test` and `cloudflare:workers`, which no `package.json`
+  names. Other edges are unchanged. The javascript extractor
+  is now version 16.
 - `dagayn build --scip` indexes TypeScript with an indexer dagayn ships
   (`crates/dagayn-scip-typescript`, on the tsrs checker pinned at
   `e906c9e4`, run as `python -P -m dagayn.scip_typescript` in a child
