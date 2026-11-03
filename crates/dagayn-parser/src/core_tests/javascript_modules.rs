@@ -1244,12 +1244,12 @@ fn resolves_pnpm_workspace_package_imports() {
             ),
             (
                 "packages/a/src/index.ts",
-                "export { greet } from \"./greet\";\nexport type { Greeter } from \"./types\";\nexport * from \"./base\";\nexport { Instant } from \"./instant\";\n",
+                "export { greet } from \"./greet\";\nexport type { Greeter } from \"./types\";\nexport * from \"./base\";\nexport { Instant, parseInstant } from \"./instant\";\n",
             ),
             ("packages/a/src/base.ts", "export abstract class Base {}\n"),
             (
                 "packages/a/src/instant.ts",
-                "const make = () => (raw: string) => raw;\nconst check = make();\nexport const Instant = { parse: make(), check };\n",
+                "const make = () => (raw: string) => raw;\nconst check = make();\nconst hit = (raw: string) => raw;\nexport const parseInstant = make();\nexport const Instant = { parse: make(), check, hit, now: () => parseInstant(\"now\") };\n",
             ),
             (
                 "packages/a/src/greet.ts",
@@ -1281,7 +1281,7 @@ import type { Greeter } from "@ws/a";
 import { shout } from "@ws/a/util";
 import { fx } from "@ws/a/feature/x";
 import { gone } from "@ws/ignored";
-import { Base, Instant } from "@ws/a";
+import { Base, Instant, parseInstant } from "@ws/a";
 
 export class Job extends Base {}
 
@@ -1293,6 +1293,8 @@ export function run(g: Greeter): string {
   gone();
   Instant.parse("now");
   Instant.check("now");
+  Instant.hit("now");
+  parseInstant("now");
   return greet("x");
 }
 "#;
@@ -1315,6 +1317,18 @@ export function run(g: Greeter): string {
             "CALLS",
             "packages/b/src/main.ts::run",
             "packages/a/src/instant.ts::Instant.parse",
+        ),
+        // A shorthand member is the binding it aliases.
+        (
+            "CALLS",
+            "packages/b/src/main.ts::run",
+            "packages/a/src/instant.ts::hit",
+        ),
+        // A called call-valued constant is a node.
+        (
+            "CALLS",
+            "packages/b/src/main.ts::run",
+            "packages/a/src/instant.ts::parseInstant",
         ),
         (
             "CALLS",

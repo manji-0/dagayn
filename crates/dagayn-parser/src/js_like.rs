@@ -26,7 +26,10 @@ use super::js_namespaces::{
     javascript_emit_namespace, javascript_emit_namespace_body, javascript_named_child_node,
     javascript_namespace_segments, javascript_umd_global_name,
 };
-use super::js_objects::{collect_javascript_local_exports, collect_javascript_member_paths};
+use super::js_objects::{
+    collect_javascript_called_constants, collect_javascript_local_exports,
+    collect_javascript_member_paths,
+};
 use super::js_resolve::{collect_javascript_external_packages, resolve_javascript_module};
 use super::js_tests::{is_javascript_test_file, is_test_runner_name};
 use super::js_types::{
@@ -122,6 +125,8 @@ pub(super) fn parse_javascript_like_interned(
         collect_javascript_import_map(root, source, &mut import_map);
         let mut defined_names = HashSet::new();
         collect_javascript_defined_names(root, source, &import_map, &mut defined_names);
+        let called_constants = collect_javascript_called_constants(root, source);
+        defined_names.extend(called_constants.iter().cloned());
         let mut type_names = HashSet::new();
         collect_javascript_type_names(root, source, &mut type_names);
         let external_packages =
@@ -138,9 +143,11 @@ pub(super) fn parse_javascript_like_interned(
             language,
             test_file,
             defined_names: &defined_names,
+            called_constants: &called_constants,
             import_map: &import_map,
             external_packages: &external_packages,
             member_paths: &scopes.members,
+            member_aliases: &scopes.aliases,
             namespace_paths: &scopes.namespaces,
             class_table: &class_table,
             type_paths: &type_paths,

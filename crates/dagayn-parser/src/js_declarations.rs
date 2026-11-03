@@ -1,6 +1,8 @@
 use serde_json::{Value, json};
 
-use super::js_calls::{javascript_emit_call, javascript_emit_value_references};
+use super::js_calls::{
+    javascript_bind_declarator, javascript_emit_call, javascript_emit_value_references,
+};
 use super::js_decorators::{
     javascript_class_decorators, javascript_decorator_names, javascript_emit_decorators,
     javascript_field_decorator_names, javascript_has_data_model_decorator_name,
@@ -17,8 +19,9 @@ use super::js_modules::{
     javascript_function_name, javascript_wrapped_function,
 };
 use super::js_objects::{
-    JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH, javascript_declarator_owns,
-    javascript_emit_object_container, javascript_module_object_containers,
+    JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH, javascript_call_valued_constant,
+    javascript_declarator_owns, javascript_emit_object_container,
+    javascript_module_object_containers,
 };
 use super::js_types::{
     javascript_emit_type_references, javascript_emit_type_roots, javascript_type_reference_source,
@@ -656,6 +659,7 @@ pub(super) fn javascript_emit_variable_functions(
     edges: &mut Vec<ParsedEdge>,
 ) -> bool {
     let mut handled = false;
+    let mut unhandled = Vec::new();
     let containers =
         javascript_module_object_containers(node, context.source, context.exported_names);
     let mut cursor = node.walk();
@@ -739,7 +743,20 @@ pub(super) fn javascript_emit_variable_functions(
                 javascript_wrapped_function(value, context.source, context.import_map)
             });
         let function_node = function_node.or(wrapped.as_ref().map(|wrapped| wrapped.function));
+        if function_node.is_none()
+            && let Some(name) = name.as_deref()
+            && context.called_constants.contains(name)
+            && javascript_call_valued_constant(declarator, context.source).is_some()
+        {
+            javascript_emit_call_valued_constant(
+                node, declarator, name, context, owner_path, nodes, edges,
+            );
+            annotate(name, edges);
+            handled = true;
+            continue;
+        }
         let (Some(name), Some(function_node)) = (name, function_node) else {
+            unhandled.push(declarator);
             continue;
         };
         let is_test = is_javascript_test_function(&name, &context.file_path);
@@ -788,7 +805,59 @@ pub(super) fn javascript_emit_variable_functions(
         javascript_walk_function_body(function_node, context, owner_path, &name, nodes, edges);
         handled = true;
     }
+    // `const parse = make(), other = run()`: the declarators that are not
+    // nodes still run, since the caller skips a handled statement.
+    if handled {
+        for declarator in unhandled {
+            javascript_walk_node(declarator, node, context, owner_path, None, nodes, edges);
+        }
+    }
     handled
+}
+
+/// `Function X` (`binding_role: "call_result"`) for a called call-valued
+/// constant (`const parseRow = schemaResult(RowSchema)`, then `parseRow(raw)`).
+/// The initializer runs when the module loads, so its calls and references
+/// stay the module's, as for a call-valued object member.
+fn javascript_emit_call_valued_constant(
+    node: tree_sitter::Node<'_>,
+    declarator: tree_sitter::Node<'_>,
+    name: &str,
+    context: &JavaScriptParseContext<'_>,
+    owner_path: Option<&str>,
+    nodes: &mut Vec<ParsedNode>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    javascript_push_node(
+        context,
+        nodes,
+        node,
+        ParsedNode {
+            kind: crate::core::types::NodeKind::Function,
+            name: name.to_string(),
+            file_path: context.file_path.clone(),
+            line_start: node.start_position().row as i64 + 1,
+            line_end: node.end_position().row as i64 + 1,
+            language: context.language.to_string(),
+            parent_name: owner_path.map(str::to_string),
+            params: None,
+            return_type: None,
+            modifiers: None,
+            is_test: false,
+            extra: json!({"binding_role": "call_result"}),
+        },
+    );
+    edges.push(ParsedEdge::new(
+        crate::core::types::EdgeKind::Contains,
+        javascript_container_qn(context, owner_path),
+        qualify(&context.file_path, name, owner_path),
+        context.file_path.clone(),
+        line_of(node),
+    ));
+    if let Some(value) = declarator.child_by_field_name("value") {
+        javascript_walk_node(value, declarator, context, owner_path, None, nodes, edges);
+    }
+    javascript_bind_declarator(declarator, context);
 }
 
 /// `extra` plus `wrapped_by` (wrapper callees, outermost first) and the

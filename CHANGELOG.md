@@ -291,6 +291,22 @@ Removed).
 
 ### Fixed
 
+- A call of a TypeScript module constant whose value is a call
+  (`parseRow(raw)` for `const parseRow = schemaResult(RowSchema)`) reaches
+  a node when the constant's own file calls it, exported or not (#239). The
+  constant is a `Function` node (`binding_role: "call_result"`, TypeScript /
+  JavaScript extractor 14). A constant no call in its file names stays
+  data, which keeps schemas such as `const RowSchema = z.object(..)` out.
+  A call of a shorthand member of a program-scope object
+  (`IpBlock.matches(ip)` for `export const IpBlock = { schema, matches }`)
+  targets the function the member names, in the module and from its
+  importers. On tstodon 57 CALLS
+  edges reach the 35 new constants, all confirmed under `dagayn build
+  --scip`; 6 shorthand calls reach their function; 4 calls of a local
+  `parseRow` no longer go to another module's `parseRow`; and the test
+  reach of `wireState` is now right. A constant that only other files call
+  (`parseStreamEnvelope`, 3 edges) still has no node. cfwdon does not
+  change.
 - A call of a call-valued member of an exported TypeScript object
   (`IsoInstant.parse(x)` for `export const IsoInstant = { schema, parse:
   schemaResult(schema) } as const`) reaches a node (#228). The member is a

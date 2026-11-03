@@ -80,6 +80,7 @@ separate extractors.
 | `function f`, `function* f`, `async function* f` | `Function` | `f` | owner path | |
 | `declare function f(): T;`, a bodiless method of a `declare class` | `Function` | `f` | owner path | `declaration_only: true` (never `is_abstract`) |
 | module-scope `const f = () => {}` / `function () {}` / `function* () {}` | `Function` | `f` (the binding) | owner path | |
+| program-scope `const X = make(..)` that the file calls (`X(raw)`) | `Function` | `X` (the binding) | | `binding_role: "call_result"` (see §7.3) |
 | module-scope `const C = memo(function Inner() {})`, `forwardRef((p, r) => ...)`, `React.memo(...)`, `observer(...)` (§7.8) | `Function` | `C` (the binding) | owner path | `wrapped_by: ["memo"]` (wrapper callees, outermost first); `expression_name: "Inner"` when the wrapped function is named |
 | `export default memo(function Page() {})` | `Function` | `default` | owner path | `export_default: true`, `anonymous: true`, `wrapped_by`, `expression_name: "Page"` |
 | `export default function () {}`, `export default () => ...` (anonymous) | `Function` | `default` | owner path | `export_default: true`, `anonymous: true` |
@@ -296,10 +297,13 @@ class without that member) keeps the bare member name with
 `receiver_unknown: true`, and same-file resolution leaves such edges alone:
 they never bind to the first same-named method or to the caller itself. An
 imported `PascalCase` value of a repository module whose member has no node
-(`IpBlock.matches(..)` for `export const IpBlock = { matches, ... }`, a
-shorthand member) carries `receiver_type: "IpBlock"` instead, so
+(`Instant.check(..)` for `export const Instant = { parse, check }`, where
+`check` is a constant) carries `receiver_type: "Instant"` instead, so
 only a method of that receiver can bind it and the call is never taken for
-a standard method of the same name (`Element.matches`). Any other imported
+a standard method of the same name. A shorthand member that
+names a function of its module (`IpBlock.matches(..)` for `export const
+IpBlock = { schema, matches }`) targets that function, in the module and
+from its importers. Any other imported
 value of the repository keeps `receiver_unknown` and also records the
 qualified name it resolves to (`receiver_import: "src/app.ts::app"` for
 `app.fetch(..)`), which the request-boundary pass reads (§7.9).
@@ -494,7 +498,10 @@ not call-valued members. A companion type of the same name
 (`export type IsoInstant = ...`) merges into the container
 (`merged_declarations: 2`), so type references keep their target. Shorthand
 and identifier members (`{ matches }`) are not nodes: they alias another
-binding. Nested objects become containers when they hold a function-valued
+binding. A call of a shorthand member of a program-scope object
+(`IpBlock.matches(ip)`, container or not) targets the function of the
+module that the member names; a later `matches: other` key replaces the
+alias, and a namespace's objects have none. Nested objects become containers when they hold a function-valued
 member at some depth below them, up to six levels (`api.a.b.c` gives
 `Class api.a`, `Class api.a.b`, and `Function api.a.b.c`); data-only nested
 objects are not nodes. Container members are reachable only through the
@@ -503,6 +510,23 @@ a member bind to the member, but a bare `get` never does, neither in the
 parser's same-file fallback nor in post-processing's bare-name resolution.
 Dead-code analysis excludes `object`, `namespace`, and `ambient_module`
 containers from its candidates.
+
+A program-scope `const X = make(..)` is a `Function` node
+(`binding_role: "call_result"`, spanning the declaration) when the file
+calls `X` directly (`X(raw)`, `X<T>(raw)`), exported or not:
+`const parseRow = schemaResult(RowSchema)` then `parseRow(raw)` gives
+`Function parseRow`, which same-file calls, importers' calls, and a SCIP
+definition of `parseRow` reach. What decides is the call, not the export:
+on tstodon the 37 call-valued constants that some file calls are all
+`schemaResult(..)` parsers, and 405 of the 406 that no file calls are
+schemas and other data (`z.object(..)`, `unitKind(..)`), 117 of them
+exported. The
+initializer stays the module's caller, as for a call-valued member. A
+`let`, a `require(..)`, an `import(..)`, a tagged template, and a constant
+inside a namespace are not nodes. A constant that only other files call
+(`export const parseEnvelope = schemaResult(..)` used by an importer alone)
+gets no node: the rule reads one file, so an incremental update that
+changes a caller never has to re-parse the constant's module.
 
 ### 7.4 Type references are `REFERENCES` everywhere
 

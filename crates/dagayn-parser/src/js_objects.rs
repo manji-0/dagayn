@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::{Value, json};
 
@@ -156,6 +156,93 @@ fn javascript_may_return_function(value: tree_sitter::Node<'_>) -> bool {
             .is_some_and(|arguments| arguments.kind() != "template_string")
 }
 
+/// The name `declarator` binds when it is a program-scope
+/// `const X = make(..)` whose call may return a function
+/// ([`javascript_may_return_function`]) and is not a `require`.
+pub(super) fn javascript_call_valued_constant(
+    declarator: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> Option<String> {
+    let statement = declarator.parent()?;
+    let scope = statement.parent()?;
+    let in_program = scope.kind() == "program"
+        || (scope.kind() == "export_statement"
+            && scope
+                .parent()
+                .is_some_and(|parent| parent.kind() == "program"));
+    let is_const = statement.kind() == "lexical_declaration"
+        && statement
+            .children(&mut statement.walk())
+            .any(|child| child.kind() == "const");
+    if !in_program || !is_const {
+        return None;
+    }
+    let name = declarator
+        .child_by_field_name("name")
+        .filter(|name| name.kind() == "identifier")?;
+    let call = javascript_unwrap_expression(declarator.child_by_field_name("value")?)
+        .filter(|value| javascript_may_return_function(*value))?;
+    let require = call.child_by_field_name("function").is_some_and(|callee| {
+        callee.kind() == "identifier" && node_text(callee, source) == "require"
+    });
+    (!require).then(|| node_text(name, source))
+}
+
+/// The call-valued constants of `program` ([`javascript_call_valued_constant`])
+/// that the file calls directly (`parseRow(raw)` for
+/// `const parseRow = schemaResult(RowSchema)`): a constant that is never
+/// called is data (`const RowSchema = z.object({ ... })`).
+pub(super) fn collect_javascript_called_constants(
+    program: tree_sitter::Node<'_>,
+    source: &[u8],
+) -> HashSet<String> {
+    let mut called = HashSet::new();
+    collect_javascript_called_identifiers(program, source, &mut called);
+    let mut constants = HashSet::new();
+    let mut cursor = program.walk();
+    for statement in program.named_children(&mut cursor) {
+        let statement = match statement.kind() {
+            "export_statement" => match statement.child_by_field_name("declaration") {
+                Some(declaration) => declaration,
+                None => continue,
+            },
+            _ => statement,
+        };
+        let mut declarators = statement.walk();
+        for declarator in statement.named_children(&mut declarators) {
+            if declarator.kind() == "variable_declarator"
+                && let Some(name) = javascript_call_valued_constant(declarator, source)
+                && called.contains(&name)
+            {
+                constants.insert(name);
+            }
+        }
+    }
+    constants
+}
+
+/// Callee names of `f(..)` / `f<T>(..)` / `f?.(..)` at any depth, not of a
+/// tagged template (``f`...` ``).
+fn collect_javascript_called_identifiers(
+    node: tree_sitter::Node<'_>,
+    source: &[u8],
+    called: &mut HashSet<String>,
+) {
+    if node.kind() == "call_expression"
+        && let Some(callee) = node.child_by_field_name("function")
+        && callee.kind() == "identifier"
+        && node
+            .child_by_field_name("arguments")
+            .is_some_and(|arguments| arguments.kind() != "template_string")
+    {
+        called.insert(node_text(callee, source));
+    }
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_javascript_called_identifiers(child, source, called);
+    }
+}
+
 /// Declaration-scope statements only: a child of the `program` or of a
 /// namespace / ambient-module body, or the declaration of an `export`
 /// statement there.
@@ -309,6 +396,9 @@ pub(super) struct JavaScriptMemberPaths {
     pub(super) members: HashSet<String>,
     /// Namespace and ambient-module owner paths (`Outer`, `A.B`, `global`).
     pub(super) namespaces: HashSet<String>,
+    /// Shorthand members of program-scope objects -> the binding they alias
+    /// (`IpBlock.matches` -> `matches` for `{ schema, matches }`).
+    pub(super) aliases: HashMap<String, String>,
 }
 
 pub(super) fn collect_javascript_member_paths(
@@ -318,6 +408,7 @@ pub(super) fn collect_javascript_member_paths(
     let mut paths = JavaScriptMemberPaths {
         members: HashSet::new(),
         namespaces: HashSet::new(),
+        aliases: HashMap::new(),
     };
     let exported = collect_javascript_local_exports(root, source);
     collect_javascript_scope_member_paths(root, source, &exported, None, &mut paths);
@@ -406,7 +497,7 @@ fn collect_javascript_statement_member_paths(
                     &path,
                     JAVASCRIPT_MAX_OBJECT_CONTAINER_DEPTH,
                     container.call_results,
-                    &mut paths.members,
+                    paths,
                 );
                 if owner.is_some() {
                     paths.members.insert(path);
@@ -416,6 +507,52 @@ fn collect_javascript_statement_member_paths(
                 for name in javascript_declared_names(statement, source) {
                     paths.members.insert(member(&name));
                 }
+            } else {
+                collect_javascript_shorthand_aliases(statement, source, &mut paths.aliases);
+            }
+        }
+    }
+}
+
+/// Shorthand members of program-scope `const X = { a, b }` objects:
+/// `X.a` -> `a`. A namespace's objects are left out, as their members would
+/// name the namespace's bindings.
+fn collect_javascript_shorthand_aliases(
+    statement: tree_sitter::Node<'_>,
+    source: &[u8],
+    aliases: &mut HashMap<String, String>,
+) {
+    if !matches!(
+        statement.kind(),
+        "lexical_declaration" | "variable_declaration"
+    ) {
+        return;
+    }
+    let mut cursor = statement.walk();
+    for declarator in statement.named_children(&mut cursor) {
+        let (Some(name), Some(object)) = (
+            declarator
+                .child_by_field_name("name")
+                .filter(|name| name.kind() == "identifier"),
+            declarator
+                .child_by_field_name("value")
+                .and_then(javascript_unwrap_object),
+        ) else {
+            continue;
+        };
+        let owner = node_text(name, source);
+        let mut members = object.walk();
+        for member in object.named_children(&mut members) {
+            // A later `matches: other` replaces the shorthand `matches`.
+            if member.kind() == "shorthand_property_identifier" {
+                let alias = node_text(member, source);
+                aliases.insert(format!("{owner}.{alias}"), alias);
+            } else if let Some(key) = member
+                .child_by_field_name("key")
+                .or_else(|| member.child_by_field_name("name"))
+                .and_then(|key| javascript_object_key_name(key, source))
+            {
+                aliases.remove(&format!("{owner}.{key}"));
             }
         }
     }
@@ -456,13 +593,13 @@ fn collect_javascript_object_member_paths(
     owner: &str,
     depth: usize,
     call_results: bool,
-    paths: &mut HashSet<String>,
+    paths: &mut JavaScriptMemberPaths,
 ) {
     for member in javascript_object_members_at(object, source, depth, call_results) {
         match member {
             JavaScriptObjectMember::Function { name, .. }
             | JavaScriptObjectMember::CallResult { name, .. } => {
-                paths.insert(format!("{owner}.{name}"));
+                paths.members.insert(format!("{owner}.{name}"));
             }
             JavaScriptObjectMember::Container { name, object, .. } => {
                 let path = format!("{owner}.{name}");
@@ -474,7 +611,7 @@ fn collect_javascript_object_member_paths(
                     call_results,
                     paths,
                 );
-                paths.insert(path);
+                paths.members.insert(path);
             }
         }
     }

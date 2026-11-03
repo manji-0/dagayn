@@ -51,6 +51,9 @@ pub(super) struct JavaScriptExportIndex {
     /// Object-container and namespace member paths of the module
     /// (`api.get`, `Outer.helper`).
     pub(super) member_paths: Arc<HashSet<String>>,
+    /// Shorthand members of the module's program-scope objects -> the binding
+    /// they alias (`IpBlock.matches` -> `matches`).
+    pub(super) member_aliases: Arc<HashMap<String, String>>,
     /// The module's own imports, to resolve type names written in it (the
     /// base of an imported class, the type of its fields).
     pub(super) import_map: Arc<JavaScriptImportMap>,
@@ -143,6 +146,10 @@ pub(super) struct JavaScriptParseContext<'a> {
     pub(super) language: &'static str,
     pub(super) test_file: bool,
     pub(super) defined_names: &'a HashSet<String>,
+    /// Program-scope call-valued constants the file calls
+    /// ([`super::js_objects::collect_javascript_called_constants`]), also in
+    /// `defined_names`.
+    pub(super) called_constants: &'a HashSet<String>,
     pub(super) import_map: &'a JavaScriptImportMap,
     /// Imported specifiers that name external packages -> package name
     /// ([`collect_javascript_external_packages`]).
@@ -150,6 +157,8 @@ pub(super) struct JavaScriptParseContext<'a> {
     /// Owner paths of object-container and namespace members (`api.get`,
     /// `api.nested.deep`, `Outer.helper`, `Outer.Inner`, `A.B.C.abc`).
     pub(super) member_paths: &'a HashSet<String>,
+    /// Shorthand members of program-scope objects -> the binding they alias.
+    pub(super) member_aliases: &'a HashMap<String, String>,
     /// Owner paths of namespaces and ambient modules (`Outer`, `A.B`,
     /// `global`): containers whose members do not see a `this`.
     pub(super) namespace_paths: &'a HashSet<String>,

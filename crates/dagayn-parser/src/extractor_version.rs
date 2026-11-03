@@ -113,11 +113,15 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 13: a call-valued member of a module-scope object literal
         // (`parse: schemaResult(schema)`) is a `Function` node
         // (`member_role: "call_result"`), and makes the object a container.
-        // 14: a File records the Hono apps it declares (`hono_apps`), and a
+        // 14: a program-scope `const X = make(..)` that the file calls is a
+        // `Function` node (`binding_role: "call_result"`), and a call of a
+        // shorthand container member (`IpBlock.matches` for `{ matches }`)
+        // targets the function it aliases.
+        // 15: a File records the Hono apps it declares (`hono_apps`), and a
         // member call on another imported value of the repository records
         // it (`receiver_import`), for the request-boundary pass.
         extractor: "javascript",
-        version: 14,
+        version: 15,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],
     },
     ExtractorVersion {

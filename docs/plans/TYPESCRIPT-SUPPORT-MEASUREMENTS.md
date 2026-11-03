@@ -301,6 +301,83 @@ These are web-ui's lazy `await import()` routes. They make answers wrong in
 the other direction from T3's: reaching through the lazy import to the
 page would call more pages tested, not fewer.
 
+## #239: call-valued module constants and shorthand members
+
+<!-- derived-from #m1-test-reach-against-coverage -->
+
+TypeScript / JavaScript extractor 14 makes a program-scope
+`const X = make(..)` a `Function` node when its own file calls `X`, and
+sends a call of a shorthand member of a program-scope object
+(`IpBlock.matches(..)` for `{ schema, matches }`) to the function the
+member names. The rule reads
+the call and not the export. On tstodon the 37 call-valued constants that
+some file calls are all `schemaResult(..)` parsers. Of the 406 that no file
+calls, 405 are schemas and other data (`z.object(..)`, `unitKind(..)`), and
+117 of them are exported. These counts come from a regex census of
+`packages/*/src` and `e2e`, without the generated client.
+
+The graphs are full builds (`--force`) of the same scratch copies, plain
+and `--scip`. "Before" is `main` (javascript 13), and "after" is this
+change (javascript 14). Each graph's metadata was checked before it was
+measured.
+
+| | tstodon before | tstodon after |
+|---|---|---|
+| TS/JS CALLS to a node, plain | 8,883 (33.62%) | 8,942 (33.84%) |
+| TS/JS CALLS to a node, `--scip` | 8,882 (33.61%) | 8,941 (33.84%) |
+| new nodes | | 35 `call_result` Functions |
+| CALLS to the new constants | | 57 (`--scip`: 57 `resolved_by: scip`) |
+| shorthand member calls to their function | 0 | 6 (`IpBlock.matches` ×5, `CollectionItem.wireState`) |
+
+- Of the 57, 47 were bare unresolved names and 6 are importers' calls
+  whose target did not change but now has a node. 4 more were wrong: in
+  `admin-domain-block-store.ts`, `parseRow(raw)` went to `d1.ts::parseRow`,
+  a different function that the file does not import.
+- Under `--scip`, the overlay leaves the 6 shorthand edges as the parser
+  set them. tsrs defines `IpBlock.matches` at the shorthand pair, where no
+  node is.
+- 3 edges are still unresolved. `parseStreamEnvelope` and
+  `parseStreamSession` are exported and called only from
+  `stream-hub.ts`. A node for them needs the importers' calls, and an
+  incremental update would then have to re-parse a module when another
+  file starts to call it. The issue counted 66 edges and I count 60
+  (57 + 3), with no SCIP-decoding classifier like #238's. I did not
+  reconcile the difference.
+- A script checked every edge into a new constant and every shorthand
+  edge: the call line has `name(` (`.name(` for a shorthand) and the target
+  line declares `const name`. All 63 pass. The check matches names only,
+  so the 57 `resolved_by: scip` edges are the stronger evidence. I read 6
+  sampled rows against the source. Dead code (`refactor_tool mode=dead_code`) lists none of the
+  new constants.
+- On cfwdon, no TS/JS node or edge changes in either build.
+
+M1 again, on the same graphs, with TypeScript's 8-hop limit:
+
+| Repository | Graph | Called untested (ran) | Tested precision |
+|---|---|---|---|
+| tstodon | plain | 537 (483) → 536 (482) | 0.996 → 0.996 |
+| tstodon | `--scip` | 534 (480) → 533 (479) | 0.996 → 0.996 |
+| web-ui | plain and `--scip` | 95 (15) → 95 (15) | 0.765 → 0.765 |
+
+The before rows match the 8-hop rerun above. At the old 4-hop limit the
+change is the same one answer (538 to 537 ran and called untested). The one tstodon answer that changes
+is `wireState`. A test now reaches it through `CollectionItem.wireState(..)`
+at hop 0. The new constants are not in the population, because istanbul
+counts no function at a call. web-ui's 11 answers attributed to #239 do
+not change:
+
+- The 10 under `parseStatus`: `status.ts` declares
+  `const StatusParser = mastodon.type(..).pipe(toStatus)` and
+  `export const parseStatus = StatusParser`. It calls neither of them.
+  The test calls `parseStatus(..)` from another file. A fix needs the
+  importers' calls, an identifier alias (`parseStatus = StatusParser`)
+  that resolves like `export { StatusParser as parseStatus }`, and an edge
+  from the constant to `toStatus`, which the initializer passes to
+  `.pipe` and which runs at call time.
+- `fetchAccountProfile`: `loadProfileSnapshot` calls
+  `source.fetchAccountProfile(..)` on a parameter, not on
+  `profileSnapshotSource`, so the shorthand alias is never used.
+
 ## T3: request-boundary edges
 
 <!-- derived-from #tstodon-why-the-functions-that-ran-are-called-untested -->
