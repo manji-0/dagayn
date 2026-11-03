@@ -1,4 +1,4 @@
-description: A Cloudflare Worker's default fetch hands each request to a Hono app, and a route handler registered at module scope calls the target. The worker's fetch reaches it through the app's routes file, not the routes file on its own.
+description: A Cloudflare Worker's default fetch hands each request to a Hono app, and a route handler registered at module scope calls the target. The worker's fetch, a method of the default export that the Workers runtime dispatches (`dispatched_method`), reaches it through the app's routes file, not the routes file on its own.
 target: src/greeting.ts::greet
 files:
   package.json: |
