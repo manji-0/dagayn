@@ -793,6 +793,28 @@ class TestSanitizeName:
         assert "\x00" not in d["name"]
         assert "\x00" not in d["qualified_name"]
 
+    def test_edge_to_dict_says_which_edges_a_scip_index_settled(self):
+        """Like the native ``edge_dict``: ``resolved_by`` on a settled edge
+        of any kind, nothing on the others (#264)."""
+        from dagayn.graph import GraphEdge, edge_to_dict
+
+        def edge(extra):
+            return GraphEdge(
+                id=1,
+                kind="CALLS",
+                source_qualified="a.py::main",
+                target_qualified="a.py::helper",
+                file_path="a.py",
+                line=2,
+                extra=extra,
+                confidence=0.9,
+                confidence_tier="HIGH",
+            )
+
+        assert edge_to_dict(edge({"resolved_by": "scip"}))["resolved_by"] == "scip"
+        assert "resolved_by" not in edge_to_dict(edge({}))
+        assert "extra" not in edge_to_dict(edge({"resolved_by": "scip"}))
+
 
 class TestFlowTools:
     """Tests for flow-related MCP tool functions."""

@@ -73,8 +73,10 @@ dagayn serve
 
 - Architecture analysis modes should expose their metric formulas or reason
   codes; use them as **Medium** review leads, not automatic edit approval.
-- Call edges with `resolved_by: "scip"` at `HIGH`/`EXTRACTED` are **Highest**
-  for reach; confirm behavior with `source_of` before calling it a bug.
+- Call edges at `HIGH`/`EXTRACTED` are **Highest** for reach, whether the
+  parser or a SCIP index settled them (`callers_of` / `callees_of` rows the
+  index settled say `resolved_by: "scip"`); confirm behavior with `source_of`
+  before calling it a bug.
 - Refactor suggestions must be verified against public APIs, dynamic dispatch,
   generated code, test artifacts, and framework entry points before applying.
 

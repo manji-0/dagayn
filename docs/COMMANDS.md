@@ -556,6 +556,15 @@ value (`d.step(d)`) is no edge, so the summary says that callers may be
 missing and where to read instead. Other languages record such references
 but do not list them yet (#235).
 
+On a graph built with `dagayn build --scip`, a `callers_of` or `callees_of`
+row whose call a SCIP index settled (moved to that node, or confirmed)
+carries `resolved_by: "scip"`, at every detail level; a row that folds
+several calls carries it only when the index settled all of them, and each
+edge of the `full` reply's `edges` carries its own. Rows and edges the
+extractor alone resolved have no `resolved_by`, and neither do calls in files
+`dagayn update` re-parsed since the last `build --scip`: the overlay runs
+only on `build --scip`.
+
 `query_graph_tool` has three detail levels. `standard` (default) returns one
 row per related node; for `callers_of`, `callees_of`, `inheritors_of`, and
 `importers_of`, the edge lines are folded into the row as `lines` with the

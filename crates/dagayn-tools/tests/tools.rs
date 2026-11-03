@@ -930,6 +930,75 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
 }
 
 #[test]
+fn call_rows_say_which_edges_a_scip_index_settled() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("query-scip", false);
+    repo.write(
+        "app.py",
+        "def main():\n    helper()\n    return helper()\n\n\ndef other():\n    return helper()\n\
+         \n\ndef helper():\n    pass\n",
+    );
+    repo.build();
+    // What `dagayn build --scip` records on an edge the index settled: every
+    // call of `other`, and one of `main`'s two.
+    let conn = rusqlite::Connection::open(repo.0.join(".dagayn/graph.db")).expect("open");
+    let settled = conn
+        .execute(
+            "UPDATE edges SET extra = json_set(COALESCE(extra, '{}'), '$.resolved_by', 'scip') \
+             WHERE kind = 'CALLS' AND target_qualified = 'app.py::helper' \
+               AND (source_qualified = 'app.py::other' \
+                    OR (source_qualified = 'app.py::main' AND line = 2))",
+            [],
+        )
+        .expect("settle");
+    assert_eq!(settled, 2);
+    drop(conn);
+    let context = repo.context();
+
+    for detail in ["standard", "minimal"] {
+        let callers = answer(
+            &context,
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": "app.py::helper", "detail_level": detail}),
+        );
+        let row = |name: &str| {
+            callers["results"]
+                .as_array()
+                .expect("rows")
+                .iter()
+                .find(|row| row["qualified_name"] == name)
+                .cloned()
+                .unwrap_or_else(|| panic!("{detail}: no row for {name}: {callers}"))
+        };
+        assert_eq!(row("app.py::other")["resolved_by"], "scip", "{detail}");
+        // One of `main`'s calls was inferred: the merged row does not claim
+        // the index settled both.
+        assert!(row("app.py::main").get("resolved_by").is_none(), "{detail}");
+    }
+    let callees = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callees_of", "target": "app.py::other"}),
+    );
+    assert_eq!(callees["results"][0]["resolved_by"], "scip");
+    let full = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"}),
+    );
+    let edges = full["edges"].as_array().expect("edges");
+    let by_line = |line: i64| {
+        edges
+            .iter()
+            .find(|edge| edge["line"] == line)
+            .unwrap_or_else(|| panic!("no edge on line {line}: {full}"))
+    };
+    assert_eq!(by_line(2)["resolved_by"], "scip");
+    assert!(by_line(3).get("resolved_by").is_none());
+    assert_eq!(by_line(7)["resolved_by"], "scip");
+}
+
+#[test]
 fn query_graph_answers_trimmed_unread_and_dotted_targets() {
     // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
     let repo = Repo::new("query-gaps", false);
