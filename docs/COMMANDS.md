@@ -689,7 +689,11 @@ for review, debugging, exploration, feature addition, and refactoring to the
 first calls of that workflow, as `next` (each with its arguments: the
 task's text as a search query, a review at `detail_level="minimal"`,
 `ensure_graph_tool` first on an empty or drifted graph). It also returns
-`workflow`, `why`, and `confidence`. It includes compact
+`workflow`, `why`, and `confidence`. Without `changed_files` it detects the
+change against `base` as `review_tool(mode="changes")` does and returns
+`changes` (the count of each finding kind) and `key_entities` for it, or says
+in `summary` that nothing changed; `changed_files=[]` skips the change
+analysis. It includes compact
 `graph_health` answerability metadata and a `sync` object carrying the
 freshness `state` (`unbuilt` / `commit_drift` / `commit_synced` /
 `worktree_behind` / `worktree_ahead`) alongside the legacy `status`
@@ -698,26 +702,31 @@ MCP surface it auto-runs `session prepare` when unbuilt or commit-drifted
 (inheriting `serve --local-embedding`). When `graph_health.status` is still
 `empty` / `sync.state` is still `unbuilt` after prepare, it points at
 `ensure_graph_tool` first.
-`parse` is `[files, languages,
-has_last_updated]`; `answerability` is `[flows, communities, test_edges,
-reportable_cross_artifact_edges, unresolved_cross_artifact_ratio]`. Unresolved
+`graph_health` is `status`, `score`, and `reason_codes` (and
+`unresolved_edges` when some cross-artifact edges are unresolved); the
+verbose answerability of the other tools adds labelled `counts`. Unresolved
 Markdown code-span candidates are excluded from these answerability counts
 because post-processing treats them as prose vocabulary unless they resolve
-uniquely to a non-Markdown symbol.
+uniquely to a non-Markdown symbol. Nodes without a community
+(`counts.unassigned_nodes`) are not a reason code: community detection leaves
+the members of clusters too small to keep without one after every full build.
 
 Responses of `query_graph_tool`, `semantic_search_nodes_tool`, `review_tool`,
 `flow_tool`, `architecture_analysis_tool`, and `refactor_tool` include a
 `missingness` list, including error and not-found paths: the gaps that limit
 that answer (a graph of another commit, uncommitted edits, missing test edges,
 unresolved cross-artifact edges, missing embeddings, truncated output). Gaps in
-communities (`missing_communities`, `stale_derived_structures`) appear only
+communities (`missing_communities`, `missing_communities_table`) appear only
 on answers read from them. The
 graph-wide `answerability` summary (`status`, `score`, `reason_codes`, counts)
 is `get_minimal_context_tool`'s `graph_health`; the six tools add it only at
 `detail_level="verbose"` (`"full"` for `query_graph_tool`) and never on an
 error. A zero-result response should be read as "not
 found in the current graph" unless the surrounding source review confirms
-absence.
+absence. When `query_graph_tool` finds the node but no edge of the kind asked
+for, `zero_result_reason` is `node_has_no_matching_edges` and the summary says
+the node is in the graph and what static extraction leaves out; a target the
+graph lacks answers `status="not_found"`.
 
 `architecture_analysis_tool` is the primary architecture-analysis surface. Start
 with `mode="overview"` and `detail_level="minimal"`: the declared units, the

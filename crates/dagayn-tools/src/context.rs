@@ -313,7 +313,8 @@ fn max_risk_files() -> Option<usize> {
 /// The change fields of the reply: what `review_tool(mode="changes")`
 /// would report for the changed files, counted by finding kind.
 struct Changes {
-    /// `none` (no changed files), `skipped` (more than `max_risk_files`),
+    /// `none` (an empty `changed_files`), `clean` (none detected),
+    /// `undetected` (detection failed), `skipped` (more than `max_risk_files`),
     /// `unresolved` (the base does not resolve), `unknown` (the analysis
     /// failed), or `analysed`.
     state: &'static str,
@@ -338,6 +339,11 @@ impl Changes {
         let files = self.file_count;
         match self.state {
             "none" => None,
+            "clean" => Some(format!("No changed files against {base}.")),
+            "undetected" => Some(
+                "Changed files could not be detected; pass changed_files to analyse them."
+                    .to_string(),
+            ),
             "skipped" => Some(format!(
                 "Changes: {files} file(s); too many to analyse here, run review_tool."
             )),
@@ -434,12 +440,16 @@ pub(crate) fn get_minimal_context(
         Some(Value::String(task)) => task,
         Some(_) => return None,
     };
-    let changed_files: Vec<String> = match arguments.get("changed_files") {
-        None | Some(Value::Null) => Vec::new(),
-        Some(Value::Array(files)) => files
-            .iter()
-            .map(|file| file.as_str().map(str::to_string))
-            .collect::<Option<_>>()?,
+    // Omitted, the change is detected as `review_tool` detects it (#191);
+    // an explicit list, even an empty one, is used as given.
+    let explicit_files: Option<Vec<String>> = match arguments.get("changed_files") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(files)) => Some(
+            files
+                .iter()
+                .map(|file| file.as_str().map(str::to_string))
+                .collect::<Option<_>>()?,
+        ),
         Some(_) => return None,
     };
     let explicit_base = match arguments.get("base") {
@@ -530,12 +540,21 @@ pub(crate) fn get_minimal_context(
 
     let workflow = workflow_for_task(task);
 
-    let changes = if changed_files.is_empty() {
-        Changes::of("none", 0)
-    } else if changed_files.len() > max_risk_files {
-        Changes::of("skipped", changed_files.len())
-    } else {
-        changes_of(&graph.store, &graph.root, base, &changed_files)
+    let (changed_files, detected) = match explicit_files {
+        Some(files) => (Ok(files), false),
+        // Outside any version control there is no change to detect.
+        None if vcs == "none" => (Ok(Vec::new()), false),
+        None => (
+            crate::review::detect_changed_files(&graph.root, base).map(|(files, _)| files),
+            true,
+        ),
+    };
+    let changes = match changed_files {
+        // Detection failed: the summary says so, so no change is not implied.
+        Err(_) => Changes::of("undetected", 0),
+        Ok(files) if files.is_empty() => Changes::of(if detected { "clean" } else { "none" }, 0),
+        Ok(files) if files.len() > max_risk_files => Changes::of("skipped", files.len()),
+        Ok(files) => changes_of(&graph.store, &graph.root, base, &files),
     };
 
     // `get_communities(store, sort_by="size")[:3]`, then their names.
@@ -557,7 +576,7 @@ pub(crate) fn get_minimal_context(
     if !changes.top_affected.is_empty() {
         response = response.put("key_entities", json!(changes.top_affected));
     }
-    if changes.state != "none" {
+    if changes.file_count > 0 {
         response = response.put("changes", changes.value());
     }
     if !communities.is_empty() {
@@ -568,7 +587,7 @@ pub(crate) fn get_minimal_context(
         workflow.name,
         task,
         explicit_base,
-        changes.state != "none",
+        changes.file_count > 0,
         if empty {
             Some("the graph is empty; build it before any analysis")
         } else if sync.state == "commit_drift" && repair.is_none() {

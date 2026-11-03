@@ -18,9 +18,9 @@
   "results": [],
   "results_complete": true,
   "status": "ok",
-  "summary": "Found 0 result(s) for bridges_from('openapitools.json')",
+  "summary": "Found 0 result(s) for bridges_from('openapitools.json'). The node is in the graph, which records no bridges_from edges for it",
   "target": "openapitools.json",
   "unresolved_count": 0,
   "unresolved_targets": [],
-  "zero_result_reason": "not_found_in_current_graph"
+  "zero_result_reason": "node_has_no_matching_edges"
 }

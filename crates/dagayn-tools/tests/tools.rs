@@ -1089,6 +1089,143 @@ fn a_missing_or_foreign_graph_goes_to_python() {
     ));
 }
 
+/// #195: a node the graph has, with no edge of the kind asked for, is not
+/// a node the graph lacks.
+#[test]
+fn a_node_with_no_edges_is_not_reported_missing() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("no-edges", false);
+    repo.build();
+    let context = repo.context();
+    for (pattern, target, says) in [
+        (
+            "callers_of",
+            "test_app.py::test_main",
+            "nothing in it calls",
+        ),
+        ("callees_of", "app.py::helper", "calls nothing"),
+        ("importers_of", "test_app.py", "nothing in it imports"),
+        ("tests_for", "test_app.py::test_main", "no test"),
+    ] {
+        for detail in ["minimal", "standard"] {
+            let reply = answer(
+                &context,
+                "query_graph_tool",
+                json!({"pattern": pattern, "target": target, "detail_level": detail}),
+            );
+            assert_eq!(reply["exact_match_count"], 1, "{pattern} {reply}");
+            assert_eq!(reply["result_count"], 0, "{pattern} {reply}");
+            assert_eq!(
+                reply["zero_result_reason"], "node_has_no_matching_edges",
+                "{pattern} {reply}"
+            );
+            let summary = reply["summary"].as_str().unwrap_or_default();
+            assert!(summary.contains(says), "{pattern}: {summary}");
+            assert!(!reply.to_string().contains("refresh the graph"), "{reply}");
+        }
+    }
+    let missing = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "no_such_symbol"}),
+    );
+    assert_eq!(missing["status"], "not_found");
+    assert_eq!(missing["zero_result_reason"], "target_not_found_in_graph");
+}
+
+/// #192: community detection leaves nodes of small clusters without a
+/// community after every full build, so they are not a stale graph; and
+/// `graph_health` carries no unlabelled arrays.
+#[test]
+fn unassigned_communities_are_not_stale() {
+    // dagayn: tests crates/dagayn-tools/src/answerability.rs::Answerability.compute
+    let repo = Repo::new("unassigned", true);
+    repo.build();
+    let conn = rusqlite::Connection::open(repo.0.join(".dagayn/graph.db")).expect("open");
+    conn.execute(
+        "UPDATE nodes SET community_id = NULL WHERE qualified_name = 'app.py::helper'",
+        [],
+    )
+    .expect("unassign");
+    drop(conn);
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "get_minimal_context_tool",
+        json!({"task": "review"}),
+    );
+    let health = &reply["graph_health"];
+    assert_eq!(health["reason_codes"], json!([]), "{health}");
+    assert_eq!(health["score"], 1.0, "{health}");
+    for gone in ["parse", "answerability"] {
+        assert!(health.get(gone).is_none(), "{gone}: {health}");
+    }
+    let full = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"}),
+    );
+    let answerability = &full["answerability"];
+    assert_eq!(
+        answerability["counts"]["unassigned_nodes"], 1,
+        "{answerability}"
+    );
+    for gone in ["parse", "answerability"] {
+        assert!(answerability.get(gone).is_none(), "{gone}: {answerability}");
+    }
+}
+
+/// #191: `changed_files` omitted detects the change as `review_tool` does;
+/// an explicit empty list still looks at none.
+#[test]
+fn minimal_context_detects_changed_files_when_omitted() {
+    // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
+    let repo = Repo::new("context-detect", true);
+    repo.build();
+    let context = repo.context();
+    let clean = answer(
+        &context,
+        "get_minimal_context_tool",
+        json!({"task": "review recent changes"}),
+    );
+    let summary = clean["summary"].as_str().unwrap_or_default();
+    assert!(
+        summary.contains("No changed files against HEAD~1"),
+        "{clean}"
+    );
+    assert!(clean.get("changes").is_none(), "{clean}");
+
+    repo.write(
+        "app.py",
+        "def main():\n    return helper() + 1\n\n\ndef helper():\n    pass\n",
+    );
+    let dirty = answer(
+        &context,
+        "get_minimal_context_tool",
+        json!({"task": "review recent changes"}),
+    );
+    assert_eq!(dirty["changes"]["state"], "analysed", "{dirty}");
+    assert_eq!(dirty["changes"]["files"], 1, "{dirty}");
+    assert!(
+        dirty["key_entities"]
+            .as_array()
+            .is_some_and(|names| names.contains(&json!("main"))),
+        "{dirty}"
+    );
+    let skipped = answer(
+        &context,
+        "get_minimal_context_tool",
+        json!({"task": "review recent changes", "changed_files": []}),
+    );
+    assert!(skipped.get("changes").is_none(), "{skipped}");
+    assert!(
+        !skipped["summary"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Changes")
+    );
+}
+
 #[test]
 fn search_without_embeddings_ranks_fts_hits() {
     // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
@@ -2836,7 +2973,6 @@ fn a_fresh_graph_raises_no_caveats() {
         ..repo.context()
     };
     let graph_codes = [
-        "stale_derived_structures",
         "missing_flows",
         "missing_communities",
         "graph_describes_another_commit",

@@ -508,9 +508,9 @@ def _freshness_reason_codes(
     return codes, counts
 
 
-def _unknown_answerability(reason_code: str, parse: list[Any]) -> AnswerabilityRecord:
+def _unknown_answerability(reason_code: str) -> AnswerabilityRecord:
     return seal_answerability_summary(
-        {"status": "unknown", "score": 0.0, "reason_codes": [reason_code], "parse": parse}
+        {"status": "unknown", "score": 0.0, "reason_codes": [reason_code]}
     )
 
 
@@ -529,13 +529,10 @@ def graph_answerability_summary(
         try:
             stats = store.get_stats()
         except (AttributeError, sqlite3.Error):
-            return _unknown_answerability("missing_graph_stats", [0, 0, False])
+            return _unknown_answerability("missing_graph_stats")
     conn, owns_conn = _answerability_sqlite_connection(store)
     if conn is None:
-        return _unknown_answerability(
-            "no_sqlite_connection",
-            [stats.files_count, len(stats.languages), bool(stats.last_updated)],
-        )
+        return _unknown_answerability("no_sqlite_connection")
 
     query_failures: list[str] = []
 
@@ -608,9 +605,9 @@ def graph_answerability_summary(
         if not stats.last_updated:
             reason_codes.append("missing_last_updated")
             score -= 0.1
-        if unassigned_node_count > 0:
-            reason_codes.append("stale_derived_structures")
-            score -= 0.15
+        # Nodes without a community are no sign of a stale graph: community
+        # detection leaves the members of clusters too small to keep without
+        # one after every full build (#192). ``counts`` still has them.
         freshness_codes, freshness_counts = _freshness_reason_codes(store, freshness)
         for code in freshness_codes:
             reason_codes.append(code)
@@ -626,13 +623,6 @@ def graph_answerability_summary(
             "status": status,
             "score": score,
             "reason_codes": reason_codes,
-            "parse": [stats.files_count, len(stats.languages), bool(stats.last_updated)],
-            "answerability": [
-                community_count,
-                test_edge_count,
-                reportable_cross_artifact_count,
-                round(unresolved_ratio, 4),
-            ],
             "counts": {
                 "communities": community_count,
                 "test_edges": test_edge_count,
@@ -667,7 +657,7 @@ def attach_answerability(
     try:
         store, _root = _get_store(repo_root)
     except Exception:
-        answerability = _unknown_answerability("answerability_unavailable", [0, 0, False])
+        answerability = _unknown_answerability("answerability_unavailable")
         if "answerability" not in payload:
             payload["answerability"] = answerability
         payload.setdefault(
@@ -744,7 +734,6 @@ DERIVED_STRUCTURE_CODES = frozenset(
     {
         "missing_communities",
         "missing_communities_table",
-        "stale_derived_structures",
     }
 )
 
@@ -771,7 +760,6 @@ def missingness_from_answerability(
         "missing_cross_artifact_edge_metadata": "medium",
         "missing_cross_artifact_edges": "medium",
         "answerability_unavailable": "medium",
-        "stale_derived_structures": "medium",
         "graph_describes_another_commit": "high",
         "graph_built_by_older_extractor": "high",
         "uncommitted_changes_may_be_unindexed": "medium",

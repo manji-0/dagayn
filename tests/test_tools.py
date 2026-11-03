@@ -2084,7 +2084,10 @@ class TestGetMinimalContext:
         assert "summary" in result
         assert isinstance(result["next"], list)
         assert result["graph_health"]["status"] in {"ok", "degraded", "empty"}
-        assert "answerability" in result["graph_health"]
+        assert "reason_codes" in result["graph_health"]
+        # No unlabelled arrays in the compact shape (#192).
+        assert "answerability" not in result["graph_health"]
+        assert "parse" not in result["graph_health"]
 
     def test_retries_once_on_sqlite_corrupt(self, monkeypatch):
         import sqlite3
@@ -2136,7 +2139,7 @@ class TestGetMinimalContext:
             repo_root=str(self.root),
         )
 
-        assert result["graph_health"]["answerability"][3] == 0
+        assert "many_unresolved_cross_artifact_edges" not in result["graph_health"]["reason_codes"]
         assert "unresolved_edges" not in result["graph_health"]
 
     def test_output_is_compact(self):
