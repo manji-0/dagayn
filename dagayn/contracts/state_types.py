@@ -158,9 +158,7 @@ class AnswerabilityRecord(_OpenTypedDict, total=False):
     status: AnswerabilityStatus
     score: float
     reason_codes: list[str]
-    parse: list[JsonValue]
     counts: JsonObject
-    answerability: list[JsonValue]
 
 
 class EmbeddingBasicStatus(BaseModel):
@@ -531,7 +529,6 @@ class AnswerabilitySummary(BaseModel):
     status: AnswerabilityStatus
     score: float
     reason_codes: list[str] = Field(default_factory=list)
-    parse: list[JsonValue] = Field(default_factory=list)
     counts: JsonObject = Field(default_factory=dict)
 
 

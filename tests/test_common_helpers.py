@@ -67,7 +67,10 @@ class TestAnswerability:
             "missing_communities_table",
         }
 
-    def test_stale_derived_structures_downgrades_answerability(self) -> None:
+    def test_unassigned_communities_do_not_downgrade_answerability(self) -> None:
+        """Community detection leaves small clusters without a community after
+        every full build, so unassigned nodes are no sign of staleness (#192)."""
+
         class _Row:
             def __init__(self, value: int) -> None:
                 self._value = value
@@ -96,13 +99,12 @@ class TestAnswerability:
 
         answerability = graph_answerability_summary(store, stats)
 
-        assert "stale_derived_structures" in answerability["reason_codes"]
-        assert "stale_flow_memberships" not in answerability["counts"]
+        assert answerability["reason_codes"] == []
+        assert answerability["score"] == 1.0
         assert answerability["counts"]["unassigned_nodes"] == 4
-        assert answerability["score"] < 0.9
-        missingness = missingness_from_answerability(answerability, with_derived=True)
-        assert any(item["reason_code"] == "stale_derived_structures" for item in missingness)
-        assert not missingness_from_answerability(answerability)
+        assert "parse" not in answerability
+        assert "answerability" not in answerability
+        assert not missingness_from_answerability(answerability, with_derived=True)
 
     def test_answerability_uses_db_path_without_conn(self, tmp_path) -> None:
         graph_db = tmp_path / "graph.db"
@@ -381,7 +383,6 @@ class TestAttachAnswerability:
         "status": "degraded",
         "score": 0.5,
         "reason_codes": ["missing_flows"],
-        "parse": [1, 1, True],
     }
 
     def test_complete_payload_does_not_open_the_graph(self, monkeypatch) -> None:

@@ -1064,6 +1064,48 @@ fn a_node_with_no_edges_is_not_reported_missing() {
     assert_eq!(missing["zero_result_reason"], "target_not_found_in_graph");
 }
 
+/// #192: community detection leaves nodes of small clusters without a
+/// community after every full build, so they are not a stale graph; and
+/// `graph_health` carries no unlabelled arrays.
+#[test]
+fn unassigned_communities_are_not_stale() {
+    // dagayn: tests crates/dagayn-tools/src/answerability.rs::Answerability.compute
+    let repo = Repo::new("unassigned", true);
+    repo.build();
+    let conn = rusqlite::Connection::open(repo.0.join(".dagayn/graph.db")).expect("open");
+    conn.execute(
+        "UPDATE nodes SET community_id = NULL WHERE qualified_name = 'app.py::helper'",
+        [],
+    )
+    .expect("unassign");
+    drop(conn);
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "get_minimal_context_tool",
+        json!({"task": "review"}),
+    );
+    let health = &reply["graph_health"];
+    assert_eq!(health["reason_codes"], json!([]), "{health}");
+    assert_eq!(health["score"], 1.0, "{health}");
+    for gone in ["parse", "answerability"] {
+        assert!(health.get(gone).is_none(), "{gone}: {health}");
+    }
+    let full = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "app.py::helper", "detail_level": "full"}),
+    );
+    let answerability = &full["answerability"];
+    assert_eq!(
+        answerability["counts"]["unassigned_nodes"], 1,
+        "{answerability}"
+    );
+    for gone in ["parse", "answerability"] {
+        assert!(answerability.get(gone).is_none(), "{gone}: {answerability}");
+    }
+}
+
 #[test]
 fn search_without_embeddings_ranks_fts_hits() {
     // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
@@ -2758,7 +2800,6 @@ fn a_fresh_graph_raises_no_caveats() {
         ..repo.context()
     };
     let graph_codes = [
-        "stale_derived_structures",
         "missing_flows",
         "missing_communities",
         "graph_describes_another_commit",

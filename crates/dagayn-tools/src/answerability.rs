@@ -9,11 +9,7 @@ use crate::suggestions::round_to;
 
 /// Reason codes about communities, which only the answers read from them
 /// carry as missingness.
-const DERIVED_STRUCTURE_CODES: [&str; 3] = [
-    "missing_communities",
-    "missing_communities_table",
-    "stale_derived_structures",
-];
+const DERIVED_STRUCTURE_CODES: [&str; 2] = ["missing_communities", "missing_communities_table"];
 
 /// Whether `code` is about communities.
 pub(crate) fn is_derived_structure_code(code: &str) -> bool {
@@ -24,8 +20,6 @@ pub(crate) struct Answerability {
     pub status: &'static str,
     pub score: f64,
     pub reason_codes: Vec<&'static str>,
-    parse: Value,
-    answerability: Value,
     unresolved_edges: i64,
     counts: Map<String, Value>,
 }
@@ -99,10 +93,9 @@ impl Answerability {
             reason_codes.push("missing_last_updated");
             score -= 0.1;
         }
-        if counts.unassigned_nodes > 0 {
-            reason_codes.push("stale_derived_structures");
-            score -= 0.15;
-        }
+        // Nodes without a community are no sign of a stale graph: community
+        // detection leaves the members of clusters too small to keep without
+        // one after every full build (#192). `counts` still has them.
         // `_freshness_reason_codes`.
         let mut freshness_counts = Map::new();
         if let Some(fresh) = freshness {
@@ -148,13 +141,6 @@ impl Answerability {
             status,
             score,
             reason_codes,
-            parse: json!([stats.files_count, stats.languages.len(), last_updated]),
-            answerability: json!([
-                counts.communities,
-                test_edges,
-                reportable_cross,
-                round_to(unresolved_ratio, 4)
-            ]),
             unresolved_edges: reportable_unresolved,
             counts: all_counts,
         }
@@ -166,8 +152,6 @@ impl Answerability {
         health.insert("status".into(), json!(self.status));
         health.insert("score".into(), json!(self.score));
         health.insert("reason_codes".into(), json!(self.reason_codes));
-        health.insert("parse".into(), self.parse.clone());
-        health.insert("answerability".into(), self.answerability.clone());
         if self.unresolved_edges != 0 {
             health.insert("unresolved_edges".into(), json!(self.unresolved_edges));
         }
@@ -224,7 +208,6 @@ fn severity(code: &str) -> &'static str {
         | "missing_cross_artifact_edge_metadata"
         | "missing_cross_artifact_edges"
         | "answerability_unavailable"
-        | "stale_derived_structures"
         | "uncommitted_changes_may_be_unindexed" => "medium",
         _ => "low",
     }
