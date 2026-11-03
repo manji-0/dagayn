@@ -265,8 +265,11 @@ effect on them can be measured on any graph before deletion.
   that indexes single files, or a long-running rust-analyzer).
 
 - **Other languages.** Go, Java/Kotlin, C/C++, C#, Ruby, Dart, PHP, and R
-  are wired, but only to fill; Go was run on a small module only, the others
-  not at all. Each needs the comparison above on a representative
+  are wired, but only to fill. Go was compared on compress, scip-go, and
+  testify ([G6](./GO-SUPPORT-MEASUREMENTS.md#g6-the-scip-go-comparison)):
+  0.998 and 1.000 of node edges agree, and making it authoritative waits
+  on the owner and on the chain window stopping at the edge's own line.
+  The others were not run at all. Each needs the comparison above on a representative
   repository before it can be authoritative, and its package naming mapped
   (only Go import paths and Python modules are) before it names packages.
   Scala support in the current scip-java is unverified.
