@@ -16,6 +16,7 @@ mod python_ext;
 mod text;
 mod walk;
 mod wasm;
+mod wrangler;
 
 #[cfg(test)]
 mod tests;
@@ -55,6 +56,9 @@ const MANIFEST_NAMES: &[&str] = &[
     "build.rs",
     "setup.py",
     "build.zig",
+    "wrangler.toml",
+    "wrangler.json",
+    "wrangler.jsonc",
 ];
 
 /// Scan `repo_root` for supported manifests and build bridge edges, with
@@ -175,6 +179,10 @@ pub fn discover_manifest_bridges(
             &generated_by_name,
             &mut result,
         );
+    }
+
+    for rel_path in files(wrangler::WRANGLER_NAMES) {
+        wrangler::extract_worker_entry(repo_root, &rel_path, &mut result);
     }
 
     if let Some(scope) = scope {

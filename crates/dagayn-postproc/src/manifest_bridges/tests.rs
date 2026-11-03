@@ -80,6 +80,33 @@ fn maturin_pyproject_bridges_to_its_crate_root() {
 }
 
 #[test]
+fn wrangler_config_bridges_to_its_worker_entry() {
+    let repo = TempRepo::new("wrangler");
+    repo.write(
+        "wrangler.jsonc",
+        "{\n  // the worker\n  \"name\": \"w\",\n  \"main\": \"packages/worker/src/index.ts\",\n  \"vars\": { \"A\": \"b\", },\n}\n",
+    )
+    .write("packages/worker/src/index.ts", "export default {};\n")
+    .write("edge/wrangler.toml", "name = \"edge\"\nmain = \"./src/main.js\"\n")
+    .write("edge/src/main.js", "export default {};\n")
+    // A build output that is not there yet bridges to nothing.
+    .write("rust/wrangler.toml", "main = \"build/index.js\"\n");
+    let result = discover_manifest_bridges(repo.path(), None);
+    let found: Vec<_> = edges(&result)
+        .into_iter()
+        .filter(|(_, _, extra)| extra["relationship_role"] == json!("worker_entry"))
+        .map(|(source, target, _)| (source, target))
+        .collect();
+    assert_eq!(
+        found,
+        [
+            ("edge/wrangler.toml", "edge/src/main.js"),
+            ("wrangler.jsonc", "packages/worker/src/index.ts"),
+        ]
+    );
+}
+
+#[test]
 fn wasm_bindgen_crate_carries_js_package_names() {
     let repo = TempRepo::new("wasm");
     repo.write(
