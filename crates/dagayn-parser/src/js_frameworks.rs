@@ -1,7 +1,7 @@
 //! Framework wiring one file records for the request-boundary pass, which
 //! joins it across files (`dagayn_graph`'s `request_boundary`).
 
-use super::js_modules::{JavaScriptImported, JavaScriptParseContext};
+use super::js_modules::{JavaScriptImportMap, JavaScriptImported};
 use super::util::node_text;
 
 /// The Hono apps the module declares at its top level: `export const app =
@@ -13,7 +13,8 @@ use super::util::node_text;
 /// their calls.
 pub(super) fn javascript_hono_apps(
     root: tree_sitter::Node<'_>,
-    context: &JavaScriptParseContext<'_>,
+    source: &[u8],
+    import_map: &JavaScriptImportMap,
 ) -> Vec<String> {
     let mut apps = Vec::new();
     let mut default_export = None;
@@ -45,14 +46,14 @@ pub(super) fn javascript_hono_apps(
             ) else {
                 continue;
             };
-            if name.kind() == "identifier" && is_hono_app(value, context) {
-                apps.push(node_text(name, context.source));
+            if name.kind() == "identifier" && is_hono_app(value, source, import_map) {
+                apps.push(node_text(name, source));
             }
         }
     }
     if let Some(value) = default_export
         && value.kind() == "identifier"
-        && apps.contains(&node_text(value, context.source))
+        && apps.contains(&node_text(value, source))
     {
         apps.push("default".to_string());
     }
@@ -61,28 +62,35 @@ pub(super) fn javascript_hono_apps(
 
 /// `new Hono()`, or a method call chained on it: Hono's `basePath`,
 /// `route`, and route registrations return the app.
-fn is_hono_app(value: tree_sitter::Node<'_>, context: &JavaScriptParseContext<'_>) -> bool {
+fn is_hono_app(
+    value: tree_sitter::Node<'_>,
+    source: &[u8],
+    import_map: &JavaScriptImportMap,
+) -> bool {
     match value.kind() {
         "new_expression" => value
             .child_by_field_name("constructor")
-            .is_some_and(|constructor| is_hono_class(constructor, context)),
+            .is_some_and(|constructor| is_hono_class(constructor, source, import_map)),
         "call_expression" => value
             .child_by_field_name("function")
             .filter(|callee| callee.kind() == "member_expression")
             .and_then(|callee| callee.child_by_field_name("object"))
-            .is_some_and(|object| is_hono_app(object, context)),
+            .is_some_and(|object| is_hono_app(object, source, import_map)),
         "parenthesized_expression" => value
             .named_child(0)
-            .is_some_and(|inner| is_hono_app(inner, context)),
+            .is_some_and(|inner| is_hono_app(inner, source, import_map)),
         _ => false,
     }
 }
 
-fn is_hono_class(constructor: tree_sitter::Node<'_>, context: &JavaScriptParseContext<'_>) -> bool {
+fn is_hono_class(
+    constructor: tree_sitter::Node<'_>,
+    source: &[u8],
+    import_map: &JavaScriptImportMap,
+) -> bool {
     constructor.kind() == "identifier"
-        && context
-            .import_map
-            .get(&node_text(constructor, context.source))
+        && import_map
+            .get(&node_text(constructor, source))
             .is_some_and(|binding| {
                 (binding.module == "hono" || binding.module.starts_with("hono/"))
                     && binding.imported == JavaScriptImported::Named("Hono".to_string())

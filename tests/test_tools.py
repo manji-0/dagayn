@@ -1407,6 +1407,35 @@ class TestBuildPostprocess:
         assert result["local_embedding_skipped"]["reason"] == "hook_update_no_changes"
         run.assert_not_called()
 
+    def test_hook_update_of_a_manifest_only_postprocesses_without_embedding(self, monkeypatch):
+        from unittest.mock import patch
+
+        from dagayn.tools.build import build_or_update_graph
+
+        monkeypatch.setenv("DAGAYN_HOOK_UPDATE", "1")
+        update_result = BuildResult(
+            files_updated=0,
+            total_nodes=0,
+            total_edges=0,
+            changed_files=["package.json"],
+        )
+
+        with (
+            patch("dagayn.tools.build.incremental_update", return_value=update_result),
+            patch("dagayn.tools.build._run_postprocess", return_value=[]) as post,
+            patch("dagayn.tools.build._run_local_embedding") as run,
+        ):
+            result = build_or_update_graph(
+                full_rebuild=False,
+                repo_root=str(self.root),
+                postprocess="minimal",
+                local_embedding="low",
+            )
+
+        post.assert_called_once()
+        assert result["local_embedding_skipped"]["reason"] == "hook_update_no_changes"
+        run.assert_not_called()
+
     def test_local_embedding_runs_after_graph_store_close(self, monkeypatch):
         import sqlite3
         from unittest.mock import patch

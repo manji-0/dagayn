@@ -742,7 +742,13 @@ def build_or_update_graph(
             if scip_warnings:
                 build_result.warnings = [*(build_result.warnings or []), *scip_warnings]
             if _local_embedding_requested(local_embedding):
-                run_embedding = True
+                # A manifest-only hook update re-parses nothing to embed.
+                if hook_update and int(build_result.files_updated or 0) == 0:
+                    build_result.local_embedding_skipped = {
+                        "reason": "hook_update_no_changes",
+                    }
+                else:
+                    run_embedding = True
     finally:
         store.close()
         # Nothing of ours is open on graph.db from here on, so the structural

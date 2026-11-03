@@ -305,8 +305,9 @@ names a function of its module (`IpBlock.matches(..)` for `export const
 IpBlock = { schema, matches }`) targets that function, in the module and
 from its importers. Any other imported
 value of the repository keeps `receiver_unknown` and also records the
-qualified name it resolves to (`receiver_import: "src/app.ts::app"` for
-`app.fetch(..)`), which the request-boundary pass reads (§7.9).
+qualified name it resolves to and the member (`receiver_import: {"value":
+"src/app.ts::app", "member": "fetch"}` for `app.fetch(..)`), which the
+request-boundary pass reads (§7.9).
 
 ### 6.2 Imports
 
@@ -822,10 +823,17 @@ configuration's `main` is a `worker_entry` manifest bridge. The
   sends no request and gets no edge;
 - `app.fetch(..)` / `app.request(..)` on an imported app
   (`receiver_import: {"value": .., "member": ..}`, where a default import's
-  value is the module's `default`) to that File. The pass retargets the
-  edge that name resolution had bound by the member name alone. It keeps
-  the original target in `request_boundary_original`, and every run
-  restores that before it derives the edge again.
+  value is the module's `default`), or on an app of the caller's own
+  module (`receiver_app`, the same shape), to that File. The second is the
+  usual Worker when it also exports `scheduled` or `queue`:
+  `export default { fetch(req, env, ctx) { return app.fetch(req, env, ctx) } }`
+  with `app` declared above. The pass retargets the edge that name
+  resolution had bound by the member name alone. It keeps the original
+  target in `request_boundary_original`, and every run restores that
+  before it derives the edge again. When that target has been deleted
+  since, the edge goes back to the unresolved member name (`fetch`), not
+  to a target that no longer exists. Name resolution runs before the pass,
+  so the next post-processing run binds it again.
 
 Each run removes the edges its previous run wrote, and the TESTED_BY
 edges reconciled from them. It reconciles TESTED_BY again at the end. The
@@ -834,11 +842,18 @@ change to a wrangler configuration re-runs post-processing in an
 incremental update, although the configuration is no parsed file.
 
 A request reaches every route of the app, not only the route its path
-names. The measurement shows why this is enough for now. A sub-app that
-another file imports by default and mounts (`import users from
-"./users"; app.route("/", users)`) is matched only when the local name is
-the name it was declared with: its `REFERENCES` edge carries the
-importer's local name.
+names. The measurement shows why this is enough for now.
+
+These layouts are not matched yet:
+
+- `export default { fetch: app.fetch }`: the property is no function, so
+  there is no `default.fetch` node for `SELF.fetch` to reach;
+- `export default new Hono()...`: only a default export that names a
+  declared app (`export default app`) makes `default` an app;
+- a sub-app that another file imports by default and mounts
+  (`import users from "./users"; app.route("/", users)`), unless the local
+  name is the name it was declared with: its `REFERENCES` edge carries the
+  importer's local name.
 
 ## 8. JavaScript parity
 

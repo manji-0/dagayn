@@ -499,7 +499,9 @@ fn javascript_member_call_target(
 /// `GraphStore.method`, or is an imported `PascalCase` value; otherwise
 /// `receiver_unknown`, with `receiver_import` (the value and the member)
 /// when the receiver is another imported value of the repository
-/// (`app.fetch(..)` with `import { app } from "./app"`), and `receiver_from` when it is what a call returned
+/// (`app.fetch(..)` with `import { app } from "./app"`), `receiver_app`
+/// (the same) when it is a Hono app the module declares, and
+/// `receiver_from` when it is what a call returned
 /// (`makeStore().save()`, `const s = await openStore(); s.save()`), whose
 /// declared return type resolution across files reads.
 fn javascript_unknown_receiver_extra(
@@ -528,6 +530,11 @@ fn javascript_unknown_receiver_extra(
             qualified = format!("{file}::default");
         }
         extra["receiver_import"] = json!({"value": qualified, "member": method});
+    } else if let Some(app) = object.and_then(|object| javascript_own_hono_app(object, context)) {
+        extra["receiver_app"] = json!({
+            "value": qualify(&context.file_path, &app, None),
+            "member": method,
+        });
     }
     if let Some(origin) =
         object.and_then(|object| javascript_receiver_origin(object, method, context))
@@ -538,6 +545,22 @@ fn javascript_unknown_receiver_extra(
         extra["receiver_shape"] = shape;
     }
     extra
+}
+
+/// A Hono app this module declares, named by a receiver no local binding
+/// shadows.
+fn javascript_own_hono_app(
+    object: tree_sitter::Node<'_>,
+    context: &JavaScriptParseContext<'_>,
+) -> Option<String> {
+    if object.kind() != "identifier" {
+        return None;
+    }
+    let name = node_text(object, context.source);
+    (context.hono_apps.contains(&name)
+        && !context.bindings.borrow().is_bound(&name)
+        && !javascript_is_local_name(context, &name))
+    .then_some(name)
 }
 
 /// An imported value of a repository module, as its local name, the

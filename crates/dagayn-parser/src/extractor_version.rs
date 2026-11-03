@@ -119,7 +119,8 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // targets the function it aliases.
         // 15: a File records the Hono apps it declares (`hono_apps`), and a
         // member call on another imported value of the repository records
-        // it (`receiver_import`), for the request-boundary pass.
+        // it (`receiver_import`), or on one of those apps (`receiver_app`),
+        // for the request-boundary pass.
         extractor: "javascript",
         version: 15,
         languages: &["javascript", "typescript", "tsx", "vue", "svelte"],

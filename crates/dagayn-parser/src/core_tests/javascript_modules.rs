@@ -1488,6 +1488,10 @@ export function local() {
   const inner = new Router();
   return inner;
 }
+
+export function serve(request: Request) {
+  return app.fetch(request);
+}
 "#;
     let users = "import { Hono } from \"hono/tiny\";\nexport const users = new Hono();\n";
     let entry = r#"import { app } from "./app";
@@ -1554,6 +1558,17 @@ export default {
         .unwrap_or_else(|| panic!("{edges:?}"));
     assert_eq!(load.extra["receiver_type"], "Store", "{load:?}");
     assert!(load.extra.get("receiver_import").is_none(), "{load:?}");
+    // A dispatch on an app of the caller's own module.
+    let (_nodes, edges) = parser.parse_file_in_repo(Some(&repo_root), "src/app.ts", app.as_bytes());
+    let own = edges
+        .iter()
+        .find(|edge| edge.kind == "CALLS" && edge.source == "src/app.ts::serve")
+        .unwrap_or_else(|| panic!("{edges:?}"));
+    assert_eq!(
+        own.extra["receiver_app"],
+        serde_json::json!({"value": "src/app.ts::app", "member": "fetch"}),
+        "{own:?}"
+    );
     let _ = std::fs::remove_dir_all(&repo_root);
 }
 

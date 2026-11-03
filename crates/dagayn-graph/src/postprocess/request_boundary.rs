@@ -18,7 +18,8 @@
 //! * a reference to an app from another file (`app.route("/", sub)`,
 //!   `testClient(app)`) -> the File that declares it;
 //! * `app.fetch(..)` / `app.request(..)` on an imported app
-//!   (`receiver_import`), which name resolution could only guess at
+//!   (`receiver_import`) or one of the caller's module (`receiver_app`,
+//!   from a Worker's `default.fetch`), which name resolution could only guess at
 //!   (`StreamHub.fetch`), retargeted to that File. The edge keeps what it
 //!   was (`request_boundary_original`), and every run restores it before
 //!   deriving again, so an app that stops being one gives the edge back.
@@ -138,14 +139,39 @@ fn forget_previous_run(tx: &Transaction<'_>) -> Result<()> {
     drop(stmt);
     for (id, original) in retargeted {
         let original: Value = serde_json::from_str(&original).unwrap_or_else(|_| json!({}));
+        let mut target = original["target"].as_str().unwrap_or_default();
+        let mut target_name = original["target_name"].as_str().unwrap_or_default();
+        let mut confidence = original["confidence"].as_f64().unwrap_or(1.0);
+        let mut tier = original["confidence_tier"].as_str().unwrap_or("EXTRACTED");
+        // A target deleted since goes back to the member the call names
+        // (`fetch`, not `StreamHub.fetch`), unresolved, which the next name
+        // resolution binds again.
+        let gone = tx
+            .query_row(
+                "SELECT 1 FROM nodes WHERE qualified_name = ?",
+                [target],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()?
+            .is_none();
+        if gone && target.contains("::") {
+            let extra = &original["extra"];
+            target = extra["receiver_import"]["member"]
+                .as_str()
+                .or_else(|| extra["receiver_app"]["member"].as_str())
+                .unwrap_or(target_name);
+            target_name = target;
+            confidence = confidence.min(0.2);
+            tier = "LOW";
+        }
         tx.execute(
             "UPDATE edges SET target_qualified = ?, target_name = ?, confidence = ?, \
              confidence_tier = ?, extra = ? WHERE id = ?",
             params![
-                original["target"].as_str().unwrap_or_default(),
-                original["target_name"].as_str().unwrap_or_default(),
-                original["confidence"].as_f64().unwrap_or(1.0),
-                original["confidence_tier"].as_str().unwrap_or("EXTRACTED"),
+                target,
+                target_name,
+                confidence,
+                tier,
                 extra_json(&original["extra"])?,
                 id
             ],
@@ -208,14 +234,17 @@ fn app_references(tx: &Transaction<'_>, apps: &HashMap<String, String>) -> Resul
     Ok(calls)
 }
 
-/// `app.fetch(..)` on an imported app: Hono's own `fetch`, whatever member
-/// of the repository resolution bound the name to.
+/// `app.fetch(..)` on an imported app, or one the caller's module declares
+/// (`receiver_app`): Hono's own `fetch`, whatever member of the repository
+/// resolution bound the name to.
 fn retarget_dispatches(tx: &Transaction<'_>, apps: &HashMap<String, String>) -> Result<i64> {
     let mut stmt = tx.prepare(
         "SELECT id, target_qualified, target_name, confidence, confidence_tier, extra, \
-                json_extract(extra, '$.receiver_import.value'), \
-                json_extract(extra, '$.receiver_import.member') FROM edges \
-         WHERE kind = 'CALLS' AND json_extract(extra, '$.receiver_import.value') IS NOT NULL",
+                json_extract(receiver, '$.value'), json_extract(receiver, '$.member') FROM ( \
+             SELECT *, COALESCE(json_extract(extra, '$.receiver_import'), \
+                                json_extract(extra, '$.receiver_app')) AS receiver \
+             FROM edges WHERE kind = 'CALLS') \
+         WHERE receiver IS NOT NULL",
     )?;
     let rows = stmt.query_map([], |row| {
         Ok((

@@ -137,6 +137,7 @@ pub(super) fn parse_javascript_like_interned(
         let type_paths = collect_javascript_type_paths(root, source);
         let mut bound_names = HashSet::new();
         collect_javascript_bound_names(root, source, &mut bound_names);
+        let hono_apps = javascript_hono_apps(root, source, &import_map);
         let context = JavaScriptParseContext {
             source,
             file_path: file_path.clone(),
@@ -160,9 +161,9 @@ pub(super) fn parse_javascript_like_interned(
             caches,
             bindings: RefCell::new(MemberCallBindings::with_types(type_names)),
             bound_names: &bound_names,
+            hono_apps: &hono_apps,
         };
         javascript_walk_children(root, &context, None, None, &mut nodes, &mut edges);
-        let hono_apps = javascript_hono_apps(root, &context);
         if !hono_apps.is_empty() {
             nodes[0].extra["hono_apps"] = json!(hono_apps);
         }

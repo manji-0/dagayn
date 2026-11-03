@@ -3749,6 +3749,8 @@ fn hono_worker(repo: &Repo) {
 
 const HONO_APP: &str = "import { Hono } from \"hono\";\nimport { users } from \"./routes/users\";\nimport { stamp } from \"./stamp\";\n\nexport const app = new Hono();\napp.use(\"*\", stamp);\napp.route(\"/\", users);\n";
 
+const NOT_HONO: &str = "export const app = {\n  route() {},\n  fetch(request: Request) {\n    return request;\n  },\n  request(path: string) {\n    return path;\n  },\n};\n";
+
 fn counts_as_tested(repo: &Repo, target: &str) -> bool {
     let reply = answer(
         &repo.context(),
@@ -3878,6 +3880,78 @@ fn a_create_hono_worker_exports_the_app() {
 }
 
 #[test]
+fn a_worker_dispatches_to_an_app_of_its_own_module() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/request_boundary.rs::resolve_request_boundaries
+    let repo = Repo::new("worker-own-app", false);
+    repo.write("wrangler.toml", "name = \"w\"\nmain = \"src/index.ts\"\n");
+    // The usual shape when the Worker also exports `scheduled`.
+    repo.write(
+        "src/index.ts",
+        "import { Hono } from \"hono\";\nimport { findUser } from \"./store\";\n\nconst app = new Hono();\napp.get(\"/users/:id\", (c) => c.json(findUser(c.req.param(\"id\"))));\n\nexport default {\n  fetch(request: Request, env: Env, ctx: ExecutionContext) {\n    return app.fetch(request, env, ctx);\n  },\n  scheduled() {},\n};\n",
+    );
+    repo.write(
+        "src/store.ts",
+        "export function findUser(id: string) {\n  return { id };\n}\n",
+    );
+    repo.write(
+        "src/index.test.ts",
+        "import { SELF } from \"cloudflare:test\";\nimport { it } from \"vitest\";\n\nit(\"finds a user\", async () => {\n  await SELF.fetch(\"https://example.com/users/1\");\n});\n",
+    );
+    repo.build();
+    assert!(counts_as_tested(&repo, "src/store.ts::findUser"));
+    let calls = edge_rows(&repo, &["CALLS"]);
+    let into_file: Vec<_> = calls
+        .iter()
+        .filter(|row| row.contains("-> src/index.ts @"))
+        .collect();
+    // `default.fetch` dispatches to the app.
+    assert!(
+        into_file.len() == 1 && into_file[0].starts_with("CALLS src/index.ts::default.fetch "),
+        "{calls:?}"
+    );
+}
+
+#[test]
+fn a_dispatch_whose_resolved_target_is_deleted_goes_back_to_the_bare_name() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/request_boundary.rs::resolve_request_boundaries
+    let repo = Repo::new("worker-target-deleted", true);
+    hono_worker(&repo);
+    // `Hub` reaches the entry, so name resolution binds `app.fetch(..)`
+    // to `Hub.fetch` before the pass moves it to the app.
+    repo.write(
+        "src/index.ts",
+        "import { app } from \"./app\";\nexport { Hub } from \"./hub\";\n\nexport default {\n  fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),\n};\n",
+    );
+    commit_all(&repo, "worker");
+    repo.build();
+    // The Durable Object and the app both go; the entry is not re-parsed.
+    std::fs::remove_file(repo.0.join("src/hub.ts")).unwrap();
+    repo.write("src/app.ts", NOT_HONO);
+    commit_all(&repo, "no hub, not hono");
+    repo.update("HEAD~1");
+    let rows = edge_rows(&repo, &["CALLS"]);
+    assert!(
+        rows.iter()
+            .any(|row| row.starts_with("CALLS src/index.ts::default.fetch -> fetch @")),
+        "{rows:?}"
+    );
+    assert!(
+        !rows.iter().any(|row| row.contains("-> src/hub.ts::")),
+        "{rows:?}"
+    );
+    let conn = rusqlite::Connection::open(repo.0.join(".dagayn/graph.db")).expect("open");
+    let tier: String = conn
+        .query_row(
+            "SELECT confidence_tier FROM edges WHERE kind = 'CALLS' \
+             AND source_qualified = 'src/index.ts::default.fetch' AND target_qualified = 'fetch'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("restored edge");
+    assert_eq!(tier, "LOW");
+}
+
+#[test]
 fn request_boundary_calls_follow_incremental_updates() {
     // dagayn: tests crates/dagayn-graph/src/postprocess/request_boundary.rs::resolve_request_boundaries
     let repo = Repo::new("worker-update", true);
@@ -3899,10 +3973,7 @@ fn request_boundary_calls_follow_incremental_updates() {
 
     // `app` stops being a Hono app. Its importers are not re-parsed, and
     // their dispatches go back to what name resolution bound.
-    repo.write(
-        "src/app.ts",
-        "export const app = {\n  route() {},\n  fetch(request: Request) {\n    return request;\n  },\n  request(path: string) {\n    return path;\n  },\n};\n",
-    );
+    repo.write("src/app.ts", NOT_HONO);
     commit_all(&repo, "not hono");
     repo.update("HEAD~1");
     let rows = edge_rows(&repo, &["CALLS", "TESTED_BY"]);
