@@ -15,9 +15,6 @@ use crate::findings::{is_production_code, is_test_node};
 const MAX_PER_KIND: usize = 10;
 /// Import edges an `import_cycle` finding lists as evidence.
 const MAX_CYCLE_EDGES: usize = 20;
-/// Caller hops `untested_core` walks looking for a test, as
-/// `review_tool`'s `untested_change` does.
-const CALLER_TEST_DEPTH: usize = 4;
 /// Other files that must use a symbol before it counts as core, whatever
 /// the repository's p95.
 const MIN_CORE_USERS: usize = 5;
@@ -368,10 +365,15 @@ fn untested_core(nodes: &[GraphNode], edges: &[GraphEdge]) -> Vec<Value> {
     counts.sort_unstable();
     let p95 = counts[(counts.len() * 95 / 100).min(counts.len() - 1)];
     let threshold = p95.max(MIN_CORE_USERS);
+    // The caller hops `untested_change` walks for the symbol's language.
+    let depth = |qn: &str| crate::findings::caller_test_depth(&by_qn[qn].language);
     let reached = |start: &str| -> bool {
+        let limit = depth(start);
         let mut frontier = vec![start];
         let mut seen: HashSet<&str> = HashSet::from([start]);
-        for _ in 0..=CALLER_TEST_DEPTH {
+        let mut hops = 0;
+        while !frontier.is_empty() && limit.is_none_or(|limit| hops <= limit) {
+            hops += 1;
             if frontier.iter().any(|qn| {
                 tested.contains(qn)
                     || by_qn
@@ -413,7 +415,7 @@ fn untested_core(nodes: &[GraphNode], edges: &[GraphEdge]) -> Vec<Value> {
                 "evidence": {
                     "used_from_files": count,
                     "threshold": threshold,
-                    "caller_hops_searched": CALLER_TEST_DEPTH,
+                    "caller_hops_searched": depth(&node.qualified_name),
                 },
                 "action": "Write a test that exercises it, or point to the test that does if the graph misses it.",
             })
