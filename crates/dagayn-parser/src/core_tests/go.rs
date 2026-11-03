@@ -1033,7 +1033,10 @@ func (d *compressor) init(level int, p *compressor) {
     assert_eq!(fill.extra["value_reference"], true);
     assert_eq!(
         references(22),
-        [("flate/deflate.go::compressor.init", "flate/deflate.go::Store.Save")]
+        [(
+            "flate/deflate.go::compressor.init",
+            "flate/deflate.go::Store.Save"
+        )]
     );
     // A field through a pointer variable, a package's function, and a
     // method expression that is called are no references.

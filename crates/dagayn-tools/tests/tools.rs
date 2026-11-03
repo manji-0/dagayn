@@ -3585,6 +3585,53 @@ fn go_packages_are_imported_through_their_files() {
     );
 }
 
+/// A Go method stored in a field is called through the field, which is no
+/// edge: `callers_of` names the place that stores it instead of an empty
+/// answer, and the test that runs that place reaches the method.
+#[test]
+fn go_callers_of_a_method_used_as_a_value_name_where_it_is_stored() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("go-method-values", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "flate/deflate.go",
+        "package flate\n\ntype compressor struct{ step func(*compressor) }\n\n\
+         func (d *compressor) storeFast() {}\n\n\
+         func (d *compressor) init() {\n\td.step = (*compressor).storeFast\n}\n\n\
+         func (d *compressor) write() {\n\td.step(d)\n}\n",
+    );
+    repo.write(
+        "flate/deflate_test.go",
+        "package flate\n\nimport \"testing\"\n\n\
+         func TestInit(t *testing.T) {\n\td := &compressor{}\n\td.init()\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let query = |pattern: &str| {
+        answer(
+            &context,
+            "query_graph_tool",
+            json!({"pattern": pattern, "target": "flate/deflate.go::compressor.storeFast"}),
+        )
+    };
+    let callers = query("callers_of");
+    let rows = callers["results"].as_array().expect("results");
+    assert_eq!(rows.len(), 1, "{callers}");
+    assert_eq!(
+        rows[0]["qualified_name"], "flate/deflate.go::compressor.init",
+        "{callers}"
+    );
+    assert_eq!(rows[0]["relation"], "references", "{callers}");
+    let summary = callers["summary"].as_str().expect("summary");
+    assert!(summary.contains("1 use it as a value"), "{summary}");
+    assert!(!summary.contains("is missing"), "{summary}");
+    let tests = query("tests_for");
+    assert_eq!(
+        tests["test_reach"]["nearest_test"], "flate/deflate_test.go::TestInit",
+        "{tests}"
+    );
+}
+
 /// A Go package is a unit, named by its import path; an import of a package
 /// of another module of the repository is a declared dependency when the
 /// importing module's `go.mod` requires that module.
