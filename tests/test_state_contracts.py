@@ -155,7 +155,7 @@ def test_answerability_and_missingness_contracts_allow_extra_metadata() -> None:
 
     assert isinstance(AnswerabilitySummary.model_validate(answerability), AnswerabilitySummary)
     assert isinstance(MissingnessItem.model_validate(missingness), MissingnessItem)
-    assert answerability["answerability"] == [0, 1, 2, 3, 0.0]
+    assert dict(answerability)["answerability"] == [0, 1, 2, 3, 0.0]
     assert missingness["source"] == "answerability"
 
 
