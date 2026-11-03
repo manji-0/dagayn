@@ -1007,6 +1007,50 @@ changes, because after the fix every other node edge the extractor
 resolved agrees with scip-go, and the 4 interface calls have no node to
 move to.
 
+### The chain window
+
+The overlay now ends its search on the edge's own line when that line
+calls the name (the name followed by `(`) and the index has no reference
+there. A variable of the name on that line (`let entry = by_file` before
+`.entry(..)` on the next) does not end it, so chains keep their answer.
+`dagayn build --scip` on the same copies, before and after, at go 13:
+
+| Graph | Edges that change | What they are |
+|---|---|---|
+| compress, fill | 14 | 3 conversions no longer bound to a method, 11 `err.Error()` no longer confirmed |
+| compress, Go authoritative | 18 | the same 14, and 4 `len(..)` back to `builtin` |
+| testify, scip-go, fill | 0 | |
+| tstodon (TypeScript) | 0 | |
+| dagayn at `02d35749` (Rust, TypeScript, Python, Go) | 55, all Python | calls ty gives no reference, settled from another line |
+
+On compress the 3 conversions are `uint32(b.uint16())` at
+`zip/reader.go:630` and `:631`, which took the `b.uint32()` of line 634,
+and `mt := uint32(fh.Modified.Unix())` at `zip/writer.go:324`, which took
+`eb.uint32(mt)` five lines down. They are unresolved now, as in a plain
+build. The 11 are `err.Error()` on the `error` interface in
+`huff0/*_test.go` and `zstd/decoder_test.go`, which took a later
+`t.Error(..)` (`testing.common.Error`): the target stays `testing`, an
+observed-method guess, at `MEDIUM` instead of `HIGH` with `resolved_by:
+"scip"`. The overlay's counters move by the same amount: 5,488 → 5,485
+edges to nodes and 988 → 977 to packages.
+
+The first version of the fix stopped at any whole word of the name on the
+edge's line. On dagayn's own sources it also cost 6 Rust chains their
+confirmation (`if let Some(parent) = node` before `.parent()`), so the
+stop requires a call.
+
+The 55 Python edges are calls at which ty's index has no reference
+(`sync.get("state")` in `build_handlers.py`, whose next line's
+`_SYNC_STATE_HINTS.get(state)` is `dict.get`), and the window took the
+next call of the name within eight lines. 47 keep resolution's target at
+`MEDIUM`. Of the 8 whose target changes, 4 were wrong before
+(`graph.close()` and `store.close()` on a `GraphStore` taken for a later
+`EmbeddingStore.close`, `sql_store.get_stats()` for the enclosing
+`NativeLikeStore.get_stats`, `resp.read()` on an HTTP response for
+`tempfile`'s wrapper), 3 right by chance (`self._observer.join()` for a
+later `Thread.join`, two `Path.exists`), and 1 has no static answer
+(`option.get` on `Any`).
+
 ### Decision
 
 The bar is met on both named modules. dagayn's node edges agree with
@@ -1021,7 +1065,9 @@ yes, after the window flaw is fixed, for these reasons:
 - The window flaw: a name that stands on the edge's own line with no
   reference there must stop the search on that line. It costs the 4
   `len` calls under authoritative, and 3 `uint32(..)` conversions in fill
-  mode once the fix is in (`zip/reader.go:630`).
+  mode once the fix is in (`zip/reader.go:630`). Fixed
+  ([above](#the-chain-window)); the conversions are `zip/reader.go:630`,
+  `:631`, and `zip/writer.go:324`.
 - The column flaw: a bare call takes the column after a `.`. It costs the
   17 conversions above in fill mode. Authoritative mode does not make it
   worse. Fixing it needs a marker on the edge for a call without a
