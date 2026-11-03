@@ -832,7 +832,7 @@ reference at the name or several distinct references.
 
 | dagayn edge | compress | scip-go | testify |
 |---|---|---|---|
-| Node, all tiers | **7,003 / 7,017** same; 156 no single answer | **287 / 287** same | **4,503 / 4,836** same; 310 dagayn wrong, 22 SCIP local; 93 no single answer |
+| Node, all tiers | **7,003 / 7,017** same; 156 no single answer | **287 / 287** same | **4,503 / 4,836** same; 310 dagayn wrong, 22 SCIP local, 1 join artifact; 93 no single answer |
 | Node, `MEDIUM` | 4,737 / 4,737; 86 no single answer | 100 / 100 | 2,206 / 2,207; 92 no single answer |
 | Node, `HIGH` | 282 / 282; 24 | 72 / 72 | 642 / 642 |
 | Node, `EXTRACTED` | 1,984 / 1,998; 46 | 115 / 115 | 1,655 / 1,987; 1 |
