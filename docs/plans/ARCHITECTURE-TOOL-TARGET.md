@@ -172,9 +172,11 @@ with the new extractors:
 `overview` returns, for `artifact_scope="code"`:
 
 - `units`: one entry per declared unit with `name`, `kind`
-  (`cargo_crate`, `python_package`, `npm_package`, `go_module`,
-  `terraform_module`, `directory`), `path`, and counts of files, symbols,
-  and tests.
+  (`cargo_crate`, `python_package`, `npm_package`, `go_package`,
+  `go_module`, `terraform_module`, `directory`), `path`, and counts of
+  files, symbols, and tests. A Go package (a directory with a `.go` file
+  other than a test, under a `go.mod`) is named by its import path; a
+  `go.mod` directory with no such file is the `go_module`.
 - `unit_edges`: `from`, `to`, and counts per edge kind (`calls`, `imports`,
   `references`, `inherits`, `ffi`), only between distinct units.
 - `surface`: per unit, up to 3 symbols referenced most from other units,

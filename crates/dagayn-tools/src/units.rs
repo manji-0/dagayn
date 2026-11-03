@@ -3,7 +3,7 @@
 //! (docs/plans/ARCHITECTURE-TOOL-TARGET.md#the-map).
 //!
 //! A unit is what a manifest or the language defines: a Cargo crate, an npm
-//! package, a Go module, a Python import package, a Terraform module. Units
+//! package, a Go package, a Python import package, a Terraform module. Units
 //! are found on disk from the directories of indexed files, so manifests
 //! need not be indexed. A file belongs to the deepest unit whose directory
 //! holds it; a code file in no unit falls back to its top-level directory.
@@ -47,8 +47,11 @@ pub(crate) struct Unit {
     pub path: String,
     /// Package names the manifest lists as runtime or build dependencies
     /// (Cargo `[dependencies]` / `[build-dependencies]`, npm `dependencies`
-    /// / `peerDependencies`).
+    /// / `peerDependencies`), or the module paths a Go package's `go.mod`
+    /// requires.
     pub depends_on: Vec<String>,
+    /// The path of the Go module a `go_package` or `go_module` belongs to.
+    pub go_module: Option<String>,
 }
 
 /// The declared units and the unit of each file.
@@ -102,6 +105,7 @@ impl UnitIndex {
                             kind: "directory",
                             path: top.to_string(),
                             depends_on: Vec::new(),
+                            go_module: None,
                         });
                         units.len() - 1
                     })
@@ -177,6 +181,7 @@ fn declared_unit(root: &Path, dir: &str) -> Option<Unit> {
         kind,
         path: dir.to_string(),
         depends_on: Vec::new(),
+        go_module: None,
     };
     if let Ok(text) = std::fs::read_to_string(base.join("Cargo.toml"))
         && let Ok(manifest) = text.parse::<toml::Table>()
@@ -220,12 +225,8 @@ fn declared_unit(root: &Path, dir: &str) -> Option<Unit> {
             ..unit(name.to_string(), "npm_package")
         });
     }
-    if let Ok(text) = std::fs::read_to_string(base.join("go.mod"))
-        && let Some(module) = text
-            .lines()
-            .find_map(|line| line.trim().strip_prefix("module "))
-    {
-        return Some(unit(module.trim().to_string(), "go_module"));
+    if let Some(unit) = go_unit(root, dir) {
+        return Some(unit);
     }
     // The outermost directory of a chain of `__init__.py`: the import
     // package. Inner packages are part of it.
@@ -245,6 +246,82 @@ fn declared_unit(root: &Path, dir: &str) -> Option<Unit> {
         return Some(unit(dir.to_string(), "terraform_module"));
     }
     None
+}
+
+/// The Go unit `dir` declares: the package of a directory holding a `.go`
+/// file other than a test, under the nearest `go.mod`, named by its import
+/// path (module path, then the directory below the `go.mod`); or, for a
+/// `go.mod` directory with no such file, the module. A directory holding
+/// only tests declares nothing, so its tests count for the enclosing unit.
+fn go_unit(root: &Path, dir: &str) -> Option<Unit> {
+    let has_package = std::fs::read_dir(root.join(dir)).is_ok_and(|entries| {
+        entries.flatten().any(|entry| {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            name.ends_with(".go") && !name.ends_with("_test.go") && entry.path().is_file()
+        })
+    });
+    let mut module_dir = dir;
+    loop {
+        if let Ok(text) = std::fs::read_to_string(root.join(module_dir).join("go.mod")) {
+            let (module, requires) = parse_go_mod(&text)?;
+            if module_dir != dir && !has_package {
+                return None;
+            }
+            let below = dir[module_dir.len()..].trim_start_matches('/');
+            return Some(Unit {
+                name: if below.is_empty() {
+                    module.clone()
+                } else {
+                    format!("{module}/{below}")
+                },
+                kind: if has_package {
+                    "go_package"
+                } else {
+                    "go_module"
+                },
+                path: dir.to_string(),
+                depends_on: requires,
+                go_module: Some(module),
+            });
+        }
+        if module_dir.is_empty() || !has_package {
+            return None;
+        }
+        module_dir = parent(module_dir);
+    }
+}
+
+/// A `go.mod`'s module path and the module paths it requires, from the
+/// one-line and the block form of `require`.
+fn parse_go_mod(text: &str) -> Option<(String, Vec<String>)> {
+    let unquote = |path: &str| path.trim_matches(|c| c == '"' || c == '`').to_string();
+    let mut module = None;
+    let mut requires = Vec::new();
+    let mut in_require = false;
+    for line in text.lines() {
+        let line = line.split("//").next().unwrap_or("").trim();
+        if in_require {
+            if line.starts_with(')') {
+                in_require = false;
+            } else if let Some(path) = line.split_whitespace().next() {
+                requires.push(unquote(path));
+            }
+            continue;
+        }
+        let mut words = line.split_whitespace();
+        match words.next() {
+            Some("module") => module = words.next().map(unquote),
+            Some("require") => match words.next() {
+                Some("(") => in_require = true,
+                Some(path) => requires.push(unquote(path)),
+                None => {}
+            },
+            Some("require(") => in_require = true,
+            _ => {}
+        }
+    }
+    Some((module?, requires))
 }
 
 /// The map: units with their sizes, the dependencies between them, and,
@@ -277,6 +354,27 @@ pub(crate) fn unit_map(
             None => index.unit_of(qn),
         }
     };
+    // An import of a package of another Go module of this repository keeps
+    // its import path as the target; it is a declared dependency when the
+    // importing package's `go.mod` requires that module.
+    let go_packages: HashMap<&str, usize> = index
+        .units
+        .iter()
+        .enumerate()
+        .filter(|(_, unit)| unit.kind == "go_package")
+        .map(|(unit, entry)| (entry.name.as_str(), unit))
+        .collect();
+    let required_go_package = |from: usize, edge: &GraphEdge| -> Option<usize> {
+        if edge.kind != "IMPORTS_FROM" {
+            return None;
+        }
+        let to = *go_packages.get(edge.target_qualified.as_str())?;
+        let module = index.units[to].go_module.as_ref()?;
+        (index.units[from].go_module.as_ref() != Some(module)
+            && index.units[from].depends_on.contains(module))
+        .then_some(to)
+    };
+    let mut declared: HashSet<(usize, usize)> = HashSet::new();
     let count = index.units.len();
     let mut file_counts = vec![0usize; count];
     for file in &files {
@@ -314,11 +412,18 @@ pub(crate) fn unit_map(
         let Some(kind) = edge_class(edge) else {
             continue;
         };
-        let (Some(from), Some(to)) = (
-            unit_of_qn(&edge.source_qualified),
-            unit_of_qn(&edge.target_qualified),
-        ) else {
+        let Some(from) = unit_of_qn(&edge.source_qualified) else {
             continue;
+        };
+        let to = match unit_of_qn(&edge.target_qualified) {
+            Some(to) => to,
+            None => match required_go_package(from, edge) {
+                Some(to) => {
+                    declared.insert((from, to));
+                    to
+                }
+                None => continue,
+            },
         };
         if from == to {
             continue;
@@ -337,12 +442,15 @@ pub(crate) fn unit_map(
     }
     // Dependencies the manifests declare between units of this repository;
     // a macro or generated call the graph cannot see still shows up.
-    let mut declared: HashSet<(usize, usize)> = HashSet::new();
     let mut by_package: HashMap<(&str, &str), usize> = HashMap::new();
     for (unit, entry) in index.units.iter().enumerate() {
         by_package.insert((entry.kind, entry.name.as_str()), unit);
     }
     for (from, entry) in index.units.iter().enumerate() {
+        if entry.go_module.is_some() {
+            // A `require` names a module, not one of its packages.
+            continue;
+        }
         for dependency in &entry.depends_on {
             if let Some(&to) = by_package.get(&(entry.kind, dependency.as_str()))
                 && to != from
@@ -471,8 +579,18 @@ mod tests {
         write(&root, "crates/cli/src/main.rs", "");
         write(&root, "web/package.json", "{\"name\": \"@acme/web\"}");
         write(&root, "web/src/app.ts", "");
-        write(&root, "svc/go.mod", "module example.com/svc\n\ngo 1.22\n");
+        write(
+            &root,
+            "svc/go.mod",
+            "module example.com/svc\n\ngo 1.22\n\nrequire example.com/lib v0.1.0\n\nrequire (\n\texample.com/other v1.0.0 // indirect\n)\n",
+        );
         write(&root, "svc/main.go", "");
+        write(&root, "svc/internal/store/store.go", "");
+        write(&root, "svc/internal/store/store_test.go", "");
+        write(&root, "svc/internal/e2e/e2e_test.go", "");
+        write(&root, "svc/internal/testdata/data.go", "");
+        write(&root, "mods/go.mod", "module \"example.com/mods\"\n");
+        write(&root, "mods/api/api.go", "");
         write(&root, "pkg/__init__.py", "");
         write(&root, "pkg/sub/__init__.py", "");
         write(&root, "pkg/sub/mod.py", "");
@@ -491,6 +609,11 @@ mod tests {
             "crates/cli/src/main.rs",
             "web/src/app.ts",
             "svc/main.go",
+            "svc/internal/store/store.go",
+            "svc/internal/store/store_test.go",
+            "svc/internal/e2e/e2e_test.go",
+            "svc/internal/testdata/data.go",
+            "mods/api/api.go",
             "pkg/sub/mod.py",
             "infra/net/main.tf",
             "tests/fixtures/demo/src/lib.rs",
@@ -516,7 +639,56 @@ mod tests {
             vec!["core-lib".to_string(), "serde".to_string()]
         );
         assert_eq!(unit("web/src/app.ts"), ("@acme/web", "npm_package", "web"));
-        assert_eq!(unit("svc/main.go"), ("example.com/svc", "go_module", "svc"));
+        assert_eq!(
+            unit("svc/main.go"),
+            ("example.com/svc", "go_package", "svc")
+        );
+        let store = &index.units[index.unit_of("svc/internal/store/store.go").unwrap()];
+        assert_eq!(
+            (store.name.as_str(), store.kind, store.path.as_str()),
+            (
+                "example.com/svc/internal/store",
+                "go_package",
+                "svc/internal/store"
+            )
+        );
+        assert_eq!(store.go_module.as_deref(), Some("example.com/svc"));
+        assert_eq!(
+            store.depends_on,
+            vec![
+                "example.com/lib".to_string(),
+                "example.com/other".to_string()
+            ]
+        );
+        assert_eq!(
+            unit("svc/internal/store/store_test.go"),
+            (
+                "example.com/svc/internal/store",
+                "go_package",
+                "svc/internal/store"
+            )
+        );
+        // A directory of tests only, or of test data, is no package of its
+        // own.
+        assert_eq!(
+            unit("svc/internal/e2e/e2e_test.go"),
+            ("example.com/svc", "go_package", "svc")
+        );
+        assert_eq!(
+            unit("svc/internal/testdata/data.go"),
+            ("example.com/svc", "go_package", "svc")
+        );
+        assert_eq!(
+            unit("mods/api/api.go"),
+            ("example.com/mods/api", "go_package", "mods/api")
+        );
+        assert!(
+            !index
+                .units
+                .iter()
+                .any(|unit| unit.name == "example.com/mods"),
+            "a go.mod directory that holds no indexed file is no unit"
+        );
         assert_eq!(unit("pkg/sub/mod.py"), ("pkg", "python_package", "pkg"));
         assert_eq!(
             unit("infra/net/main.tf"),

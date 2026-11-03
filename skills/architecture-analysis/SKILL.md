@@ -17,8 +17,9 @@ structural facts worth acting on. Answer from those two first.
    post-processing: it answers right after an `ensure_graph_tool` bootstrap.
 2. **Overview**: `architecture_analysis_tool(mode="overview",
    detail_level="minimal")`.
-   - `units`: each Cargo crate, npm package, Go module, Python import package,
-     or Terraform module, with its files, symbols, and tests. Code no manifest
+   - `units`: each Cargo crate, npm package, Go package (named by its import
+     path), Python import package, or Terraform module, with its files,
+     symbols, and tests. Code no manifest
      covers falls back to its top-level directory (`kind: "directory"`).
    - `unit_edges`: calls, imports, references, inheritance, and bridges between
      two units, heaviest first. `declared: true` marks a dependency a manifest

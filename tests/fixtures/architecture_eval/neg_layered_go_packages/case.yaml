@@ -1,0 +1,65 @@
+description: Every package of the module depends only on packages at least as stable as itself.
+  The Go counterpart of neg_layered_units, with each crate a package.
+negative: true
+expected_units:
+  example.com/layers/kernel: go_package
+  example.com/layers/feature: go_package
+  example.com/layers/app: go_package
+  example.com/layers/plugins: go_package
+  example.com/layers/extras: go_package
+  example.com/layers/thirdparty: go_package
+files:
+  go.mod: |
+    module example.com/layers
+
+    go 1.22
+  kernel/kernel.go: |
+    package kernel
+
+    // Base is the value every other package builds on.
+    func Base() int {
+    	return 1
+    }
+  feature/feature.go: |
+    package feature
+
+    import "example.com/layers/kernel"
+
+    func Feature() int {
+    	return kernel.Base() + 1
+    }
+  app/app.go: |
+    package app
+
+    import (
+    	"example.com/layers/extras"
+    	"example.com/layers/feature"
+    	"example.com/layers/kernel"
+    )
+
+    func Run() int {
+    	return feature.Feature() + kernel.Base() + extras.Extra()
+    }
+  plugins/plugins.go: |
+    package plugins
+
+    import (
+    	"example.com/layers/extras"
+    	"example.com/layers/thirdparty"
+    )
+
+    func Plugin() int {
+    	return extras.Extra() + thirdparty.Vendored()
+    }
+  extras/extras.go: |
+    package extras
+
+    func Extra() int {
+    	return 2
+    }
+  thirdparty/thirdparty.go: |
+    package thirdparty
+
+    func Vendored() int {
+    	return 3
+    }

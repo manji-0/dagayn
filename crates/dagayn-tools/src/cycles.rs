@@ -83,6 +83,12 @@ pub(crate) fn import_cycles(request: &CycleRequest<'_>, snapshot: &Snapshot) -> 
         if from == to || !in_artifact(from) || !in_artifact(to) {
             continue;
         }
+        // A test is counted for the directory or unit it tests, but nothing
+        // imports it: its imports close no cycle between them (a Go external
+        // test package importing a package that imports the one it tests).
+        if !view.file_scopes && crate::findings::is_test_path(from) {
+            continue;
+        }
         let (source, sink) = (view.scope_of(from), view.scope_of(to));
         if source == sink || !kept(&source) || !kept(&sink) {
             continue;
