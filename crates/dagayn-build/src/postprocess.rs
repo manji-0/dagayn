@@ -252,6 +252,11 @@ fn minimal_steps(
     }) {
         outcome.set("native_bindings_resolved", count);
     }
+    if let Some(count) = outcome.step("Request boundary resolution", || {
+        store.resolve_request_boundaries()
+    }) {
+        outcome.set("request_boundaries_resolved", count);
+    }
 }
 
 fn prune_orphans(store: &mut GraphStore, outcome: &mut PostprocessOutcome) {

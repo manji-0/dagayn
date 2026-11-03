@@ -421,6 +421,10 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.resolve_native_bindings())
     }
 
+    fn resolve_request_boundaries(&self) -> PyResult<i64> {
+        self.with_store_mut(|store| store.resolve_request_boundaries())
+    }
+
     fn resolve_bare_call_targets(&self) -> PyResult<i64> {
         self.with_store_mut(|store| store.resolve_bare_call_targets())
     }

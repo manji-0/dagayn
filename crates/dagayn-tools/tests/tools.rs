@@ -3677,3 +3677,75 @@ fn go_packages_are_units_and_required_modules_are_declared() {
         "{edges:?}"
     );
 }
+
+#[test]
+fn a_worker_test_request_reaches_the_hono_routes() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/request_boundary.rs::resolve_request_boundaries
+    let repo = Repo::new("worker-request", false);
+    repo.write(
+        "package.json",
+        "{\"name\": \"w\", \"dependencies\": {\"hono\": \"4.0.0\"}}\n",
+    );
+    repo.write(
+        "wrangler.jsonc",
+        "{\n  // entry\n  \"main\": \"src/index.ts\",\n}\n",
+    );
+    repo.write(
+        "src/index.ts",
+        "import { app } from \"./app\";\n\nexport default {\n  fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),\n};\n",
+    );
+    repo.write(
+        "src/app.ts",
+        "import { Hono } from \"hono\";\nimport { users } from \"./routes/users\";\nimport { stamp } from \"./stamp\";\n\nexport const app = new Hono();\napp.use(\"*\", stamp);\napp.route(\"/\", users);\n",
+    );
+    repo.write(
+        "src/routes/users.ts",
+        "import { Hono } from \"hono\";\nimport { findUser } from \"../store\";\n\nexport const users = new Hono();\nusers.get(\"/users/:id\", (c) => c.json(findUser(c.req.param(\"id\"))));\n",
+    );
+    repo.write(
+        "src/store.ts",
+        "export function findUser(id: string) {\n  return { id };\n}\n",
+    );
+    repo.write(
+        "src/stamp.ts",
+        "export async function stamp(c: unknown, next: () => Promise<void>) {\n  await next();\n}\n",
+    );
+    // A Durable Object with a `fetch` of its own, which the name alone
+    // would bind `app.fetch(..)` to.
+    repo.write(
+        "src/hub.ts",
+        "export class Hub {\n  fetch(request: Request) {\n    return new Response(request.url);\n  }\n}\n",
+    );
+    repo.write(
+        "src/users.test.ts",
+        "import { SELF } from \"cloudflare:test\";\nimport { expect, it } from \"vitest\";\n\nconst get = (path: string) => SELF.fetch(`https://example.com${path}`);\n\nit(\"finds a user\", async () => {\n  expect((await get(\"/users/1\")).status).toBe(200);\n});\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let reach = |target: &str| {
+        let reply = answer(
+            &context,
+            "query_graph_tool",
+            json!({"pattern": "tests_for", "target": target}),
+        );
+        reply["test_reach"]["counts_as_tested"].as_bool() == Some(true)
+    };
+    // The handler's call, the middleware, and the entry are under the
+    // request; the Durable Object's `fetch` is not.
+    assert!(reach("src/store.ts::findUser"));
+    assert!(reach("src/stamp.ts::stamp"));
+    assert!(reach("src/index.ts::default.fetch"));
+    assert!(!reach("src/hub.ts::Hub.fetch"));
+
+    // Without a wrangler configuration naming the worker, `SELF.fetch`
+    // reaches nothing.
+    std::fs::remove_file(repo.0.join("wrangler.jsonc")).unwrap();
+    repo.build();
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "src/store.ts::findUser"}),
+    );
+    assert_eq!(reply["test_reach"]["counts_as_tested"], false, "{reply}");
+}

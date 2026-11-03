@@ -492,6 +492,13 @@ def _run_postprocess(
     except (sqlite3.OperationalError, ImportError, RuntimeError) as e:
         _warn(warnings, "Native binding resolution", e)
 
+    try:
+        from dagayn.postprocessing import _resolve_request_boundaries
+
+        _resolve_request_boundaries(store, post_result, warnings)
+    except (sqlite3.OperationalError, ImportError, RuntimeError) as e:
+        _warn(warnings, "Request boundary resolution", e)
+
     if postprocess != "minimal":
         # -- Expensive: communities + summaries (only for "full") --
         incremental = not full_rebuild

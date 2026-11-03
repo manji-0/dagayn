@@ -42,6 +42,8 @@ pub struct PostprocessResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub native_bindings_resolved: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_boundaries_resolved: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub communities_detected: Option<i64>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
@@ -172,6 +174,13 @@ pub fn run_post_processing_json(
         store.resolve_native_bindings()
     }) {
         result.native_bindings_resolved = Some(count);
+    }
+
+    // After the manifest bridges: they name the worker entry modules.
+    if let Some(count) = record_step(&mut result.warnings, "Request boundary resolution", || {
+        store.resolve_request_boundaries()
+    }) {
+        result.request_boundaries_resolved = Some(count);
     }
 
     let incremental = matches!(changed_files, Some(files) if !files.is_empty());
