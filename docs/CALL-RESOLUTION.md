@@ -46,7 +46,7 @@ parser; "post-processing" means the passes in
 | `confidence_tier` / `confidence` | extractor, post-processing | `HIGH` / `0.9` or `MEDIUM` / `0.6`; see [Confidence tiers](#confidence-tiers). |
 | `paths` | extractor | On a Rust `IMPORTS_FROM` to a crate: the paths one `use` imports from it (`["std::collections::HashMap", "std::collections::HashSet"]`). |
 | `inferred_from` | post-processing | `"observed_method"` when the package was inferred from typed calls of the same method name; `"return_table"` when the receiver was typed by a table of package return types (`re.match(..)` a `re.Match`). |
-| `resolved_by` | SCIP overlay | `"scip"` when a SCIP index settled the edge: it moved it to the definition's node or the symbol's package, or agreed with it. |
+| `resolved_by` | SCIP overlay | `"scip"` when a SCIP index settled the edge: it moved it to the definition's node or the symbol's package, or agreed with it. `query_graph_tool` returns it on `callers_of` / `callees_of` rows and `full` edges; [SCIP overlay](#scip-overlay) says when. |
 | `callee_local` | SCIP overlay, Go extractor | `true` on an unresolved call whose callee the index reports as a local, a parameter, or a type parameter (a closure, a callback): nothing static names it. The Go extractor sets it on a plain call of a name the calling function declares (`f()` for a parameter `f func()`). |
 | `receiver`, `import_path` | extractor | `receiver`: the module or package a call goes through, or the value it is made on, as written (Python `query.run()`, Go `huff0.Compress()` and `cfg.Load()`, cgo `C.f()`). Never bound to a same-named symbol of the file, and in Go never by name at all. Go's `import_path` is the import the qualifier names (`example.com/m/huff0`): post-processing binds the call to the one top-level function or type of that package (no test file's), and the `callers_of` name fallback counts it as a caller only of a function of that package. |
 | `receiver_type` | extractor, post-processing | The receiver's type when it is a class of another file (`store: GraphStore`). The target is the bare method name until resolution binds it. |
@@ -331,7 +331,9 @@ parsed are skipped.
   `callee_local`, and bare-name binding never binds it; others are left.
 - No reference at the name, or several different ones: the edge is left.
 
-Settled edges record `resolved_by: "scip"`; confirming raises `MEDIUM` and
+Settled edges record `resolved_by: "scip"`, which `query_graph_tool` returns
+on their `callers_of` / `callees_of` rows and `full` edges (a row folding
+several calls only when all were settled); confirming raises `MEDIUM` and
 `LOW` to `HIGH` and leaves other tiers. The passes above only touch edges
 whose target is neither a node nor a package, so they leave the overlay's
 results alone, and observed-method inference does not count them as

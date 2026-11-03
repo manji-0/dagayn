@@ -240,11 +240,13 @@ pub(crate) fn is_test_path(rel: &str) -> bool {
     let name = rel.rsplit('/').next().unwrap_or(&rel);
     rel.split('/')
         .any(|part| matches!(part, "tests" | "test" | "__tests__" | "spec" | "testdata"))
-        || name.starts_with("test_")
-        || name.contains("_test.")
-        || name.contains(".test.")
-        || name.contains(".spec.")
-        || name == "conftest.py"
+        || dagayn_parser::go_test_file(name).unwrap_or_else(|| {
+            name.starts_with("test_")
+                || name.contains("_test.")
+                || name.contains(".test.")
+                || name.contains(".spec.")
+                || name == "conftest.py"
+        })
 }
 
 /// Code whose lack of tests is worth saying: not tests, build scripts,
@@ -284,49 +286,61 @@ fn direct_tests(store: &GraphStore, qn: &str) -> Option<Vec<GraphNode>> {
 
 /// `tests_to_run`: the direct tests of changed production code, and changed
 /// tests themselves, one finding per test file with one command for them.
+/// A helper of the tests (`benchmarkEncoder` in a `_test.go` file) is not a
+/// test to run: the tests that reach it are. A helper no test is seen to
+/// reach (a testify suite method, which `suite.Run` calls by reflection) is
+/// listed, and its file's command runs every test there.
 pub(crate) fn tests_to_run(inputs: &Inputs) -> Option<Vec<Value>> {
-    let mut covers: BTreeMap<String, (GraphNode, Vec<String>)> = BTreeMap::new();
+    let mut covers: BTreeMap<String, CoveringTest> = BTreeMap::new();
     for node in inputs.changed_nodes {
         let rel = inputs.relative(&node.file_path);
         if node.kind == "File" {
             continue;
         }
         if is_test_node(node, &rel) {
-            // A helper in a test file is not a test to run.
-            if node.is_test || node.kind == "Test" {
-                covers
-                    .entry(node.qualified_name.clone())
-                    .or_insert_with(|| (node.clone(), Vec::new()));
+            if matches!(node.kind.as_str(), "Test" | "Function") {
+                for (test, by_name) in runnable_tests(inputs, node)? {
+                    covers
+                        .entry(test.qualified_name.clone())
+                        .or_insert_with(|| (test, by_name, Vec::new()));
+                }
             }
             continue;
         }
-        for test in direct_tests(inputs.store, &node.qualified_name)? {
-            covers
-                .entry(test.qualified_name.clone())
-                .or_insert_with(|| (test.clone(), Vec::new()))
-                .1
-                .push(node.qualified_name.clone());
+        for direct in direct_tests(inputs.store, &node.qualified_name)? {
+            for (test, by_name) in runnable_tests(inputs, &direct)? {
+                covers
+                    .entry(test.qualified_name.clone())
+                    .or_insert_with(|| (test, by_name, Vec::new()))
+                    .2
+                    .push(node.qualified_name.clone());
+            }
         }
     }
     // One group per test file; Rust unit tests (in `src/`) one per crate,
     // since one `cargo test -p` runs them all.
     let mut by_file: BTreeMap<String, (String, Vec<CoveringTest>)> = BTreeMap::new();
-    for (test, covered) in covers.into_values() {
-        let rel = inputs.relative(&test.file_path);
-        let key = rust_unit_crate_dir(inputs.root, &test, &rel).unwrap_or_else(|| rel.clone());
+    for covering in covers.into_values() {
+        let rel = inputs.relative(&covering.0.file_path);
+        let key =
+            rust_unit_crate_dir(inputs.root, &covering.0, &rel).unwrap_or_else(|| rel.clone());
         by_file
             .entry(key)
             .or_insert_with(|| (rel, Vec::new()))
             .1
-            .push((test, covered));
+            .push(covering);
     }
     let mut findings = Vec::new();
     for (rel, (first_file, tests)) in by_file {
-        let nodes: Vec<&GraphNode> = tests.iter().map(|(test, _)| test).collect();
-        let command = group_command(inputs.root, &nodes, &first_file);
+        let nodes: Vec<&GraphNode> = tests.iter().map(|(test, _, _)| test).collect();
+        let command = if tests.iter().all(|(_, by_name, _)| *by_name) {
+            group_command(inputs.root, &nodes, &first_file)
+        } else {
+            file_command(inputs.root, &nodes[0].language, &first_file)
+        };
         let mut covered: Vec<&str> = tests
             .iter()
-            .flat_map(|(_, covered)| covered.iter().map(String::as_str))
+            .flat_map(|(_, _, covered)| covered.iter().map(String::as_str))
             .collect();
         covered.sort_unstable();
         covered.dedup();
@@ -334,7 +348,7 @@ pub(crate) fn tests_to_run(inputs: &Inputs) -> Option<Vec<Value>> {
             format!("{} test(s) here changed.", tests.len())
         } else {
             format!(
-                "{} test(s) here directly test {} changed function(s).",
+                "{} test(s) here test {} changed function(s).",
                 tests.len(),
                 covered.len()
             )
@@ -353,8 +367,70 @@ pub(crate) fn tests_to_run(inputs: &Inputs) -> Option<Vec<Value>> {
     Some(findings)
 }
 
-/// A test and the changed functions it directly tests.
-type CoveringTest = (GraphNode, Vec<String>);
+/// A test, whether its runner runs it by name, and the changed functions it
+/// tests.
+type CoveringTest = (GraphNode, bool, Vec<String>);
+
+/// Caller hops from a test helper to the tests that run it.
+const HELPER_TEST_DEPTH: usize = 3;
+
+/// The tests a runner runs for `test`, a node of test code, each with
+/// whether the runner runs it by name: `test` itself when it is one, else
+/// the tests that reach it through other test code within
+/// [`HELPER_TEST_DEPTH`] hops (the `Benchmark`s that call the helper
+/// `benchmarkEncoder`), else `test`, not by name.
+fn runnable_tests(inputs: &Inputs, test: &GraphNode) -> Option<Vec<(GraphNode, bool)>> {
+    let mut found = Vec::new();
+    let mut frontier = vec![test.clone()];
+    let mut seen: HashSet<String> = HashSet::from([test.qualified_name.clone()]);
+    for depth in 0..=HELPER_TEST_DEPTH {
+        if frontier.is_empty() {
+            break;
+        }
+        let qns: Vec<String> = frontier
+            .iter()
+            .map(|node| node.qualified_name.clone())
+            .collect();
+        let (_, incoming) = inputs.store.get_edges_by_endpoints(&qns).ok()?;
+        let mut next = Vec::new();
+        for node in frontier {
+            // A Rust function under `tests/` is a `Test` node by its path,
+            // attribute or not; one that other test code calls is a helper.
+            if node.kind == "Test" && node.language != "rust" {
+                found.push(node);
+                continue;
+            }
+            let mut callers = Vec::new();
+            for edge in incoming.get(&node.qualified_name).into_iter().flatten() {
+                let runs = edge.kind == "CALLS"
+                    || (edge.kind == "REFERENCES" && edge.extra.get("relationship_role").is_none());
+                if runs
+                    && let Some(caller) = inputs.store.get_node(&edge.source_qualified).ok()?
+                    && is_test_node(&caller, &inputs.relative(&caller.file_path))
+                {
+                    callers.push(caller);
+                }
+            }
+            if node.kind == "Test" && callers.is_empty() {
+                found.push(node);
+                continue;
+            }
+            if depth == HELPER_TEST_DEPTH {
+                continue;
+            }
+            for caller in callers {
+                if seen.insert(caller.qualified_name.clone()) {
+                    next.push(caller);
+                }
+            }
+        }
+        frontier = next;
+    }
+    if found.is_empty() {
+        return Some(vec![(test.clone(), false)]);
+    }
+    Some(found.into_iter().map(|test| (test, true)).collect())
+}
 
 /// The crate directory of a Rust unit test (one not under the crate's
 /// `tests/`), which `cargo test -p` runs with the rest of the crate's.
@@ -893,16 +969,76 @@ fn test_command(root: &Path, test: &GraphNode, rel: &str) -> Value {
                 None => json!(format!("npm test -- {rel}")),
             }
         }
-        "go" => {
-            let dir = Path::new(rel)
-                .parent()
-                .map(|p| p.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let dir = if dir.is_empty() { ".".to_string() } else { dir };
-            json!(format!("go test ./{dir} -run '^{}$'", test.name))
-        }
+        "go" => json!(go_test_command(rel, &[test])),
         _ => Value::Null,
     }
+}
+
+/// `go test` for `tests` of the package in `rel`'s directory: `-run` for
+/// tests, examples, and fuzz targets (their seed corpus), `-bench` for
+/// benchmarks, which `-run` never runs (`-run '^$'` when there are only
+/// benchmarks, so no test runs with them).
+fn go_test_command(rel: &str, tests: &[&GraphNode]) -> String {
+    let dir = go_package_dir(rel);
+    let pattern = |names: &[&str]| match names {
+        [name] => format!("'^{name}$'"),
+        _ => format!("'^({})$'", names.join("|")),
+    };
+    let (benches, runs): (Vec<&str>, Vec<&str>) = tests
+        .iter()
+        .map(|test| test.name.as_str())
+        .partition(|name| name.starts_with("Benchmark"));
+    let run = if runs.is_empty() {
+        "'^$'".to_string()
+    } else {
+        pattern(&runs)
+    };
+    let mut command = format!("go test ./{dir} -run {run}");
+    if !benches.is_empty() {
+        command.push_str(&format!(" -bench {}", pattern(&benches)));
+    }
+    command
+}
+
+/// A command that runs every test of `rel`, a test file of `language` (of
+/// its crate, for a Rust unit test; of its package, for Go).
+fn file_command(root: &Path, language: &str, rel: &str) -> Value {
+    match language {
+        "python" => json!(format!("pytest {rel}")),
+        "rust" => {
+            let Some((crate_name, crate_dir)) = cargo_package(root, rel) else {
+                return Value::Null;
+            };
+            let in_crate = Path::new(rel)
+                .strip_prefix(&crate_dir)
+                .unwrap_or(Path::new(rel))
+                .to_string_lossy()
+                .replace('\\', "/");
+            match in_crate
+                .strip_prefix("tests/")
+                .and_then(|rest| rest.strip_suffix(".rs"))
+                .filter(|target| !target.contains('/'))
+            {
+                Some(target) => json!(format!("cargo test -p {crate_name} --test {target}")),
+                None => json!(format!("cargo test -p {crate_name}")),
+            }
+        }
+        "typescript" | "tsx" | "javascript" => match js_runner(root, rel) {
+            Some(runner) => json!(format!("npx {runner} {rel}")),
+            None => json!(format!("npm test -- {rel}")),
+        },
+        "go" => json!(format!("go test ./{}", go_package_dir(rel))),
+        _ => Value::Null,
+    }
+}
+
+/// The directory of `rel`, `.` at the root.
+fn go_package_dir(rel: &str) -> String {
+    Path::new(rel)
+        .parent()
+        .map(|p| p.to_string_lossy().into_owned())
+        .filter(|dir| !dir.is_empty())
+        .unwrap_or_else(|| ".".to_string())
 }
 
 /// One command for `tests`, all in `rel`: the test's own command when
@@ -955,15 +1091,7 @@ fn group_command(root: &Path, tests: &[&GraphNode], rel: &str) -> Value {
             Some(runner) => json!(format!("npx {runner} {rel}")),
             None => json!(format!("npm test -- {rel}")),
         },
-        "go" => {
-            let dir = Path::new(rel)
-                .parent()
-                .map(|p| p.to_string_lossy().into_owned())
-                .filter(|dir| !dir.is_empty())
-                .unwrap_or_else(|| ".".to_string());
-            let names: Vec<&str> = tests.iter().map(|test| test.name.as_str()).collect();
-            json!(format!("go test ./{dir} -run '^({})$'", names.join("|")))
-        }
+        "go" => json!(go_test_command(rel, tests)),
         _ => Value::Null,
     }
 }
@@ -1359,6 +1487,10 @@ mod tests {
         assert!(is_test_path("tests/test_util.py"));
         assert!(is_test_path("web/greet.test.ts"));
         assert!(is_test_path("pkg/util_test.go"));
+        // Go tests end in `_test.go`; a `test_` prefix is production code.
+        assert!(!is_test_path("http/test_round_tripper.go"));
+        assert!(is_test_path("pkg/testdata/test_input.go"));
+        assert!(is_test_path("test_app.py"));
         assert!(!is_test_path("src/testing_utils.rs"));
         assert!(!is_test_path("pkg/app.py"));
     }

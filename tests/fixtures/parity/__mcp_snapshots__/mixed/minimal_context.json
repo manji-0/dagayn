@@ -9,17 +9,6 @@
   ],
   "confidence": "high",
   "graph_health": {
-    "answerability": [
-      3,
-      0,
-      2,
-      0.0
-    ],
-    "parse": [
-      3,
-      3,
-      true
-    ],
     "reason_codes": [
       "missing_test_edges"
     ],
@@ -36,7 +25,7 @@
     }
   ],
   "status": "ok",
-  "summary": "13 nodes, 14 edges across 3 files.",
+  "summary": "13 nodes, 14 edges across 3 files. No changed files against HEAD~1.",
   "sync": {
     "state": "commit_synced",
     "status": "synced",

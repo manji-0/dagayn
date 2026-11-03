@@ -257,7 +257,7 @@
        }
       ],
       "default": null,
-      "description": "Explicit changed files. Auto-detected if omitted."
+      "description": "Explicit changed files. Auto-detected against ``base`` if\nomitted, as ``review_tool`` detects them; ``[]`` skips change analysis."
      },
      "repo_root": {
       "anyOf": [

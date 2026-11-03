@@ -57,8 +57,10 @@ retrieval setup.
      `flow_tool(mode="entry_points", target=...)` for one symbol.
    - Callers of a changed public function:
      `query_graph_tool(pattern="callers_of", target=..., depth=3)` (up to 6) —
-     check `reachability` before calling it the full set. Call targets marked
-     `resolved_by: "scip"` are index-backed; when call accuracy matters and SCIP
+     check `reachability` before calling it the full set. Rows with
+     `resolved_by: "scip"` are calls a SCIP index settled; rows without it
+     were resolved by dagayn alone (or re-parsed by `dagayn update` since the
+     last `dagayn build --scip`). When call accuracy matters and SCIP
      indexers are installed, `dagayn build --scip` settles the rest.
    - Coverage: run or list each `tests_to_run` `command`; confirm an
      `untested_change` with `query_graph_tool(pattern="tests_for")`.

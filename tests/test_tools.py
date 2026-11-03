@@ -793,6 +793,28 @@ class TestSanitizeName:
         assert "\x00" not in d["name"]
         assert "\x00" not in d["qualified_name"]
 
+    def test_edge_to_dict_says_which_edges_a_scip_index_settled(self):
+        """Like the native ``edge_dict``: ``resolved_by`` on a settled edge
+        of any kind, nothing on the others (#264)."""
+        from dagayn.graph import GraphEdge, edge_to_dict
+
+        def edge(extra):
+            return GraphEdge(
+                id=1,
+                kind="CALLS",
+                source_qualified="a.py::main",
+                target_qualified="a.py::helper",
+                file_path="a.py",
+                line=2,
+                extra=extra,
+                confidence=0.9,
+                confidence_tier="HIGH",
+            )
+
+        assert edge_to_dict(edge({"resolved_by": "scip"}))["resolved_by"] == "scip"
+        assert "resolved_by" not in edge_to_dict(edge({}))
+        assert "extra" not in edge_to_dict(edge({"resolved_by": "scip"}))
+
 
 class TestFlowTools:
     """Tests for flow-related MCP tool functions."""
@@ -2062,7 +2084,10 @@ class TestGetMinimalContext:
         assert "summary" in result
         assert isinstance(result["next"], list)
         assert result["graph_health"]["status"] in {"ok", "degraded", "empty"}
-        assert "answerability" in result["graph_health"]
+        assert "reason_codes" in result["graph_health"]
+        # No unlabelled arrays in the compact shape (#192).
+        assert "answerability" not in result["graph_health"]
+        assert "parse" not in result["graph_health"]
 
     def test_retries_once_on_sqlite_corrupt(self, monkeypatch):
         import sqlite3
@@ -2114,7 +2139,7 @@ class TestGetMinimalContext:
             repo_root=str(self.root),
         )
 
-        assert result["graph_health"]["answerability"][3] == 0
+        assert "many_unresolved_cross_artifact_edges" not in result["graph_health"]["reason_codes"]
         assert "unresolved_edges" not in result["graph_health"]
 
     def test_output_is_compact(self):

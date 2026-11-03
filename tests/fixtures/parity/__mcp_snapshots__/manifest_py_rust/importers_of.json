@@ -18,9 +18,9 @@
   "results": [],
   "results_complete": true,
   "status": "ok",
-  "summary": "Found 0 result(s) for importers_of('rust/src/lib.rs')",
+  "summary": "Found 0 result(s) for importers_of('rust/src/lib.rs'). The node is in the graph and nothing in it imports it; a `use` or a path in code (import_kind path) counts; a path written only inside a macro's arguments does not",
   "target": "rust/src/lib.rs",
   "unresolved_count": 0,
   "unresolved_targets": [],
-  "zero_result_reason": "not_found_in_current_graph"
+  "zero_result_reason": "node_has_no_matching_edges"
 }

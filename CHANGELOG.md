@@ -187,6 +187,17 @@ Removed).
 
 ### Changed
 
+- **Breaking:** `graph_health` and the verbose `answerability` no longer
+  carry the unlabelled `parse` and `answerability` arrays; `counts` (verbose)
+  has the same figures with labels, and the compact `graph_health` is
+  `status`, `score`, and `reason_codes`. The `stale_derived_structures`
+  reason code is gone: it fired whenever a non-File node had no community,
+  which community detection leaves after every full build for the members
+  of clusters below its minimum size, so a graph that matched HEAD read as
+  stale and lost 0.15 of its score (#192). `counts.unassigned_nodes` stays.
+  In the MCP snapshots, 9 `minimal_context` replies lose the two arrays and
+  4 of them the code (their score rises from 0.75 or 0.85 to 0.9 or 1.0).
+
 - `dagayn build --scip` for Go was compared edge by edge with scip-go
   v0.2.7 (G6 of the first-class languages plan). dagayn's own node edges
   agree on 7,003 of 7,017 on klauspost/compress and 287 of 287 on scip-go,
@@ -367,6 +378,83 @@ Removed).
   `undocumented_surface` cases.
 
 ### Fixed
+
+- `apply_refactor_tool` keeps each line's ending. It read the files it
+  edits with universal newlines and wrote them back with `\n`, so a
+  one-identifier rename in a CRLF file rewrote every line of it. It now
+  reads and writes the bytes as they are: in a CRLF file, a file with lone
+  `\r` ends, or one that mixes them, only the renamed identifiers change,
+  and the `dry_run` diff carries the same line ends that are written. Files
+  with `\n` ends are edited as before (#180).
+- A Go file is a test only when its name ends in `_test.go` (#240). The
+  path rules of `review_tool`, the architecture overview, `tests_for`'s
+  test inference, and refactor suggestions read any `test_*` file as a
+  test, so testify's
+  `http/test_round_tripper.go` (`package http`) was test code: its
+  symbols were left out of untested and dead-code reports, and the
+  overview lacked the unit edge `http` -> `mock`, whose only import is in
+  that file. On testify v1.12.1 the overview now has 10 unit edges, all 10
+  package-import pairs of the source (9 before). Test directories
+  (`testdata`, `tests/`) still make a Go file test code. Every rule now
+  defers to one Go predicate, `dagayn_parser::go_test_file`. The parser's
+  rule read a `test_` prefix only at the repository root, where a
+  `test_*.go` File node was `is_test`; the go extractor is now version 15.
+- `review_tool`'s `tests_to_run` no longer names a helper of the tests as
+  a test to run, and runs a Go benchmark with `-bench` (#255, item 1).
+  Every function of a `_test.go` file is test code, and the finding listed
+  each one a change reached, with a `go test -run` command that ran
+  nothing for a helper or a benchmark. A helper is now replaced by the
+  tests that reach it through test code within 3 calls; a helper no test
+  is seen to reach (a testify suite method, which `suite.Run` calls by
+  reflection) stays listed with a command that runs its package's or
+  file's tests (`go test ./suite`). `Benchmark*` tests run with
+  `-run '^$' -bench '^(..)$'`, or next to `-run` when the file has tests
+  too; fuzz targets keep `-run`, which runs their seed corpus. The same
+  leak hit Rust: a function under `tests/` is a `Test` node by its path,
+  so an integration test's helper was named with a `cargo test` filter
+  that matched no test; a Rust `Test` node that other test code calls is
+  now a helper. On the G7 change commits (eval/g7_go), compress's 7
+  findings named 2 helpers (`benchmarkEncoder`, `testFileLevelDictReset`)
+  and ran `BenchmarkDeflate` with `-run`, and testify's suite method
+  `SuiteTester.TestTwo` with `-run '^TestTwo$'`; now `benchmarkEncoder`
+  gives the 27 benchmarks that call it, `testFileLevelDictReset` gives
+  zlib's `TestWriterReset`, and every command runs its targets. The review
+  eval is unchanged (tests_to_run 16 TP, 0 FP, 0 FN). The finding's claim
+  now reads "N test(s) here test M changed function(s)", without
+  "directly".
+- `query_graph_tool` now says which calls a SCIP index settled (#264). The
+  trust guidance in the skills, `AGENTS.md`, and the reference told agents
+  to look for `resolved_by: "scip"`, but no reply returned it: the overlay
+  recorded it on the edge and the replies dropped it. A `callers_of` or
+  `callees_of` row whose call `dagayn build --scip` settled now carries
+  `resolved_by: "scip"` at every detail level (a row folding several calls
+  only when all were settled), as do those edges in a `full` reply; other
+  rows are unchanged. On dagayn's own sources built with `--scip`, the
+  index settled 81,028 of the 89,638 `CALLS` edges, 20,602 of them to a
+  node (the rest to packages, which list no row); 27 of the 28 `callees_of`
+  rows of `run_pattern` carry the field, and `minimal` replies on three
+  heavily called targets fit as many rows as without it. The guidance now says where the
+  field appears and that calls in files `dagayn update` re-parsed since the
+  last `build --scip` do not have it.
+- `query_graph_tool` on a node the graph has, with no edge of the kind
+  asked for, no longer answers `zero_result_reason:
+  "not_found_in_current_graph"` and guidance to refresh the graph. It
+  answers `node_has_no_matching_edges`, and the summary says the node is in
+  the graph and that nothing in it calls (imports, tests, ...) it, with the
+  language's caveat; for `callers_of` it adds that a use as a value is not a
+  call edge, so callers may be missing. A target the graph lacks still
+  answers `status: "not_found"`. On dagayn,
+  `callers_of(dagayn/cli/commands/build_handlers.py::handle_watch_command)`
+  now says this; in the MCP snapshots, five empty `bridges_from` and
+  `importers_of` replies change (#195).
+- `get_minimal_context_tool` without `changed_files` detects the change
+  against `base` as `review_tool(mode="changes")` does, as its description
+  said, and returns `changes` and `key_entities`; with no change the summary
+  says "No changed files against <base>.", and `changed_files=[]` still
+  skips the analysis. It treated an omitted list as empty, so a review task
+  got the largest communities instead of its diff (#191). On dagayn with 5
+  changed files the call takes 0.71 s instead of 0.20 s; above 100 files
+  it still says to run `review_tool` instead.
 
 - `dagayn build --scip` no longer takes a call's target from a later line
   when the call's own line calls the name and the index has no reference

@@ -47,6 +47,9 @@ def edge_to_dict(e: GraphEdge) -> ChangeEdgeRecord:
         "confidence": e.confidence,
         "confidence_tier": e.confidence_tier,
     }
+    # What settled the target, when not the extractor (`"scip"`).
+    if isinstance(e.extra, dict) and isinstance(e.extra.get("resolved_by"), str):
+        payload["resolved_by"] = e.extra["resolved_by"]
     # Preserve bridge metadata so impact/flow consumers can explain transitions.
     if e.kind == "CROSS_ARTIFACT" and isinstance(e.extra, dict) and e.extra:
         payload["extra"] = {

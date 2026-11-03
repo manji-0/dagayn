@@ -219,8 +219,33 @@ fn python_string_len(text: &str) -> usize {
         .sum::<usize>()
 }
 
+/// The zero-result reason for a node the graph has but that no edge of the
+/// kind asked for reaches (#195).
+const NO_MATCHING_EDGES: &str = "node_has_no_matching_edges";
+
 /// `query_graph_guidance` for a result set, sealed as `GuidanceItem` dumps it.
 fn guidance(pattern: &str, target: &str, result_count: usize, exact_count: i64) -> Value {
+    if result_count == 0 && exact_count > 0 && !matches!(pattern, "source_of" | "file_summary") {
+        return json!([{
+            "claim": format!("'{target}' is in the graph; no {pattern} relationship reaches it there."),
+            "evidence": [{
+                "type": "computed",
+                "pattern": pattern,
+                "target": target,
+                "result_count": 0,
+                "exact_match_count": exact_count,
+            }],
+            "confidence": "medium",
+            "missingness": [{
+                "reason_code": NO_MATCHING_EDGES,
+                "severity": "low",
+                "claim_effect": "the node is indexed; relationships made at run time (dispatch, values passed around) are not edges",
+            }],
+            "action": format!("query_graph_tool pattern=\"source_of\" target=\"{target}\" -- read how it is used"),
+            "reason_codes": ["zero_result"],
+            "counts": {"result_count": 0},
+        }]);
+    }
     if result_count == 0 {
         return json!([{
             "claim": format!("No graph relationships matched '{pattern}' for '{target}'."),
@@ -394,6 +419,7 @@ const MINIMAL_FIELDS: &[&str] = &[
     "line",
     "match",
     "confidence_tier",
+    "resolved_by",
     "depth",
     "via",
 ];
@@ -484,6 +510,12 @@ pub(crate) fn node_dict(node: &GraphNode) -> Value {
     object(node_row(node))
 }
 
+/// What settled the edge's target (`"scip"`: a SCIP index), when something
+/// other than the extractor did.
+fn resolved_by(edge: &GraphEdge) -> Option<&str> {
+    edge.extra.get("resolved_by").and_then(Value::as_str)
+}
+
 /// `edge_to_dict`.
 pub(crate) fn edge_dict(edge: &GraphEdge) -> Map<String, Value> {
     let mut out = Map::new();
@@ -498,6 +530,9 @@ pub(crate) fn edge_dict(edge: &GraphEdge) -> Map<String, Value> {
         "confidence_tier".into(),
         json!(edge.confidence_tier.as_str()),
     );
+    if let Some(by) = resolved_by(edge) {
+        out.insert("resolved_by".into(), json!(by));
+    }
     if edge.kind == "CROSS_ARTIFACT"
         && let Some(extra) = edge.extra.as_object()
         && !extra.is_empty()
@@ -645,6 +680,11 @@ fn merge(rows: Vec<Row>) -> Vec<Row> {
                 // value says both.
                 if get(&row, "relation") != get(existing, "relation") {
                     set(existing, "relation", json!(CALLS_AND_REFERENCES));
+                }
+                // A merged row says what settled its calls only when every
+                // call it merges was settled that way.
+                if get(&row, "resolved_by") != get(existing, "resolved_by") {
+                    existing.retain(|(k, _)| *k != "resolved_by");
                 }
             }
         }
@@ -839,6 +879,9 @@ impl Found {
             row.push(("line", json!(edge.line)));
             if edge.target_qualified.contains("::") {
                 row.push(("confidence_tier", json!(edge.confidence_tier.as_str())));
+                if let Some(by) = resolved_by(edge) {
+                    row.push(("resolved_by", json!(by)));
+                }
             } else {
                 row.push(("confidence_tier", json!("MEDIUM")));
                 row.push(("match", json!("bare_name")));
@@ -1164,8 +1207,17 @@ fn closed_note(
         "imports_of" => "import",
         _ => return None,
     };
+    let caveat = edge_caveat(pattern, language, import_kind);
+    let direct = if direct { "direct " } else { "" };
+    Some(format!(
+        "No {direct}{relation} the graph records is missing; {caveat}"
+    ))
+}
+
+/// What a static graph leaves out of `pattern`'s edges for `language`.
+fn edge_caveat(pattern: &str, language: &str, import_kind: Option<&str>) -> &'static str {
     let calls = matches!(pattern, "callers_of" | "callees_of");
-    let caveat = match (language, calls, import_kind) {
+    match (language, calls, import_kind) {
         (_, false, Some("directive")) => "only Markdown dependency directives were followed",
         (_, false, Some("link")) => "only Markdown links were followed",
         (_, false, Some("lazy_export")) => "only imports a lazy-export table names were followed",
@@ -1188,11 +1240,32 @@ fn closed_note(
         }
         (_, false, _) => "modules loaded at run time are not edges",
         (_, true, _) => "calls dispatched at run time are not edges",
-    };
-    let direct = if direct { "direct " } else { "" };
-    Some(format!(
-        "No {direct}{relation} the graph records is missing; {caveat}"
-    ))
+    }
+}
+
+/// The summary sentence for a node the graph has but that no edge of
+/// `pattern`'s kind reaches (#195): the node is there, the edges are not.
+fn no_edges_note(pattern: &str, language: &str, import_kind: Option<&str>) -> Option<String> {
+    let caveat = edge_caveat(pattern, language, import_kind);
+    Some(match pattern {
+        "callers_of" => format!(
+            "The node is in the graph and nothing in it calls it; {caveat}. A use as a \
+             value (a callback, a stored method) is not a call edge, so \
+             callers may be missing: read where the name is used"
+        ),
+        "callees_of" => {
+            format!("The node is in the graph and calls nothing it records; {caveat}")
+        }
+        "importers_of" => {
+            format!("The node is in the graph and nothing in it imports it; {caveat}")
+        }
+        "imports_of" => {
+            format!("The node is in the graph and imports nothing it records; {caveat}")
+        }
+        "tests_for" => "The node is in the graph and no test in it reaches it".to_string(),
+        "source_of" | "file_summary" => return None,
+        _ => format!("The node is in the graph, which records no {pattern} edges for it"),
+    })
 }
 
 /// Run `pattern` for `node` (or `target` where the pattern works without one).
@@ -1742,6 +1815,11 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
 
     // `query_zero_result_fields`.
     let raw_count = found.rows.len();
+    // A node the graph has, that no edge of the kind asked for reaches.
+    let empty_note = node
+        .as_ref()
+        .filter(|_| raw_count == 0 && found.unresolved.is_empty() && exact_count > 0)
+        .and_then(|node| no_edges_note(pattern, &node.language, import_kind));
     let (confidence, zero_result_reason) = if raw_count > 0 {
         let high = !found.edges.is_empty()
             && found.edges.iter().all(|edge| {
@@ -1755,6 +1833,8 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         (if high { "high" } else { "medium" }, Value::Null)
     } else if !found.unresolved.is_empty() {
         ("medium", json!("unresolved_endpoints_only"))
+    } else if empty_note.is_some() {
+        ("low", json!(NO_MATCHING_EDGES))
     } else {
         ("low", json!("not_found_in_current_graph"))
     };
@@ -1765,6 +1845,9 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     }
     if let Some(prefix) = path_prefix {
         summary.push_str(&format!(" under '{prefix}'"));
+    }
+    if let Some(note) = &empty_note {
+        summary.push_str(&format!(". {note}"));
     }
 
     let mut payload = Ordered::default()

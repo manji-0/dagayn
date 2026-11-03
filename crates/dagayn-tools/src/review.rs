@@ -237,16 +237,7 @@ impl Review<'_> {
     fn changed_files(&self, request: &Request) -> Result<(Vec<String>, Value), ChangeError> {
         Ok(match &request.changed_files {
             Some(files) => (files.clone(), json!({"files": files, "explicit": files})),
-            None => {
-                let sources = change_file_sources(self.root(), request.base)?;
-                if sources.files.is_empty() {
-                    let files = staged_and_unstaged(self.root())?;
-                    let sources = json!({"files": files, "worktree": files});
-                    (files, sources)
-                } else {
-                    (sources.files.clone(), sources_value(sources))
-                }
-            }
+            None => detect_changed_files(self.root(), request.base)?,
         })
     }
 
@@ -671,6 +662,23 @@ fn normalized_repo_path(value: &str, root: &Path) -> String {
     } else {
         text
     }
+}
+
+/// The files changed against `base` and their sources, as `review_tool`
+/// detects them when the caller names none: the base diff and the work in
+/// progress, else the staged and unstaged files alone.
+pub(crate) fn detect_changed_files(
+    root: &Path,
+    base: &str,
+) -> Result<(Vec<String>, Value), ChangeError> {
+    let sources = change_file_sources(root, base)?;
+    Ok(if sources.files.is_empty() {
+        let files = staged_and_unstaged(root)?;
+        let sources = json!({"files": files, "worktree": files});
+        (files, sources)
+    } else {
+        (sources.files.clone(), sources_value(sources))
+    })
 }
 
 fn sources_value(sources: ChangeSources) -> Value {

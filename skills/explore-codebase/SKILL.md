@@ -73,7 +73,8 @@ effect from a reproduction; keep them apart in a claim. Full rules:
 
 - **Highest** — on a current graph (`sync.state` is `commit_synced` or
   `worktree_ahead`): `HIGH` and `EXTRACTED` edges, whether the parser or a
-  SCIP index (`resolved_by: "scip"`) settled them; `source_of` spans;
+  SCIP index settled them (a `callers_of` / `callees_of` row the index
+  settled says `resolved_by: "scip"`); `source_of` spans;
   authored doc contracts (`implemented_by` / `implements_contract` links whose
   target exists — `evidence_type=authored` alone is on every Markdown result).
 - **Medium** — structure, not correctness: `MEDIUM` (inferred) edges,
