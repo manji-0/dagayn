@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 11.0.0 — 2026-11-04
+
 dagayn is a tool for agents, so the surfaces built for a human to look at,
 and the tools whose answer another tool already gives, are gone (see
 Removed).
@@ -164,6 +166,24 @@ Removed).
   since Go tests became `Test` nodes. New refactor cases
   `pos_unused_go_function`, `pos_unused_go_internal_export`, and
   `neg_exported_go_function` (docs/plans/GO-SUPPORT-MEASUREMENTS.md).
+- Terraform module inputs bridge to the code they name (#205). A module
+  call records its local source directory and its inputs, and a `locals`
+  entry records its value. Post-processing follows a literal from a module
+  input to the module's `var.<input>`, through the values taking it
+  (locals, nested module calls), to a sink: `filename`, `source_dir`,
+  `handler`, `entry_point`, or a `data "external"` `program` / `query`,
+  which is how terraform-aws-modules' Lambda module hands `source_path` to
+  `package.py`. A handler is looked up in the code the same block names,
+  and a Java `package.Class` handler matches the class. A local module
+  source is an IMPORTS_FROM edge to the module's Terraform files. On the
+  real-repository eval, precision goes from 3/12 = 0.25 to 77/78 = 0.987,
+  recall over every literal reference from 3/97 = 0.031 to 77/97 = 0.794,
+  and 93 of 108 module sources resolve (the other 15 sit in a submodule
+  that is not checked out). Terraform extractor version 3.
+- A Terraform path that names a directory is a CROSS_ARTIFACT edge to each
+  indexed code file under it, with the directory as `reference`. Impact
+  radius and `bridges_from` reach those files, and `bridge_touched` groups
+  the edges of one directory into one finding.
 
 ### Changed
 
@@ -643,6 +663,18 @@ Removed).
 - `dagayn` refuses to open a graph whose schema is newer than it supports,
   naming both versions, instead of recreating tables a later migration
   dropped and writing into it.
+- `bridge_touched` fires only when the edit changes a line of the bridged
+  attribute (`attr_lines`: the `handler`, or the module input feeding it).
+  It fired on any edit to the block, such as a Lambda's `runtime` bump. A
+  file whose changed lines are unknown still counts as changed throughout.
+  On 39 commits of the real-repository eval, the 3 findings on unrelated
+  edits go to 0.
+- A Terraform path becomes a bridge only when it names code in the tree:
+  an indexed code file, a directory with indexed code files, or a
+  committed archive. Zips a build writes, Dockerfiles, and
+  `requirements.txt` were HIGH bridges. The value stays on the block node
+  (`terraform_values`).
+- An unresolved Terraform handler is stored at LOW (0.2) instead of HIGH.
 
 ## 10.0.0 — 2026-10-12
 
