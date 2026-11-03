@@ -167,6 +167,17 @@ Removed).
 
 ### Changed
 
+- **Breaking:** `graph_health` and the verbose `answerability` no longer
+  carry the unlabelled `parse` and `answerability` arrays; `counts` (verbose)
+  has the same figures with labels, and the compact `graph_health` is
+  `status`, `score`, and `reason_codes`. The `stale_derived_structures`
+  reason code is gone: it fired whenever a non-File node had no community,
+  which community detection leaves after every full build for the members
+  of clusters below its minimum size, so a graph that matched HEAD read as
+  stale and lost 0.15 of its score (#192). `counts.unassigned_nodes` stays.
+  In the MCP snapshots, 9 `minimal_context` replies lose the two arrays and
+  4 of them the code (their score rises from 0.75 or 0.85 to 0.9 or 1.0).
+
 - `dagayn build --scip` for Go was compared edge by edge with scip-go
   v0.2.7 (G6 of the first-class languages plan). dagayn's own node edges
   agree on 7,003 of 7,017 on klauspost/compress and 287 of 287 on scip-go,
@@ -347,6 +358,26 @@ Removed).
   `undocumented_surface` cases.
 
 ### Fixed
+
+- `query_graph_tool` on a node the graph has, with no edge of the kind
+  asked for, no longer answers `zero_result_reason:
+  "not_found_in_current_graph"` and guidance to refresh the graph. It
+  answers `node_has_no_matching_edges`, and the summary says the node is in
+  the graph and that nothing in it calls (imports, tests, ...) it, with the
+  language's caveat; for `callers_of` it adds that a use as a value is not a
+  call edge, so callers may be missing. A target the graph lacks still
+  answers `status: "not_found"`. On dagayn,
+  `callers_of(dagayn/cli/commands/build_handlers.py::handle_watch_command)`
+  now says this; in the MCP snapshots, five empty `bridges_from` and
+  `importers_of` replies change (#195).
+- `get_minimal_context_tool` without `changed_files` detects the change
+  against `base` as `review_tool(mode="changes")` does, as its description
+  said, and returns `changes` and `key_entities`; with no change the summary
+  says "No changed files against <base>.", and `changed_files=[]` still
+  skips the analysis. It treated an omitted list as empty, so a review task
+  got the largest communities instead of its diff (#191). On dagayn with 5
+  changed files the call takes 0.71 s instead of 0.20 s; above 100 files
+  it still says to run `review_tool` instead.
 
 - `dagayn build --scip` no longer takes a call's target from a later line
   when the call's own line calls the name and the index has no reference
