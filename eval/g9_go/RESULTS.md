@@ -89,7 +89,7 @@ SHORT, the guard (a point estimate):
 | SHORT: token ratio at most 1.10 | **no** (1.17x) |
 | SHORT: exact not fewer | yes (40 / 40 against 37 / 40) |
 
-Per repository (all twelve questions of each):
+Per repository (each repository's four questions):
 
 | Repository | Tokens, Holm p | Time, Holm p |
 |---|---|---|
@@ -144,7 +144,7 @@ There were 11 inexact answers: 3 with dagayn and 8 without.
   `TestConcurrentBlocks_InterleavedWriteReadFrom`.
 - **T12, 2 runs without dagayn:** missed the 5 HTTP tests of
   `http_assertions_test.go`.
-- **T11, 1 run without dagayn (056):** gave 2 of the 18 callers.
+- **T11, 1 run without dagayn (056):** gave 1 of the 18 callers.
 - **C12, 1 run without dagayn (030):** missed `Encoder.ReadFrom` and
   `Encoder.readFromJobs`, and added `Encoder.nextBlock`.
 
@@ -186,7 +186,7 @@ Per question:
 
 | Q | Token ratio | Requests (dagayn / none) | What the transcripts show |
 |---|---|---|---|
-| K3 | 1.66x | 6 / 4 | 5 first calls named the bare `IsBool`, which is `ambiguous` among 5 definitions, so these runs made a second call. The complete reply named two calls through the `BoolMapper` interface (`mapper.go:767`, `model.go:338`) and said to read those lines. All 10 runs then grepped `IsBool`. The baseline answered with one grep and a few reads. |
+| K3 | 1.66x | 6 / 4 | 5 first calls named the bare `IsBool`, which is `ambiguous`: the reply listed five definitions and said the list was cut. These runs made a second call. The complete reply named two calls through the `BoolMapper` interface (`mapper.go:767`, `model.go:338`) and said to read those lines. All 10 runs then grepped `IsBool`. The baseline answered with one grep and a few reads. |
 | K4 | 1.37x | 6 / 5 | dagayn's reply had one row, `TestHelpTree`, named as a use of the value, as registered. 8 runs grepped `LineIndenter` to find where the value goes. 4 runs called dagayn without `ToolSearch`, and 2 of them sent a call with no `target`, which failed validation. |
 | C12 | 1.04x | 6 / 5.5 | The first call was complete (5 / 5) in all 10 runs. All 10 then grepped `CRC`. |
 | T12 | 0.80x | 6 / 6 | The first call was complete (6 / 6) in all 10 runs. The baseline ran 50 Bash commands across its 10 runs and 2 of its runs missed the HTTP tests. |
