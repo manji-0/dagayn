@@ -1,0 +1,47 @@
+diff --git a/assert/assertion_format.go b/assert/assertion_format.go
+index a19a892..6b16885 100644
+--- a/assert/assertion_format.go
++++ b/assert/assertion_format.go
+@@ -866,7 +866,8 @@ func YAMLEqf(t TestingT, expected string, actual string, msg string, args ...int
+ 	if h, ok := t.(tHelper); ok {
+ 		h.Helper()
+ 	}
+-	return YAMLEq(t, expected, actual, append([]interface{}{msg}, args...)...)
++	msgAndArgs := append([]interface{}{msg}, args...)
++	return YAMLEq(t, expected, actual, msgAndArgs...)
+ }
+ 
+ // Zerof asserts that i is the zero value for its type.
+diff --git a/assert/assertion_forward.go b/assert/assertion_forward.go
+index cd2a860..9a9cab7 100644
+--- a/assert/assertion_forward.go
++++ b/assert/assertion_forward.go
+@@ -1704,10 +1704,11 @@ func (a *Assertions) WithinRangef(actual time.Time, start time.Time, end time.Ti
+ //	`
+ //	a.YAMLEq(expected, actual)
+ func (a *Assertions) YAMLEq(expected string, actual string, msgAndArgs ...interface{}) bool {
+-	if h, ok := a.t.(tHelper); ok {
++	t := a.t
++	if h, ok := t.(tHelper); ok {
+ 		h.Helper()
+ 	}
+-	return YAMLEq(a.t, expected, actual, msgAndArgs...)
++	return YAMLEq(t, expected, actual, msgAndArgs...)
+ }
+ 
+ // YAMLEqf asserts that the first documents in the two YAML strings are equivalent.
+diff --git a/assert/assertions.go b/assert/assertions.go
+index 166f637..2b8bfa4 100644
+--- a/assert/assertions.go
++++ b/assert/assertions.go
+@@ -1904,8 +1904,8 @@ func YAMLEq(t TestingT, expected string, actual string, msgAndArgs ...interface{
+ 		return Fail(t, fmt.Sprintf("Expected value ('%s') is not valid yaml.\nYAML parsing error: '%s'", expected, err.Error()), msgAndArgs...)
+ 	}
+ 
+-	// Shortcut if same bytes
+-	if actual == expected {
++	// Shortcut if same bytes, ignoring the whitespace around the documents
++	if strings.TrimSpace(actual) == strings.TrimSpace(expected) {
+ 		return true
+ 	}
+ 
