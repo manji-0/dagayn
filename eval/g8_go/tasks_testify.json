@@ -1,0 +1,80 @@
+{
+ "_about": "G8 (eval/g8_go/PREREG.md): four Go questions on testify v1.12.1 (959dbda) with the change in testify-change.patch as the last commit, drawn by keys/draw.py. Keys were built without dagayn (keys/make_keys.py).",
+ "source_commit": "959dbdacf1533e155162811ea90c90117a420463",
+ "change": {
+  "patch": "testify-change.patch",
+  "message": "assert: ignore the whitespace around YAML documents in YAMLEq's shortcut"
+ },
+ "preamble": "このリポジトリ (カレントディレクトリ。Go のモジュール github.com/stretchr/testify v1.12.1 のチェックアウト) について、次の質問に答えてください。\n- リポジトリのファイルは変更しないこと。一時ファイルが必要なら /tmp の下に作ること。\n- テストやリポジトリのコードは実行しないこと (go test や go run は使わない。読む・検索する・解析用のスクリプトを書いて実行するのはよい)。\n- 回答の最後に、次の形式の JSON コードブロックを 1 つだけ置くこと: ```json\n{\"answer\": [...]}\n```\n\n質問: ",
+ "condition_line": {
+  "graph": "- dagayn の MCP ツール (サーバ名 dagayn) が使える。まずそれで調べ、必要なら他の道具で確かめること。\n",
+  "none": "- dagayn の MCP ツールは使えない。標準の道具 (検索・ファイルの読み込み・シェル) で調べること。\n"
+ },
+ "tasks": {
+  "T5": {
+   "prompt": "`mock/mock.go` の関数 `diffArguments` の本体は、どのテストを実行したときに実行されるか。`func TestXxx(t *testing.T)` の形のテスト関数のうち、そのテストを 1 つだけ実行したとき (`go test -run '^TestXxx$'` で、そのサブテストを含む。`-short` は付けない) に `diffArguments` の本体が実行されるものをすべて挙げてください。対象はリポジトリのすべてのパッケージのテスト。`Benchmark`・`Fuzz`・`Example` で始まる関数は数えない。形式は \"ファイルパス::テスト関数名\" (ファイルパスはリポジトリルートから)。",
+   "kind": "symbols",
+   "truth": [
+    "mock/mock_test.go::TestArgumentMatcherToPrintMismatch",
+    "mock/mock_test.go::TestArgumentMatcherToPrintMismatchWithReferenceType",
+    "mock/mock_test.go::TestClosestCallFavorsFirstMock",
+    "mock/mock_test.go::TestClosestCallMismatchedArgumentInformationShowsTheClosest",
+    "mock/mock_test.go::TestClosestCallMismatchedArgumentValueInformation",
+    "mock/mock_test.go::TestClosestCallUsesRepeatabilityToFindClosest",
+    "mock/mock_test.go::TestMock_WithTest",
+    "mock/mock_test.go::Test_Mock_AssertExpectationsFunctionalOptionsType_Diff_Arg",
+    "mock/mock_test.go::Test_Mock_AssertExpectationsFunctionalOptionsType_Diff_Func",
+    "mock/mock_test.go::Test_Mock_On_WithArgMatcherThatPanics",
+    "mock/mock_test.go::Test_Mock_On_WithIntArgMatcher",
+    "mock/mock_test.go::Test_Mock_On_WithMixedVariadicFunc",
+    "mock/mock_test.go::Test_Mock_On_WithVariadicFunc",
+    "mock/mock_test.go::Test_Mock_On_WithVariadicFuncWithEmptyInterfaceArray",
+    "mock/mock_test.go::Test_Mock_On_WithVariadicFuncWithInterface"
+   ]
+  },
+  "T6": {
+   "prompt": "`assert/assertion_forward.go` のメソッド `(*Assertions).JSONEq` を直接呼んでいる関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.JSONEq(...)` は、x の静的な型が assert パッケージの `*Assertions` (または `Assertions`) か、それを埋め込んだ型で、呼び出しがこのメソッドに解決されるなら数える。インタフェース型の値を通した呼び出し、ほかの型の `JSONEq`、同じ名前の関数、標準ライブラリや外部パッケージの関数・メソッドは数えない。コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "truth": [
+    "assert/forward_assertions_test.go::TestJSONEqWrapper_ActualIsNotJSON",
+    "assert/forward_assertions_test.go::TestJSONEqWrapper_Array",
+    "assert/forward_assertions_test.go::TestJSONEqWrapper_ArraysOfDifferentOrder",
+    "assert/forward_assertions_test.go::TestJSONEqWrapper_EqualSONString",
+    "assert/forward_assertions_test.go::TestJSONEqWrapper_EquivalentButNotEqual",
+    "assert/forward_assertions_test.go::TestJSONEqWrapper_ExpectedAndActualNotJSON",
+    "assert/forward_assertions_test.go::TestJSONEqWrapper_ExpectedIsNotJSON",
+    "assert/forward_assertions_test.go::TestJSONEqWrapper_HashAndArrayNotEquivalent",
+    "assert/forward_assertions_test.go::TestJSONEqWrapper_HashOfArraysAndHashes",
+    "assert/forward_assertions_test.go::TestJSONEqWrapper_HashesNotEquivalent"
+   ]
+  },
+  "T7": {
+   "prompt": "`suite/suite.go` のメソッド `(*Suite).SetT` を直接呼び得る関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.SetT(...)` という呼び出しは、実行時にその呼び出しが `(*Suite).SetT` を実行し得るなら数える (`Suite` を埋め込んだ型の値での呼び出しや、インタフェース型の値を通した呼び出しを含む)。ほかの型の `SetT` やコメントでの言及は数えない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "truth": [
+    "suite/suite.go::Run",
+    "suite/suite.go::Suite.Run",
+    "suite/suite_test.go::TestSuiteGetters"
+   ]
+  },
+  "T8": {
+   "prompt": "最後のコミットは `assert/assertions.go` の関数 `YAMLEq` の振る舞いを変えた。このコミットの時点で `YAMLEq` を直接呼んでいる関数・メソッドのうち、このコミットで変更されていないものをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。ほかのパッケージの同じ名前の関数や、名前の違う関数の呼び出しは数えない。「変更された」は、コミットの差分が、その関数・メソッドの定義 (`func` の行から本体の最後の行まで) の中の行を変えた・足した・消したこと。コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "truth": [
+    "assert/assertions_test.go::TestYAMLEq_ActualIsSimpleString",
+    "assert/assertions_test.go::TestYAMLEq_Array",
+    "assert/assertions_test.go::TestYAMLEq_ArraysOfDifferentOrder",
+    "assert/assertions_test.go::TestYAMLEq_EqualYAMLString",
+    "assert/assertions_test.go::TestYAMLEq_EquivalentButNotEqual",
+    "assert/assertions_test.go::TestYAMLEq_ExpectedAndActualSimpleString",
+    "assert/assertions_test.go::TestYAMLEq_ExpectedIsSimpleString",
+    "assert/assertions_test.go::TestYAMLEq_HashAndArrayNotEquivalent",
+    "assert/assertions_test.go::TestYAMLEq_HashOfArraysAndHashes",
+    "assert/assertions_test.go::TestYAMLEq_HashesNotEquivalent",
+    "assert/assertions_test.go::TestYAMLEq_InvalidIdenticalYAML",
+    "assert/assertions_test.go::TestYAMLEq_OnlyFirstDocument",
+    "require/require.go::YAMLEq"
+   ]
+  }
+ }
+}

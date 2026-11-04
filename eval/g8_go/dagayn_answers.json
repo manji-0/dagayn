@@ -1,0 +1,454 @@
+{
+ "graphs": {
+  "g8/testify": {
+   "go_extractor": "15",
+   "last_build_type": "full",
+   "postprocess_level": "full"
+  },
+  "g8/compress": {
+   "go_extractor": "15",
+   "last_build_type": "full",
+   "postprocess_level": "full"
+  },
+  "g7/testify": {
+   "go_extractor": "15",
+   "last_build_type": "full",
+   "postprocess_level": "full"
+  },
+  "g7/compress": {
+   "go_extractor": "15",
+   "last_build_type": "full",
+   "postprocess_level": "full"
+  }
+ },
+ "T5": {
+  "target": "mock/mock.go::diffArguments",
+  "tests_for": {
+   "rows": 0,
+   "top_level_tests": 0,
+   "test_reach": {
+    "counts_as_tested": true,
+    "hop_limit": 4,
+    "hops": 1,
+    "nearest_test": "mock/mock_test.go::Test_Mock_IsMethodCallable"
+   }
+  },
+  "callers_of_depth6": {
+   "rows": 87,
+   "top_level_tests": 77,
+   "results_complete": true
+  },
+  "found": 15,
+  "key": 15,
+  "missing": [],
+  "extra": [
+   "mock/mock_test.go::TestAfterTotalWaitTimeWhileExecution",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethod",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethod2",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethod3",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethod4",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethod5",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethod6",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethod7",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethodFunc",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethodFuncType",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethodFunctionalOptions",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethodMixedVariadic",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethodVariadic",
+   "mock/mock_test.go::TestExampleImplementation.TheExampleMethodVariadicInterface",
+   "mock/mock_test.go::TestIssue1785ArgumentWithMutatingStringer",
+   "mock/mock_test.go::Test_AssertExpectationsForObjects_Helper",
+   "mock/mock_test.go::Test_AssertExpectationsForObjects_Helper_Failed",
+   "mock/mock_test.go::Test_MockMethodCalled",
+   "mock/mock_test.go::Test_MockMethodCalled_Panic",
+   "mock/mock_test.go::Test_MockReturnAndCalledConcurrent",
+   "mock/mock_test.go::Test_Mock_AssertCalled",
+   "mock/mock_test.go::Test_Mock_AssertCalled_WithAnythingOfTypeArgument",
+   "mock/mock_test.go::Test_Mock_AssertCalled_WithArguments",
+   "mock/mock_test.go::Test_Mock_AssertCalled_WithArguments_With_Repeatability",
+   "mock/mock_test.go::Test_Mock_AssertExpectations",
+   "mock/mock_test.go::Test_Mock_AssertExpectationsCustomType",
+   "mock/mock_test.go::Test_Mock_AssertExpectationsFunctionalOptionsType",
+   "mock/mock_test.go::Test_Mock_AssertExpectationsFunctionalOptionsType_Empty",
+   "mock/mock_test.go::Test_Mock_AssertExpectationsFunctionalOptionsType_Indirectly",
+   "mock/mock_test.go::Test_Mock_AssertExpectations_Placeholder",
+   "mock/mock_test.go::Test_Mock_AssertExpectations_Placeholder_NoArgs",
+   "mock/mock_test.go::Test_Mock_AssertExpectations_With_Pointers",
+   "mock/mock_test.go::Test_Mock_AssertExpectations_With_Repeatability",
+   "mock/mock_test.go::Test_Mock_AssertNotCalled",
+   "mock/mock_test.go::Test_Mock_AssertNumberOfCalls",
+   "mock/mock_test.go::Test_Mock_AssertOptional",
+   "mock/mock_test.go::Test_Mock_Called",
+   "mock/mock_test.go::Test_Mock_Called_For_Bounded_Repeatability",
+   "mock/mock_test.go::Test_Mock_Called_For_SetTime_Expectation",
+   "mock/mock_test.go::Test_Mock_Called_Unexpected",
+   "mock/mock_test.go::Test_Mock_Called_blocks",
+   "mock/mock_test.go::Test_Mock_IsMethodCallable",
+   "mock/mock_test.go::Test_Mock_On_WithChannelArgMatcher",
+   "mock/mock_test.go::Test_Mock_On_WithFuncArg",
+   "mock/mock_test.go::Test_Mock_On_WithFuncArgMatcher",
+   "mock/mock_test.go::Test_Mock_On_WithFuncTypeArg",
+   "mock/mock_test.go::Test_Mock_On_WithInterfaceArgMatcher",
+   "mock/mock_test.go::Test_Mock_On_WithMapArgMatcher",
+   "mock/mock_test.go::Test_Mock_On_WithPtrArgMatcher",
+   "mock/mock_test.go::Test_Mock_On_WithSliceArgMatcher",
+   "mock/mock_test.go::Test_Mock_Return_InOrder_Uses_NotBefore",
+   "mock/mock_test.go::Test_Mock_Return_InOrder_Uses_NotBefore_Out_Of_Order",
+   "mock/mock_test.go::Test_Mock_Return_NotBefore_Different_Mock_In_Order",
+   "mock/mock_test.go::Test_Mock_Return_NotBefore_Different_Mock_Out_Of_Order",
+   "mock/mock_test.go::Test_Mock_Return_NotBefore_In_Order",
+   "mock/mock_test.go::Test_Mock_Return_NotBefore_In_Order_With_Non_Dependant",
+   "mock/mock_test.go::Test_Mock_Return_NotBefore_Not_Enough_Times",
+   "mock/mock_test.go::Test_Mock_Return_NotBefore_Out_Of_Order",
+   "mock/mock_test.go::Test_Mock_Return_Run",
+   "mock/mock_test.go::Test_Mock_TwoCallsWithDifferentArguments",
+   "mock/mock_test.go::Test_Mock_Unset",
+   "mock/mock_test.go::Test_WaitUntil_Parallel"
+  ]
+ },
+ "T6": {
+  "target": "assert/assertion_forward.go::Assertions.JSONEq",
+  "callers_of": {
+   "rows": 10,
+   "summary": "Found 10 result(s) for callers_of('assert/assertion_forward.go::Assertions.JSONEq'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "found": 10,
+  "key": 10,
+  "missing": [],
+  "extra": []
+ },
+ "T7": {
+  "target": "suite/suite.go::Suite.SetT",
+  "callers_of": {
+   "rows": 2,
+   "summary": "Found 2 result(s) for callers_of('suite/suite.go::Suite.SetT'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "found": 2,
+  "key": 3,
+  "missing": [
+   "suite/suite.go::Run"
+  ],
+  "extra": []
+ },
+ "T8": {
+  "target": "assert/assertions.go::YAMLEq",
+  "callers_of": {
+   "rows": 15,
+   "summary": "Found 15 result(s) for callers_of('assert/assertions.go::YAMLEq'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "review_summary": "3 changed file(s), 3 changed symbol(s). Findings: 1 untested_change, 2 tests_to_run.",
+  "review_unchanged_callers": [],
+  "edited_callers_in_rows": [
+   "assert/assertion_format.go::YAMLEqf",
+   "assert/assertion_forward.go::Assertions.YAMLEq"
+  ],
+  "found": 13,
+  "key": 13,
+  "missing": [],
+  "extra": [
+   "assert/assertion_format.go::YAMLEqf",
+   "assert/assertion_forward.go::Assertions.YAMLEq"
+  ]
+ },
+ "C5": {
+  "target": "zip/reader.go::File.OpenRaw",
+  "tests_for": {
+   "rows": 1,
+   "top_level_tests": 0,
+   "test_reach": {
+    "counts_as_tested": true,
+    "hop_limit": 4,
+    "hops": 0,
+    "nearest_test": "zip/reader_test.go::readTestFile"
+   }
+  },
+  "callers_of_depth6": {
+   "rows": 6,
+   "top_level_tests": 3,
+   "results_complete": true
+  },
+  "found": 3,
+  "key": 3,
+  "missing": [],
+  "extra": []
+ },
+ "C6": {
+  "target": "gzip/gzip.go::Writer.init",
+  "callers_of": {
+   "rows": 3,
+   "summary": "Found 3 result(s) for callers_of('gzip/gzip.go::Writer.init'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "high"
+  },
+  "found": 3,
+  "key": 3,
+  "missing": [],
+  "extra": []
+ },
+ "C7": {
+  "target": "gzhttp/writer/gzkp/gzkp.go::NewWriter",
+  "callers_of": {
+   "rows": 1,
+   "summary": "Found 1 result(s) for callers_of('gzhttp/writer/gzkp/gzkp.go::NewWriter'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "found": 1,
+  "key": 3,
+  "missing": [
+   "gzhttp/compress.go::GzipResponseWriter.init",
+   "gzhttp/compress.go::config.validate"
+  ],
+  "extra": []
+ },
+ "C8": {
+  "target": "zstd/blockenc.go::blockHeader.setSize",
+  "callers_of": {
+   "rows": 6,
+   "summary": "Found 6 result(s) for callers_of('zstd/blockenc.go::blockHeader.setSize'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "review_summary": "1 changed file(s), 3 changed symbol(s). Nothing beyond the diff needs checking.",
+  "review_unchanged_callers": [],
+  "edited_callers_in_rows": [
+   "zstd/blockenc.go::blockEnc.encodeLits",
+   "zstd/blockenc.go::blockEnc.encodeRawTo"
+  ],
+  "found": 4,
+  "key": 4,
+  "missing": [],
+  "extra": [
+   "zstd/blockenc.go::blockEnc.encodeLits",
+   "zstd/blockenc.go::blockEnc.encodeRawTo"
+  ]
+ },
+ "T1": {
+  "target": "assert/assertions.go::CollectT.Errorf",
+  "tests_for": {
+   "rows": 0,
+   "top_level_tests": 0,
+   "test_reach": {
+    "counts_as_tested": false,
+    "hop_limit": 4,
+    "hops": null,
+    "nearest_test": null
+   }
+  },
+  "callers_of_depth6": {
+   "rows": 63,
+   "top_level_tests": 1,
+   "results_complete": false
+  },
+  "found": 0,
+  "key": 7,
+  "missing": [
+   "assert/assertions_test.go::TestEventuallyWithTFailNow",
+   "assert/assertions_test.go::TestEventuallyWithTFalse",
+   "assert/assertions_test.go::TestEventuallyWithTTrue",
+   "assert/assertions_test.go::TestEventuallyWithT_ConcurrencySafe",
+   "assert/assertions_test.go::TestEventuallyWithT_ReturnsTheLatestFinishedConditionErrors",
+   "require/requirements_test.go::TestEventuallyWithTFalse",
+   "require/requirements_test.go::TestEventuallyWithTTrue"
+  ],
+  "extra": [
+   "assert/assertions_test.go::TestError"
+  ]
+ },
+ "T2": {
+  "target": "assert/assertion_forward.go::Assertions.Equal",
+  "callers_of": {
+   "rows": 9,
+   "summary": "Found 9 result(s) for callers_of('assert/assertion_forward.go::Assertions.Equal'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "found": 9,
+  "key": 9,
+  "missing": [],
+  "extra": []
+ },
+ "T3": {
+  "target": "suite/suite.go::Suite.T",
+  "callers_of": {
+   "rows": 13,
+   "summary": "Found 13 result(s) for callers_of('suite/suite.go::Suite.T'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "found": 13,
+  "key": 14,
+  "missing": [
+   "suite/suite.go::Run"
+  ],
+  "extra": []
+ },
+ "T4": {
+  "target": "assert/assertions.go::ObjectsAreEqual",
+  "callers_of": {
+   "rows": 12,
+   "summary": "Found 12 result(s) for callers_of('assert/assertions.go::ObjectsAreEqual'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "review_summary": "1 changed file(s), 3 changed symbol(s). Findings: 3 tests_to_run.",
+  "review_unchanged_callers": [],
+  "edited_callers_in_rows": [
+   "assert/assertions.go::NotEqual",
+   "assert/assertions.go::isType"
+  ],
+  "found": 10,
+  "key": 10,
+  "missing": [],
+  "extra": [
+   "assert/assertions.go::NotEqual",
+   "assert/assertions.go::isType"
+  ]
+ },
+ "C1": {
+  "target": "flate/stateless.go::statelessEnc",
+  "tests_for": {
+   "rows": 0,
+   "top_level_tests": 0,
+   "test_reach": {
+    "counts_as_tested": true,
+    "hop_limit": 4,
+    "hops": 1,
+    "nearest_test": "flate/flate_test.go::TestRegressions"
+   }
+  },
+  "callers_of_depth6": {
+   "rows": 97,
+   "top_level_tests": 65,
+   "results_complete": true
+  },
+  "found": 4,
+  "key": 4,
+  "missing": [],
+  "extra": [
+   "gzhttp/compress_test.go::Test1xxResponses",
+   "gzhttp/compress_test.go::TestGzipHandlerAlreadyCompressed",
+   "gzhttp/compress_test.go::TestGzipHandlerNilContentType",
+   "gzhttp/compress_test.go::TestGzipHandlerSmallBodyNoCompression",
+   "gzhttp/compress_test.go::TestGzipOnlyClientGetsGzip",
+   "gzhttp/compress_test.go::TestGzipPreferredByQValue",
+   "gzhttp/compress_test.go::TestMustNewGzipHandler",
+   "gzhttp/compress_test.go::TestRequestContentEncodingOrder",
+   "gzhttp/compress_test.go::TestZstdHandler",
+   "gzhttp/compress_test.go::TestZstdOnlyClientGetsZstd",
+   "gzhttp/compress_test.go::TestZstdPreferredOverGzip",
+   "gzhttp/transport_test.go::TestDefaultTransport",
+   "gzhttp/transport_test.go::TestTransport",
+   "gzhttp/transport_test.go::TestTransportCustomEval",
+   "gzhttp/transport_test.go::TestTransportForced",
+   "gzhttp/transport_test.go::TestTransportForcedDisabled",
+   "gzhttp/transport_test.go::TestTransportInvalid",
+   "gzhttp/transport_test.go::TestTransportReuseRequest",
+   "gzhttp/transport_test.go::TestTransportTransportAlwaysDecompress",
+   "gzhttp/transport_test.go::TestTransportZstd",
+   "gzhttp/transport_test.go::TestTransportZstdDisabled",
+   "gzhttp/transport_test.go::TestTransportZstdInvalid",
+   "gzip/gunzip_test.go::TestBufferedPartialCopyGzip",
+   "gzip/gunzip_test.go::TestTruncatedGunzip",
+   "gzip/gunzip_test.go::TestWriteTo",
+   "gzip/gzip_test.go::TestConcat",
+   "gzip/gzip_test.go::TestDeterministicL1",
+   "gzip/gzip_test.go::TestDeterministicL2",
+   "gzip/gzip_test.go::TestDeterministicL3",
+   "gzip/gzip_test.go::TestDeterministicL4",
+   "gzip/gzip_test.go::TestDeterministicL5",
+   "gzip/gzip_test.go::TestDeterministicL6",
+   "gzip/gzip_test.go::TestDeterministicL7",
+   "gzip/gzip_test.go::TestDeterministicL8",
+   "gzip/gzip_test.go::TestDeterministicL9",
+   "gzip/gzip_test.go::TestDeterministicLM2",
+   "gzip/gzip_test.go::TestEmpty",
+   "gzip/gzip_test.go::TestFile10",
+   "gzip/gzip_test.go::TestFile1x0",
+   "gzip/gzip_test.go::TestFile1x1",
+   "gzip/gzip_test.go::TestFile1x2",
+   "gzip/gzip_test.go::TestFile1x3",
+   "gzip/gzip_test.go::TestFile1x4",
+   "gzip/gzip_test.go::TestFile1x5",
+   "gzip/gzip_test.go::TestFile1x6",
+   "gzip/gzip_test.go::TestFile1x7",
+   "gzip/gzip_test.go::TestFile1x8",
+   "gzip/gzip_test.go::TestFile1x9",
+   "gzip/gzip_test.go::TestFile1xM1",
+   "gzip/gzip_test.go::TestFile1xM2",
+   "gzip/gzip_test.go::TestFile200",
+   "gzip/gzip_test.go::TestFile50",
+   "gzip/gzip_test.go::TestFileWindow",
+   "gzip/gzip_test.go::TestGzip100K",
+   "gzip/gzip_test.go::TestGzip10M",
+   "gzip/gzip_test.go::TestGzip1K",
+   "gzip/gzip_test.go::TestGzip1M",
+   "gzip/gzip_test.go::TestLatin1RoundTrip",
+   "gzip/gzip_test.go::TestRoundTrip",
+   "gzip/gzip_test.go::TestWriterFlush",
+   "gzip/gzip_test.go::TestWriterReset"
+  ]
+ },
+ "C2": {
+  "target": "zstd/internal/xxhash/xxhash.go::Digest.Reset",
+  "callers_of": {
+   "rows": 10,
+   "summary": "Found 10 result(s) for callers_of('zstd/internal/xxhash/xxhash.go::Digest.Reset'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "found": 10,
+  "key": 10,
+  "missing": [],
+  "extra": []
+ },
+ "C3": {
+  "target": "flate/deflate.go::compressor.storeFast",
+  "callers_of": {
+   "rows": 1,
+   "summary": "Found 1 result(s) for callers_of('flate/deflate.go::compressor.storeFast'). 1 use it as a value (relation \"references\"); calls through that value are not edges, so callers may be missing: read where the value goes",
+   "results_complete": true,
+   "confidence": "high"
+  },
+  "found": 0,
+  "key": 3,
+  "missing": [
+   "flate/deflate.go::compressor.close",
+   "flate/deflate.go::compressor.syncFlush",
+   "flate/deflate.go::compressor.write"
+  ],
+  "extra": [
+   "flate/deflate.go::compressor.init"
+  ]
+ },
+ "C4": {
+  "target": "flate/deflate.go::Writer.Reset",
+  "callers_of": {
+   "rows": 11,
+   "summary": "Found 11 result(s) for callers_of('flate/deflate.go::Writer.Reset'). No direct caller the graph records is missing; calls dispatched at run time are not edges",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "review_summary": "3 changed file(s), 3 changed symbol(s). Findings: 1 untested_change, 7 tests_to_run.",
+  "review_unchanged_callers": [],
+  "edited_callers_in_rows": [
+   "zip/register.go::newFlateWriter",
+   "zlib/writer.go::Writer.Reset"
+  ],
+  "found": 9,
+  "key": 10,
+  "missing": [
+   "flate/deflate_test.go::testResetOutput"
+  ],
+  "extra": [
+   "zip/register.go::newFlateWriter",
+   "zlib/writer.go::Writer.Reset"
+  ]
+ }
+}

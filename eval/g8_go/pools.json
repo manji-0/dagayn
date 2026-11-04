@@ -1,0 +1,2877 @@
+{
+ "compress": {
+  "kind1": [
+   {
+    "target": "flate/deflate.go::NewWriterDict",
+    "tests": 9,
+    "tests_naming_it": 4
+   },
+   {
+    "target": "flate/deflate.go::compressor.fillWindow",
+    "tests": 9,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/dict_decoder.go::dictDecoder.appendWindow",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/huffman_bit_writer.go::huffmanBitWriter.writeBlock",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/inflate.go::WithDict",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/inflate.go::decompressor.WriteTo",
+    "tests": 13,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "flate/inflate.go::decompressor.applyCP",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/inflate.go::noEOF",
+    "tests": 7,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/inflate_gen.go::decompressor.huffmanBytesReader",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/inflate_gen.go::decompressor.huffmanStringsReader",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/level5.go::fastEncL5Window.Encode",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/level5.go::fastEncL5Window.addBlock",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/level5.go::fastEncL5Window.matchlen",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/level5.go::fastEncL5Window.matchlenLong",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/stateless.go::hashSL",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/stateless.go::load3216",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/stateless.go::load6416",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/token.go::indexTokens",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/token.go::token.literal",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "flate/token.go::tokens.indexTokens",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "fse/compress.go::Scratch.countSimple",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "fse/compress.go::Scratch.normalizeCount2",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/compress.go::contentGzip",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/compress.go::handleContentType",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/compress.go::joinContentEncoding",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/compress.go::newNoGzipResponseWriter",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/compress.go::parsedContentType.equals",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/compress.go::splitOuterCoding",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/transport.go::asciiEqualFold",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/transport.go::gzRoundtripper.RoundTrip",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/transport.go::gzipReader.Read",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/transport.go::lower",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/transport.go::zstdReader.Read",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/writer/gzkp/gzkp.go::pooledWriter.SetHeader",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/writer/zstdkp/zstdkp.go::NewWriter",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzhttp/writer/zstdkp/zstdkp.go::pooledWriter.Close",
+    "tests": 10,
+    "tests_naming_it": 4
+   },
+   {
+    "target": "gzip/gunzip.go::Reader.WriteTo",
+    "tests": 6,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "gzip/gunzip.go::Reader.readString",
+    "tests": 5,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "gzip/gunzip.go::noEOF",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzip/gzip.go::Writer.writeBytes",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "gzip/gzip.go::Writer.writeString",
+    "tests": 8,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "huff0/bitreader.go::bitReaderBytes.advance",
+    "tests": 12,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/bitreader.go::bitReaderBytes.close",
+    "tests": 12,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/bitreader.go::bitReaderBytes.fill",
+    "tests": 7,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/bitreader.go::bitReaderBytes.fillFast",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/bitreader.go::bitReaderBytes.fillFastStart",
+    "tests": 12,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/bitreader.go::bitReaderBytes.finished",
+    "tests": 12,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/bitreader.go::bitReaderBytes.init",
+    "tests": 12,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/bitreader.go::bitReaderBytes.peekByteFast",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/bitreader.go::bitReaderBytes.remaining",
+    "tests": 12,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/decompress.go::Decoder.buffer",
+    "tests": 12,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/decompress.go::Decoder.decompress4X8bit",
+    "tests": 12,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/decompress.go::Decoder.decompress4X8bitExactly",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/decompress.go::Scratch.matches",
+    "tests": 6,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "huff0/decompress_arm64.go::decompress4x_4b_main_loop_asm",
+    "tests": 15,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "huff0/huff0.go::Scratch.TransferCTable",
+    "tests": 10,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "huff0/huff0.go::cTable.estTableSize",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/decode.go::decodedLen",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/decode_other.go::decode",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/encode.go::Encode",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/encode.go::MaxEncodedLen",
+    "tests": 4,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "internal/snapref/encode.go::Writer.Flush",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/encode.go::Writer.Write",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/encode.go::Writer.write",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/encode_other.go::emitCopy",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/encode_other.go::emitLiteral",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/encode_other.go::encodeBlock",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/encode_other.go::hash",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/encode_other.go::load32",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/encode_other.go::load64",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/snapref/snappy.go::crc",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "lzw/reader.go::Reader.SetAldusCompatible",
+    "tests": 5,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "lzw/reader.go::Reader.decode",
+    "tests": 15,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "lzw/reader.go::Reader.decodeAldus",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "lzw/writer.go::NewWriter",
+    "tests": 14,
+    "tests_naming_it": 6
+   },
+   {
+    "target": "lzw/writer.go::Writer.Close",
+    "tests": 12,
+    "tests_naming_it": 4
+   },
+   {
+    "target": "lzw/writer.go::Writer.Write",
+    "tests": 14,
+    "tests_naming_it": 6
+   },
+   {
+    "target": "lzw/writer.go::Writer.emit",
+    "tests": 14,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "lzw/writer.go::Writer.flush",
+    "tests": 12,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "lzw/writer.go::Writer.incHi",
+    "tests": 12,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "lzw/writer.go::Writer.init",
+    "tests": 14,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "lzw/writer.go::Writer.sendClear",
+    "tests": 7,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "lzw/writer.go::newWriter",
+    "tests": 14,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/cmd/internal/filepathx/filepathx.go::Globs.Expand",
+    "tests": 4,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "s2/dict.go::Dict.initBest",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/dict.go::Dict.initBetter",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode.go::ConcatBlocks",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode.go::Encode",
+    "tests": 9,
+    "tests_naming_it": 3
+   },
+   {
+    "target": "s2/encode.go::EncodeBetter",
+    "tests": 8,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "s2/encode.go::EncodeSnappy",
+    "tests": 8,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode.go::EncodeSnappyBetter",
+    "tests": 6,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_all.go::encodeBlockGo64K",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_all.go::encodeGo",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_all.go::hash6",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_all.go::load32",
+    "tests": 14,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_all.go::load64",
+    "tests": 14,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_asm.go::encodeBlockBetter",
+    "tests": 9,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_asm.go::encodeBlockBetterSnappy",
+    "tests": 15,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_asm.go::encodeBlockSnappy",
+    "tests": 8,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_best.go::emitCopyNoRepeatSize",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_best.go::emitCopySize",
+    "tests": 7,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_best.go::emitRepeatSize",
+    "tests": 6,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_best.go::encodeBlockBest",
+    "tests": 7,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "s2/encode_best.go::encodeBlockBestSnappy",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_better.go::hash4",
+    "tests": 9,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_better.go::hash7",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/encode_better.go::hash8",
+    "tests": 7,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/hashtable_pool.go::getBestTables",
+    "tests": 7,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/hashtable_pool.go::getBetterTables",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/index.go::Index.LoadStream",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/index.go::Index.allocInfos",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/index.go::Index.appendTo",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/index.go::Index.reduce",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/reader.go::Reader.skippable",
+    "tests": 5,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "s2/reader.go::ReaderMaxBlockSize",
+    "tests": 10,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "s2/writer.go::WriterBetterCompression",
+    "tests": 13,
+    "tests_naming_it": 3
+   },
+   {
+    "target": "s2/writer.go::WriterConcurrency",
+    "tests": 7,
+    "tests_naming_it": 3
+   },
+   {
+    "target": "s2/writer.go::WriterFlushOnWrite",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/writer.go::WriterSnappyCompat",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/writer.go::calcSkippableFrame",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "s2/writer.go::skippableFrame",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "snappy/encode.go::Encode",
+    "tests": 5,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "snappy/xerial/xerial.go::DecodeInto",
+    "tests": 7,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::File.OpenRaw",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::Reader.initFileList",
+    "tests": 6,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::Reader.openLookup",
+    "tests": 6,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::Reader.openReadDir",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::dirReader.Read",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::fileEntryLess",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::fileListEntry.IsDir",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::fileListEntry.Name",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::fileListEntry.stat",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::findDirectory64End",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::openDir.ReadDir",
+    "tests": 3,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zip/reader.go::openDir.Stat",
+    "tests": 3,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zip/reader.go::readBuf.uint64",
+    "tests": 11,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "zip/reader.go::readBuf.uint8",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::readDataDescriptor",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::readDirectory64End",
+    "tests": 7,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::split",
+    "tests": 6,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/reader.go::toValidName",
+    "tests": 6,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/register.go::newFlateWriter",
+    "tests": 13,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/register.go::pooledFlateWriter.Write",
+    "tests": 9,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "zip/struct.go::FileHeader.ModTime",
+    "tests": 5,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "zip/struct.go::FileHeader.Mode",
+    "tests": 11,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zip/struct.go::FileHeader.SetModTime",
+    "tests": 7,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "zip/struct.go::FileHeader.SetMode",
+    "tests": 8,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/struct.go::FileInfoHeader",
+    "tests": 5,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "zip/struct.go::fileModeToUnixMode",
+    "tests": 8,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/struct.go::headerFileInfo.IsDir",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/struct.go::headerFileInfo.Mode",
+    "tests": 6,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/struct.go::headerFileInfo.Size",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/struct.go::headerFileInfo.Sys",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/struct.go::msdosModeToFileMode",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/struct.go::timeToMsDosTime",
+    "tests": 8,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/struct.go::unixModeToFileMode",
+    "tests": 7,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zip/writer.go::Writer.CreateRaw",
+    "tests": 3,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zip/writer.go::fileWriter.Write",
+    "tests": 14,
+    "tests_naming_it": 3
+   },
+   {
+    "target": "zip/writer.go::writeBuf.uint64",
+    "tests": 6,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "zip/writer.go::writeBuf.uint8",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zlib/reader.go::NewReaderDict",
+    "tests": 4,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zlib/reader.go::reader.Close",
+    "tests": 4,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zlib/reader.go::reader.Read",
+    "tests": 4,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zlib/reader.go::reader.Reset",
+    "tests": 4,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zlib/writer.go::NewWriterLevelDict",
+    "tests": 5,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zlib/writer.go::Writer.Close",
+    "tests": 5,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zlib/writer.go::Writer.Write",
+    "tests": 5,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zlib/writer.go::Writer.writeHeader",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/blockenc.go::blockEnc.encodeRLE",
+    "tests": 9,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/blockenc.go::blockEnc.popOffsets",
+    "tests": 15,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/blockenc.go::blockEnc.swapEncoders",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/bytebuf.go::byteBuf.skipN",
+    "tests": 9,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/bytebuf.go::readerWrapper.skipN",
+    "tests": 8,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/bytereader.go::byteReader.Uint32",
+    "tests": 6,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/decodeheader.go::Header.DecodeAndStrip",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/decoder.go::Decoder.WriteTo",
+    "tests": 11,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zstd/decoder.go::Decoder.nextBlockSync",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/decoder.go::Decoder.startSyncDecoder",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/decoder_options.go::WithDecoderMaxWindow",
+    "tests": 8,
+    "tests_naming_it": 3
+   },
+   {
+    "target": "zstd/dict.go::dict.ContentSize",
+    "tests": 11,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zstd/dict.go::loadDict",
+    "tests": 6,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_base.go::fastBase.UseBlock",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_base.go::fastBase.resetBasePrefix",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_best.go::bestFastEncoder.EncodeNoHist",
+    "tests": 13,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_best.go::bestFastEncoder.ResetPrefix",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_better.go::betterFastEncoder.EncodeNoHist",
+    "tests": 13,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_better.go::betterFastEncoder.ResetPrefix",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_better.go::betterFastEncoderDict.Encode",
+    "tests": 5,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zstd/enc_better.go::betterFastEncoderDict.markLongShardDirty",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_better.go::betterFastEncoderDict.markShortShardDirty",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_dfast.go::doubleFastEncoder.ResetPrefix",
+    "tests": 7,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_dfast.go::doubleFastEncoderDict.Encode",
+    "tests": 8,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zstd/enc_dfast.go::doubleFastEncoderDict.Reset",
+    "tests": 9,
+    "tests_naming_it": 4
+   },
+   {
+    "target": "zstd/enc_dfast.go::doubleFastEncoderDict.markLongShardDirty",
+    "tests": 8,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_fast.go::fastEncoder.ResetPrefix",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_fast.go::fastEncoderDict.Encode",
+    "tests": 5,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zstd/enc_fast.go::fastEncoderDict.Reset",
+    "tests": 10,
+    "tests_naming_it": 4
+   },
+   {
+    "target": "zstd/enc_fast.go::fastEncoderDict.markAllShardsDirty",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_fast.go::fastEncoderDict.markShardDirty",
+    "tests": 9,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_jobs.go::Encoder.waitAllJobs",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_jobs.go::jobState.getOverlapBuf",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/enc_jobs.go::jobState.putOverlapBuf",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/encoder.go::Encoder.ReadFrom",
+    "tests": 9,
+    "tests_naming_it": 4
+   },
+   {
+    "target": "zstd/encoder.go::Encoder.flushJobs",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/encoder.go::Encoder.readFromJobs",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/encoder_options.go::WithAllLitEntropyCompression",
+    "tests": 12,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zstd/encoder_options.go::WithEncoderPadding",
+    "tests": 14,
+    "tests_naming_it": 3
+   },
+   {
+    "target": "zstd/encoder_options.go::WithNoEntropyCompression",
+    "tests": 12,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "zstd/encoder_options.go::WithSingleSegment",
+    "tests": 12,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "zstd/encoder_options.go::WithZeroFrames",
+    "tests": 14,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "zstd/framedec.go::frameDec.consumeCRC",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/frameenc.go::calcSkippableFrame",
+    "tests": 13,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/frameenc.go::skippableFrame",
+    "tests": 13,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/fse_decoder.go::fseDecoder.mustReadFrom",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/fse_encoder.go::fseEncoder.normalizeCount2",
+    "tests": 15,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/history.go::history.ensureBlock",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/history.go::history.setDict",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/seqenc.go::seqCoders.swap",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/snappy.go::SnappyConverter.readFull",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/snappy.go::decodeSnappy",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "zstd/snappy.go::snappyDecodedLen",
+    "tests": 3,
+    "tests_naming_it": 0
+   }
+  ],
+  "kind2": [
+   {
+    "callers": 5,
+    "declarations": 29,
+    "target": "flate/dict_decoder.go::dictDecoder.init"
+   },
+   {
+    "callers": 6,
+    "declarations": 3,
+    "target": "flate/fast_encoder.go::fastGen.addBlock"
+   },
+   {
+    "callers": 9,
+    "declarations": 5,
+    "target": "flate/huffman_bit_writer.go::huffmanBitWriter.flush"
+   },
+   {
+    "callers": 5,
+    "declarations": 10,
+    "target": "flate/huffman_bit_writer.go::huffmanBitWriter.reset"
+   },
+   {
+    "callers": 3,
+    "declarations": 5,
+    "target": "flate/huffman_bit_writer.go::huffmanBitWriter.write"
+   },
+   {
+    "callers": 7,
+    "declarations": 29,
+    "target": "flate/inflate.go::huffmanDecoder.init"
+   },
+   {
+    "callers": 6,
+    "declarations": 28,
+    "target": "flate/token.go::tokens.Reset"
+   },
+   {
+    "callers": 6,
+    "declarations": 3,
+    "target": "fse/bytereader.go::byteReader.remain"
+   },
+   {
+    "callers": 6,
+    "declarations": 28,
+    "target": "gzip/gunzip.go::Reader.Reset"
+   },
+   {
+    "callers": 3,
+    "declarations": 28,
+    "target": "gzip/gzip.go::Writer.Reset"
+   },
+   {
+    "callers": 3,
+    "declarations": 29,
+    "target": "gzip/gzip.go::Writer.init"
+   },
+   {
+    "callers": 5,
+    "declarations": 4,
+    "target": "huff0/bitreader.go::bitReaderBytes.advance"
+   },
+   {
+    "callers": 4,
+    "declarations": 9,
+    "target": "huff0/bitreader.go::bitReaderBytes.close"
+   },
+   {
+    "callers": 4,
+    "declarations": 4,
+    "target": "huff0/bitreader.go::bitReaderBytes.fillFast"
+   },
+   {
+    "callers": 4,
+    "declarations": 29,
+    "target": "huff0/bitreader.go::bitReaderBytes.init"
+   },
+   {
+    "callers": 3,
+    "declarations": 4,
+    "target": "huff0/bitreader.go::bitReaderShifted.advance"
+   },
+   {
+    "callers": 3,
+    "declarations": 6,
+    "target": "huff0/bitreader.go::bitReaderShifted.fill"
+   },
+   {
+    "callers": 3,
+    "declarations": 29,
+    "target": "huff0/bitreader.go::bitReaderShifted.init"
+   },
+   {
+    "callers": 3,
+    "declarations": 3,
+    "target": "huff0/compress.go::Scratch.buildCTable"
+   },
+   {
+    "callers": 8,
+    "declarations": 3,
+    "target": "huff0/decompress.go::Scratch.Decompress1X"
+   },
+   {
+    "callers": 9,
+    "declarations": 3,
+    "target": "huff0/decompress.go::Scratch.Decompress4X"
+   },
+   {
+    "callers": 3,
+    "declarations": 3,
+    "target": "huff0/decompress_asm.go::Decoder.Decompress1X"
+   },
+   {
+    "callers": 3,
+    "declarations": 3,
+    "target": "huff0/decompress_asm.go::Decoder.Decompress4X"
+   },
+   {
+    "callers": 6,
+    "declarations": 3,
+    "target": "huff0/huff0.go::Scratch.prepare"
+   },
+   {
+    "callers": 3,
+    "declarations": 28,
+    "target": "lzw/writer.go::Writer.Reset"
+   },
+   {
+    "callers": 3,
+    "declarations": 6,
+    "target": "s2/cmd/internal/readahead/reader.go::reader.fill"
+   },
+   {
+    "callers": 3,
+    "declarations": 6,
+    "target": "s2/dict.go::Dict.Decode"
+   },
+   {
+    "callers": 3,
+    "declarations": 19,
+    "target": "s2/dict.go::Dict.Encode"
+   },
+   {
+    "callers": 9,
+    "declarations": 28,
+    "target": "s2/reader.go::Reader.Reset"
+   },
+   {
+    "callers": 3,
+    "declarations": 3,
+    "target": "s2/reader.go::Reader.readFull"
+   },
+   {
+    "callers": 10,
+    "declarations": 28,
+    "target": "s2/writer.go::Writer.Reset"
+   },
+   {
+    "callers": 4,
+    "declarations": 4,
+    "target": "s2/writer.go::Writer.encodeBlock"
+   },
+   {
+    "callers": 3,
+    "declarations": 5,
+    "target": "s2/writer.go::Writer.write"
+   },
+   {
+    "callers": 3,
+    "declarations": 29,
+    "target": "zip/reader.go::Reader.init"
+   },
+   {
+    "callers": 4,
+    "declarations": 3,
+    "target": "zip/struct.go::FileHeader.ModTime"
+   },
+   {
+    "callers": 3,
+    "declarations": 3,
+    "target": "zip/struct.go::FileHeader.Mode"
+   },
+   {
+    "callers": 3,
+    "declarations": 9,
+    "target": "zstd/bitreader.go::bitReader.close"
+   },
+   {
+    "callers": 4,
+    "declarations": 6,
+    "target": "zstd/bitreader.go::bitReader.fill"
+   },
+   {
+    "callers": 8,
+    "declarations": 29,
+    "target": "zstd/bitreader.go::bitReader.init"
+   },
+   {
+    "callers": 4,
+    "declarations": 3,
+    "target": "zstd/bitreader.go::bitReader.remain"
+   },
+   {
+    "callers": 3,
+    "declarations": 3,
+    "target": "zstd/bitwriter.go::bitWriter.flush32"
+   },
+   {
+    "callers": 3,
+    "declarations": 10,
+    "target": "zstd/blockdec.go::blockDec.reset"
+   },
+   {
+    "callers": 5,
+    "declarations": 29,
+    "target": "zstd/blockenc.go::blockEnc.init"
+   },
+   {
+    "callers": 9,
+    "declarations": 10,
+    "target": "zstd/blockenc.go::blockEnc.reset"
+   },
+   {
+    "callers": 6,
+    "declarations": 4,
+    "target": "zstd/blockenc.go::blockHeader.appendTo"
+   },
+   {
+    "callers": 3,
+    "declarations": 4,
+    "target": "zstd/bytereader.go::byteReader.advance"
+   },
+   {
+    "callers": 4,
+    "declarations": 3,
+    "target": "zstd/bytereader.go::byteReader.remain"
+   },
+   {
+    "callers": 3,
+    "declarations": 6,
+    "target": "zstd/decodeheader.go::Header.Decode"
+   },
+   {
+    "callers": 7,
+    "declarations": 3,
+    "target": "zstd/enc_base.go::fastBase.addBlock"
+   },
+   {
+    "callers": 8,
+    "declarations": 3,
+    "target": "zstd/enc_base.go::fastBase.matchlen"
+   },
+   {
+    "callers": 20,
+    "declarations": 28,
+    "target": "zstd/encoder.go::Encoder.Reset"
+   },
+   {
+    "callers": 4,
+    "declarations": 3,
+    "target": "zstd/encoder.go::Encoder.nextBlock"
+   },
+   {
+    "callers": 20,
+    "declarations": 13,
+    "target": "zstd/encoder_options.go::EncoderLevel.String"
+   },
+   {
+    "callers": 4,
+    "declarations": 10,
+    "target": "zstd/framedec.go::frameDec.reset"
+   },
+   {
+    "callers": 5,
+    "declarations": 4,
+    "target": "zstd/frameenc.go::frameHeader.appendTo"
+   },
+   {
+    "callers": 4,
+    "declarations": 3,
+    "target": "zstd/fse_decoder_asm.go::fseDecoder.buildDtable"
+   },
+   {
+    "callers": 5,
+    "declarations": 10,
+    "target": "zstd/history.go::history.reset"
+   },
+   {
+    "callers": 11,
+    "declarations": 3,
+    "target": "zstd/internal/xxhash/xxhash.go::Digest.Sum64"
+   },
+   {
+    "callers": 8,
+    "declarations": 29,
+    "target": "zstd/seqdec.go::sequenceDec.init"
+   },
+   {
+    "callers": 5,
+    "declarations": 5,
+    "target": "zstd/seqdec_asm.go::sequenceDecs.decode"
+   }
+  ],
+  "kind3": [
+   {
+    "holders": [
+     "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/gzhttp/writer`/GzipWriterFactory#Levels."
+    ],
+    "target": "gzhttp/writer/gzkp/gzkp.go::Levels",
+    "via": "method value"
+   },
+   {
+    "holders": [
+     "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/gzhttp/writer`/GzipWriterFactory#New."
+    ],
+    "target": "gzhttp/writer/gzkp/gzkp.go::NewWriter",
+    "via": "method value"
+   },
+   {
+    "holders": [
+     "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/gzhttp/writer`/ZstdWriterFactory#Levels."
+    ],
+    "target": "gzhttp/writer/zstdkp/zstdkp.go::Levels",
+    "via": "method value"
+   },
+   {
+    "holders": [
+     "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/gzhttp/writer`/ZstdWriterFactory#New."
+    ],
+    "target": "gzhttp/writer/zstdkp/zstdkp.go::NewWriter",
+    "via": "method value"
+   },
+   {
+    "interface_methods": [
+     "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/gzip`/crcer#Reset."
+    ],
+    "target": "gzip/gunzip.go::crcUpdater.Reset",
+    "via": "interface"
+   },
+   {
+    "interface_methods": [
+     "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/lzw`/resetter#Reset."
+    ],
+    "target": "lzw/reader.go::Reader.Reset",
+    "via": "interface"
+   },
+   {
+    "interface_methods": [
+     "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/zstd`/encoder#AppendCRC."
+    ],
+    "target": "zstd/enc_base.go::fastBase.AppendCRC",
+    "via": "interface"
+   },
+   {
+    "interface_methods": [
+     "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/zstd`/encoder#Block."
+    ],
+    "target": "zstd/enc_base.go::fastBase.Block",
+    "via": "interface"
+   },
+   {
+    "interface_methods": [
+     "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/zstd`/encoder#CRC."
+    ],
+    "target": "zstd/enc_base.go::fastBase.CRC",
+    "via": "interface"
+   },
+   {
+    "interface_methods": [
+     "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/zstd`/encoder#UseBlock."
+    ],
+    "target": "zstd/enc_base.go::fastBase.UseBlock",
+    "via": "interface"
+   },
+   {
+    "interface_methods": [
+     "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/zstd`/encoder#WindowSize."
+    ],
+    "target": "zstd/enc_base.go::fastBase.WindowSize",
+    "via": "interface"
+   }
+  ],
+  "kind4": [
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "flate/inflate.go::decompressor.copyData",
+     "flate/inflate_gen.go::decompressor.huffmanBufioReader",
+     "flate/inflate_gen.go::decompressor.huffmanBytesBuffer",
+     "flate/inflate_gen.go::decompressor.huffmanBytesReader",
+     "flate/inflate_gen.go::decompressor.huffmanGenericReader",
+     "flate/inflate_gen.go::decompressor.huffmanStringsReader"
+    ],
+    "target": "flate/dict_decoder.go::dictDecoder.availWrite"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "flate/inflate_gen.go::decompressor.huffmanBufioReader",
+     "flate/inflate_gen.go::decompressor.huffmanBytesBuffer",
+     "flate/inflate_gen.go::decompressor.huffmanBytesReader",
+     "flate/inflate_gen.go::decompressor.huffmanGenericReader",
+     "flate/inflate_gen.go::decompressor.huffmanStringsReader"
+    ],
+    "target": "flate/dict_decoder.go::dictDecoder.histSize"
+   },
+   {
+    "callers": 11,
+    "non_test_callers": [
+     "flate/inflate.go::decompressor.Read",
+     "flate/inflate.go::decompressor.WriteTo",
+     "flate/inflate.go::decompressor.copyData",
+     "flate/inflate.go::decompressor.dataBlock",
+     "flate/inflate.go::decompressor.finishBlock",
+     "flate/inflate_gen.go::decompressor.huffmanBufioReader",
+     "flate/inflate_gen.go::decompressor.huffmanBytesBuffer",
+     "flate/inflate_gen.go::decompressor.huffmanBytesReader",
+     "flate/inflate_gen.go::decompressor.huffmanGenericReader",
+     "flate/inflate_gen.go::decompressor.huffmanStringsReader"
+    ],
+    "target": "flate/dict_decoder.go::dictDecoder.readFlush"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "flate/inflate_gen.go::decompressor.huffmanBufioReader",
+     "flate/inflate_gen.go::decompressor.huffmanBytesBuffer",
+     "flate/inflate_gen.go::decompressor.huffmanBytesReader",
+     "flate/inflate_gen.go::decompressor.huffmanGenericReader",
+     "flate/inflate_gen.go::decompressor.huffmanStringsReader"
+    ],
+    "target": "flate/dict_decoder.go::dictDecoder.tryWriteCopy"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "flate/inflate_gen.go::decompressor.huffmanBufioReader",
+     "flate/inflate_gen.go::decompressor.huffmanBytesBuffer",
+     "flate/inflate_gen.go::decompressor.huffmanBytesReader",
+     "flate/inflate_gen.go::decompressor.huffmanGenericReader",
+     "flate/inflate_gen.go::decompressor.huffmanStringsReader"
+    ],
+    "target": "flate/dict_decoder.go::dictDecoder.writeCopy"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "flate/level1.go::fastEncL1.Encode",
+     "flate/level2.go::fastEncL2.Encode",
+     "flate/level3.go::fastEncL3.Encode",
+     "flate/level4.go::fastEncL4.Encode",
+     "flate/level5.go::fastEncL5.Encode",
+     "flate/level6.go::fastEncL6.Encode"
+    ],
+    "target": "flate/fast_encoder.go::fastGen.addBlock"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "flate/level1.go::fastEncL1.Encode",
+     "flate/level2.go::fastEncL2.Encode",
+     "flate/level3.go::fastEncL3.Encode",
+     "flate/level4.go::fastEncL4.Encode",
+     "flate/level5.go::fastEncL5.Encode",
+     "flate/level6.go::fastEncL6.Encode"
+    ],
+    "target": "flate/fast_encoder.go::fastGen.matchlenLong"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "flate/level1.go::fastEncL1.Encode",
+     "flate/level2.go::fastEncL2.Encode",
+     "flate/level3.go::fastEncL3.Encode",
+     "flate/level4.go::fastEncL4.Encode",
+     "flate/level5.go::fastEncL5.Encode",
+     "flate/level5.go::fastEncL5Window.Encode",
+     "flate/level6.go::fastEncL6.Encode"
+    ],
+    "target": "flate/fast_encoder.go::hashLen"
+   },
+   {
+    "callers": 8,
+    "non_test_callers": [
+     "flate/level1.go::fastEncL1.Encode",
+     "flate/level2.go::fastEncL2.Encode",
+     "flate/level3.go::fastEncL3.Encode",
+     "flate/level4.go::fastEncL4.Encode",
+     "flate/level5.go::fastEncL5.Encode",
+     "flate/level5.go::fastEncL5Window.Encode",
+     "flate/level6.go::fastEncL6.Encode",
+     "flate/stateless.go::statelessEnc"
+    ],
+    "target": "flate/fast_encoder.go::load3232"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "flate/level1.go::fastEncL1.Encode",
+     "flate/level2.go::fastEncL2.Encode",
+     "flate/level3.go::fastEncL3.Encode",
+     "flate/level4.go::fastEncL4.Encode",
+     "flate/level5.go::fastEncL5.Encode",
+     "flate/level5.go::fastEncL5Window.Encode",
+     "flate/level6.go::fastEncL6.Encode"
+    ],
+    "target": "flate/fast_encoder.go::load6432"
+   },
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "flate/deflate.go::compressor.close",
+     "flate/deflate.go::compressor.syncFlush",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.writeStoredHeader",
+     "flate/stateless.go::StatelessDeflate"
+    ],
+    "target": "flate/huffman_bit_writer.go::huffmanBitWriter.flush"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "flate/deflate.go::compressor.storeFast",
+     "flate/deflate.go::compressor.writeBlock",
+     "flate/deflate.go::compressor.writeBlockSkip",
+     "flate/stateless.go::StatelessDeflate"
+    ],
+    "target": "flate/huffman_bit_writer.go::huffmanBitWriter.writeBlockDynamic"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "flate/deflate.go::compressor.storeFast",
+     "flate/deflate.go::compressor.storeHuff",
+     "flate/deflate.go::compressor.writeBlockSkip",
+     "flate/stateless.go::StatelessDeflate"
+    ],
+    "target": "flate/huffman_bit_writer.go::huffmanBitWriter.writeBlockHuff"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "flate/deflate.go::compressor.close",
+     "flate/deflate.go::compressor.syncFlush",
+     "flate/deflate.go::compressor.writeStoredBlock",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.writeBlock",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.writeBlockDynamic",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.writeBlockHuff",
+     "flate/stateless.go::StatelessDeflate"
+    ],
+    "target": "flate/huffman_bit_writer.go::huffmanBitWriter.writeStoredHeader"
+   },
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "flate/deflate.go::compressor.deflateLazy",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.generateCodegen",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.writeBlockDynamic",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.writeBlockHuff",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.writeCode",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.writeDynamicHeader",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.writeTokens",
+     "flate/huffman_code.go::huffmanEncoder.bitLength",
+     "flate/huffman_code.go::huffmanEncoder.canReuseBits"
+    ],
+    "target": "flate/huffman_code.go::hcode.len"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "flate/deflate.go::compressor.deflateLazy",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.generate",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.writeBlock",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.writeBlockDynamic",
+     "flate/huffman_bit_writer.go::huffmanBitWriter.writeBlockHuff",
+     "flate/huffman_bit_writer.go::init"
+    ],
+    "target": "flate/huffman_code.go::huffmanEncoder.generate"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "flate/inflate.go::decompressor.copyData",
+     "flate/inflate.go::decompressor.dataBlock",
+     "flate/inflate_gen.go::decompressor.huffmanBufioReader",
+     "flate/inflate_gen.go::decompressor.huffmanBytesBuffer",
+     "flate/inflate_gen.go::decompressor.huffmanBytesReader",
+     "flate/inflate_gen.go::decompressor.huffmanGenericReader",
+     "flate/inflate_gen.go::decompressor.huffmanStringsReader"
+    ],
+    "target": "flate/inflate.go::decompressor.finishBlock"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "flate/inflate.go::decompressor.readHuffman",
+     "flate/inflate.go::fixedHuffmanDecoderInit"
+    ],
+    "target": "flate/inflate.go::huffmanDecoder.init"
+   },
+   {
+    "callers": 10,
+    "non_test_callers": [
+     "flate/inflate.go::decompressor.applyCP",
+     "flate/inflate.go::decompressor.copyData",
+     "flate/inflate.go::decompressor.dataBlock",
+     "flate/inflate.go::decompressor.huffSym",
+     "flate/inflate.go::decompressor.moreBits",
+     "flate/inflate_gen.go::decompressor.huffmanBufioReader",
+     "flate/inflate_gen.go::decompressor.huffmanBytesBuffer",
+     "flate/inflate_gen.go::decompressor.huffmanBytesReader",
+     "flate/inflate_gen.go::decompressor.huffmanGenericReader",
+     "flate/inflate_gen.go::decompressor.huffmanStringsReader"
+    ],
+    "target": "flate/inflate.go::noEOF"
+   },
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "flate/deflate.go::compressor.deflateLazy",
+     "flate/deflate.go::compressor.findMatch",
+     "flate/fast_encoder.go::fastGen.matchlen",
+     "flate/fast_encoder.go::fastGen.matchlenLong",
+     "flate/level3.go::fastEncL3.Encode",
+     "flate/level4.go::fastEncL4.Encode",
+     "flate/level5.go::fastEncL5Window.matchlen",
+     "flate/level5.go::fastEncL5Window.matchlenLong",
+     "flate/stateless.go::statelessEnc"
+    ],
+    "target": "flate/matchlen_generic.go::matchLen"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "flate/stateless.go::statelessWriter.Close",
+     "flate/stateless.go::statelessWriter.Write",
+     "gzip/gzip.go::Writer.Close",
+     "gzip/gzip.go::Writer.Write"
+    ],
+    "target": "flate/stateless.go::StatelessDeflate"
+   },
+   {
+    "callers": 8,
+    "non_test_callers": [
+     "flate/level1.go::fastEncL1.Encode",
+     "flate/level2.go::fastEncL2.Encode",
+     "flate/level3.go::fastEncL3.Encode",
+     "flate/level4.go::fastEncL4.Encode",
+     "flate/level5.go::fastEncL5.Encode",
+     "flate/level5.go::fastEncL5Window.Encode",
+     "flate/level6.go::fastEncL6.Encode",
+     "flate/stateless.go::statelessEnc"
+    ],
+    "target": "flate/token.go::emitLiteral"
+   },
+   {
+    "callers": 8,
+    "non_test_callers": [
+     "flate/level1.go::fastEncL1.Encode",
+     "flate/level2.go::fastEncL2.Encode",
+     "flate/level3.go::fastEncL3.Encode",
+     "flate/level4.go::fastEncL4.Encode",
+     "flate/level5.go::fastEncL5.Encode",
+     "flate/level5.go::fastEncL5Window.Encode",
+     "flate/level6.go::fastEncL6.Encode",
+     "flate/stateless.go::statelessEnc"
+    ],
+    "target": "flate/token.go::tokens.AddMatchLong"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "flate/deflate.go::compressor.deflateLazy",
+     "flate/deflate.go::compressor.fillWindow",
+     "flate/deflate.go::compressor.reset",
+     "flate/deflate.go::compressor.storeFast",
+     "flate/stateless.go::StatelessDeflate",
+     "flate/token.go::tokens.indexTokens"
+    ],
+    "target": "flate/token.go::tokens.Reset"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "fse/compress.go::Scratch.minTableLog",
+     "fse/compress.go::Scratch.normalizeCount",
+     "fse/compress.go::Scratch.normalizeCount2",
+     "fse/compress.go::Scratch.optimalTableLog",
+     "fse/compress.go::Scratch.writeCount",
+     "fse/decompress.go::Scratch.readNCount"
+    ],
+    "target": "fse/bytereader.go::byteReader.remain"
+   },
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "huff0/huff0.go::cTable.estTableSize",
+     "huff0/huff0.go::cTable.write"
+    ],
+    "target": "fse/compress.go::Compress"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "gzhttp/transport.go::gzipReader.Read",
+     "gzip/gunzip.go::NewReader"
+    ],
+    "target": "gzip/gunzip.go::Reader.Reset"
+   },
+   {
+    "callers": 13,
+    "non_test_callers": [
+     "gzhttp/writer/gzkp/gzkp.go::addLevelPool",
+     "gzip/gzip.go::NewWriter"
+    ],
+    "target": "gzip/gzip.go::NewWriterLevel"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "huff0/build_table.go::Scratch.AppendTable",
+     "huff0/build_table.go::Scratch.BuildCTable",
+     "huff0/compress.go::Compress1X",
+     "huff0/compress.go::Compress4X",
+     "huff0/compress.go::EstimateSizes",
+     "huff0/decompress.go::ReadTable"
+    ],
+    "target": "huff0/huff0.go::Scratch.prepare"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "huff0/bitreader.go::bitReaderBytes.init",
+     "huff0/bitreader.go::bitReaderShifted.init",
+     "huff0/compress.go::Scratch.huffSort",
+     "huff0/compress.go::Scratch.minTableLog",
+     "huff0/compress.go::Scratch.optimalTableLog",
+     "huff0/compress.go::Scratch.setMaxHeight",
+     "huff0/decompress.go::ReadTable"
+    ],
+    "target": "huff0/huff0.go::highBit32"
+   },
+   {
+    "callers": 12,
+    "non_test_callers": [
+     "flate/deflate.go::bulkHash4",
+     "flate/deflate.go::hash4",
+     "flate/fast_encoder.go::load3232",
+     "flate/stateless.go::load3216",
+     "huff0/bitreader.go::bitReaderBytes.fill",
+     "huff0/bitreader.go::bitReaderBytes.fillFast",
+     "huff0/bitreader.go::bitReaderShifted.fill",
+     "huff0/bitreader.go::bitReaderShifted.fillFast",
+     "s2/encode_all.go::load32",
+     "zstd/bitreader.go::bitReader.fill",
+     "zstd/bitreader.go::bitReader.fillFast",
+     "zstd/zstd.go::load3232"
+    ],
+    "target": "internal/le/unsafe_enabled.go::Load32"
+   },
+   {
+    "callers": 13,
+    "non_test_callers": [
+     "flate/fast_encoder.go::load6432",
+     "flate/matchlen_generic.go::matchLen",
+     "flate/stateless.go::load6416",
+     "huff0/bitreader.go::bitReaderBytes.fillFastStart",
+     "huff0/bitreader.go::bitReaderShifted.fillFastStart",
+     "huff0/bitreader.go::bitReaderShifted.prepareForAsm",
+     "huff0/bitreader.go::bitReaderShifted.restoreFromAsm",
+     "s2/encode_all.go::load64",
+     "zstd/bitreader.go::bitReader.fillFastStart",
+     "zstd/matchlen_generic.go::matchLen",
+     "zstd/zstd.go::load6432"
+    ],
+    "target": "internal/le/unsafe_enabled.go::Load64"
+   },
+   {
+    "callers": 8,
+    "non_test_callers": [
+     "internal/lz4ref/block.go::Compressor.CompressBlock",
+     "internal/lz4ref/block.go::Compressor.CompressBlockLZ4s"
+    ],
+    "target": "internal/lz4ref/block.go::CompressBlockBound"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "s2/decode.go::Decode",
+     "s2/encode_asm.go::encodeBlock",
+     "s2/encode_asm.go::encodeBlockBetter",
+     "s2/encode_asm.go::encodeBlockBetterSnappy",
+     "s2/encode_asm.go::encodeBlockSnappy",
+     "s2/s2.go::crc",
+     "s2/writer.go::Writer.EncodeBuffer"
+    ],
+    "target": "internal/race/norace.go::ReadSlice"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "s2/decode.go::Decode",
+     "s2/encode.go::EstimateBlockSize",
+     "s2/encode_asm.go::encodeBlock",
+     "s2/encode_asm.go::encodeBlockBetter",
+     "s2/encode_asm.go::encodeBlockBetterSnappy",
+     "s2/encode_asm.go::encodeBlockSnappy",
+     "s2/writer.go::Writer.EncodeBuffer"
+    ],
+    "target": "internal/race/norace.go::WriteSlice"
+   },
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "internal/snapref/decode.go::Reader.fill",
+     "zstd/snappy.go::SnappyConverter.Convert"
+    ],
+    "target": "internal/snapref/decode.go::Decode"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "s2/cmd/s2c/main.go::main",
+     "s2/cmd/s2d/main.go::main"
+    ],
+    "target": "s2/cmd/internal/filepathx/filepathx.go::Glob"
+   },
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "s2/index.go::IndexStream",
+     "s2/reader.go::Reader.DecodeConcurrent",
+     "s2/reader.go::Reader.Read",
+     "s2/reader.go::Reader.Skip",
+     "snappy/decode.go::DecodedLen",
+     "snappy/xerial/xerial.go::DecodeCapped",
+     "snappy/xerial/xerial.go::DecodeInto"
+    ],
+    "target": "s2/decode.go::DecodedLen"
+   },
+   {
+    "callers": 8,
+    "non_test_callers": [
+     "s2/cmd/s2c/main.go::main",
+     "snappy/xerial/xerial.go::Encode"
+    ],
+    "target": "s2/encode.go::EncodeSnappy"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "s2/cmd/s2c/main.go::main",
+     "snappy/encode.go::Encode",
+     "snappy/xerial/xerial.go::EncodeBetter"
+    ],
+    "target": "s2/encode.go::EncodeSnappyBetter"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "s2/dict.go::Dict.initFast",
+     "s2/encode_all.go::encodeBlockDictGo",
+     "s2/encode_all.go::encodeBlockGo",
+     "s2/encode_all.go::encodeBlockGo64K",
+     "s2/encode_all.go::encodeBlockSnappyGo",
+     "s2/encode_all.go::encodeBlockSnappyGo64K"
+    ],
+    "target": "s2/encode_all.go::hash6"
+   },
+   {
+    "callers": 12,
+    "non_test_callers": [
+     "s2/encode_all.go::encodeBlockDictGo",
+     "s2/encode_all.go::encodeBlockGo",
+     "s2/encode_all.go::encodeBlockGo64K",
+     "s2/encode_all.go::encodeBlockSnappyGo",
+     "s2/encode_all.go::encodeBlockSnappyGo64K",
+     "s2/encode_best.go::encodeBlockBest",
+     "s2/encode_best.go::encodeBlockBestSnappy",
+     "s2/encode_better.go::encodeBlockBetterDict",
+     "s2/encode_better.go::encodeBlockBetterGo",
+     "s2/encode_better.go::encodeBlockBetterGo64K",
+     "s2/encode_better.go::encodeBlockBetterSnappyGo",
+     "s2/encode_better.go::encodeBlockBetterSnappyGo64K"
+    ],
+    "target": "s2/encode_all.go::load32"
+   },
+   {
+    "callers": 15,
+    "non_test_callers": [
+     "s2/dict.go::Dict.initBest",
+     "s2/dict.go::Dict.initBetter",
+     "s2/dict.go::Dict.initFast",
+     "s2/encode_all.go::encodeBlockDictGo",
+     "s2/encode_all.go::encodeBlockGo",
+     "s2/encode_all.go::encodeBlockGo64K",
+     "s2/encode_all.go::encodeBlockSnappyGo",
+     "s2/encode_all.go::encodeBlockSnappyGo64K",
+     "s2/encode_best.go::encodeBlockBest",
+     "s2/encode_best.go::encodeBlockBestSnappy",
+     "s2/encode_better.go::encodeBlockBetterDict",
+     "s2/encode_better.go::encodeBlockBetterGo",
+     "s2/encode_better.go::encodeBlockBetterGo64K",
+     "s2/encode_better.go::encodeBlockBetterSnappyGo",
+     "s2/encode_better.go::encodeBlockBetterSnappyGo64K"
+    ],
+    "target": "s2/encode_all.go::load64"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "s2/dict.go::Dict.EncodeBest",
+     "s2/encode.go::EncodeBest",
+     "s2/writer.go::Writer.encodeBlock"
+    ],
+    "target": "s2/encode_best.go::encodeBlockBest"
+   },
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "s2/dict.go::Dict.initBest",
+     "s2/dict.go::Dict.initBetter",
+     "s2/encode_best.go::encodeBlockBest",
+     "s2/encode_best.go::encodeBlockBestSnappy",
+     "s2/encode_better.go::encodeBlockBetterDict",
+     "s2/encode_better.go::encodeBlockBetterGo",
+     "s2/encode_better.go::encodeBlockBetterGo64K",
+     "s2/encode_better.go::encodeBlockBetterSnappyGo",
+     "s2/encode_better.go::encodeBlockBetterSnappyGo64K"
+    ],
+    "target": "s2/encode_better.go::hash4"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "s2/dict.go::Dict.initBetter",
+     "s2/encode_better.go::encodeBlockBetterDict",
+     "s2/encode_better.go::encodeBlockBetterGo",
+     "s2/encode_better.go::encodeBlockBetterGo64K",
+     "s2/encode_better.go::encodeBlockBetterSnappyGo",
+     "s2/encode_better.go::encodeBlockBetterSnappyGo64K"
+    ],
+    "target": "s2/encode_better.go::hash7"
+   },
+   {
+    "callers": 8,
+    "non_test_callers": [
+     "s2/encode_all.go::encodeBlockDictGo",
+     "s2/encode_all.go::encodeBlockGo",
+     "s2/encode_all.go::encodeBlockGo64K",
+     "s2/encode_best.go::encodeBlockBest",
+     "s2/encode_better.go::encodeBlockBetterDict",
+     "s2/encode_better.go::encodeBlockBetterGo",
+     "s2/encode_better.go::encodeBlockBetterGo64K"
+    ],
+    "target": "s2/encodeblock_asm.go::emitCopy"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "s2/encode_all.go::encodeBlockDictGo",
+     "s2/encode_all.go::encodeBlockGo",
+     "s2/encode_all.go::encodeBlockGo64K",
+     "s2/encode_best.go::encodeBlockBest",
+     "s2/encode_better.go::encodeBlockBetterDict",
+     "s2/encode_better.go::encodeBlockBetterGo",
+     "s2/encode_better.go::encodeBlockBetterGo64K"
+    ],
+    "target": "s2/encodeblock_asm.go::emitRepeat"
+   },
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "s2/cmd/s2c/main.go::main",
+     "s2/cmd/s2d/main.go::main"
+    ],
+    "target": "s2/reader.go::Reader.Reset"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "s2/reader.go::Reader.DecodeConcurrent",
+     "s2/reader.go::Reader.Read",
+     "s2/reader.go::Reader.Skip",
+     "s2/writer.go::Writer.EncodeBuffer",
+     "s2/writer.go::Writer.write",
+     "s2/writer.go::Writer.writeFull",
+     "s2/writer.go::Writer.writeSync"
+    ],
+    "target": "s2/s2.go::crc"
+   },
+   {
+    "callers": 8,
+    "non_test_callers": [
+     "s2/cmd/s2c/main.go::main",
+     "s2/writer.go::Writer.ReadFrom"
+    ],
+    "target": "s2/writer.go::Writer.EncodeBuffer"
+   },
+   {
+    "callers": 10,
+    "non_test_callers": [
+     "s2/cmd/s2c/main.go::main",
+     "s2/writer.go::NewWriter"
+    ],
+    "target": "s2/writer.go::Writer.Reset"
+   },
+   {
+    "callers": 8,
+    "non_test_callers": [
+     "s2/cmd/s2c/main.go::main",
+     "snappy/encode.go::NewBufferedWriter",
+     "snappy/encode.go::NewWriter"
+    ],
+    "target": "s2/writer.go::WriterBetterCompression"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "s2/cmd/s2c/main.go::main",
+     "snappy/encode.go::NewWriter"
+    ],
+    "target": "s2/writer.go::WriterConcurrency"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "zip/reader.go::File.findBodyOffset",
+     "zip/reader.go::findDirectory64End",
+     "zip/reader.go::readDataDescriptor",
+     "zip/reader.go::readDirectory64End",
+     "zip/reader.go::readDirectoryEnd",
+     "zip/reader.go::readDirectoryHeader"
+    ],
+    "target": "zip/reader.go::readBuf.uint32"
+   },
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "zstd/blockenc.go::blockEnc.init",
+     "zstd/dict.go::BuildDict",
+     "zstd/enc_base.go::fastBase.UseBlock",
+     "zstd/enc_base.go::fastBase.resetBase",
+     "zstd/enc_base.go::fastBase.resetBasePrefix",
+     "zstd/enc_jobs.go::Encoder.compressJob",
+     "zstd/encoder.go::Encoder.encodeAll",
+     "zstd/encoder.go::Encoder.nextBlock",
+     "zstd/snappy.go::SnappyConverter.Convert"
+    ],
+    "target": "zstd/blockenc.go::blockEnc.reset"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "zstd/blockenc.go::blockEnc.encode",
+     "zstd/blockenc.go::blockEnc.encodeLits",
+     "zstd/blockenc.go::blockEnc.encodeRLE",
+     "zstd/blockenc.go::blockEnc.encodeRaw",
+     "zstd/blockenc.go::blockEnc.encodeRawTo",
+     "zstd/encoder.go::Encoder.encodeAll"
+    ],
+    "target": "zstd/blockenc.go::blockHeader.appendTo"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "zstd/blockenc.go::blockEnc.encode",
+     "zstd/blockenc.go::blockEnc.encodeLits",
+     "zstd/blockenc.go::blockEnc.encodeRLE",
+     "zstd/blockenc.go::blockEnc.encodeRaw",
+     "zstd/blockenc.go::blockEnc.encodeRawTo",
+     "zstd/encoder.go::Encoder.encodeAll"
+    ],
+    "target": "zstd/blockenc.go::blockHeader.setLast"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "zstd/blockenc.go::blockEnc.encode",
+     "zstd/blockenc.go::blockEnc.encodeLits",
+     "zstd/blockenc.go::blockEnc.encodeRLE",
+     "zstd/blockenc.go::blockEnc.encodeRaw",
+     "zstd/blockenc.go::blockEnc.encodeRawTo",
+     "zstd/encoder.go::Encoder.encodeAll"
+    ],
+    "target": "zstd/blockenc.go::blockHeader.setSize"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "zstd/blockenc.go::blockEnc.encode",
+     "zstd/blockenc.go::blockEnc.encodeLits",
+     "zstd/blockenc.go::blockEnc.encodeRLE",
+     "zstd/blockenc.go::blockEnc.encodeRaw",
+     "zstd/blockenc.go::blockEnc.encodeRawTo",
+     "zstd/encoder.go::Encoder.encodeAll"
+    ],
+    "target": "zstd/blockenc.go::blockHeader.setType"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "zstd/enc_best.go::bestFastEncoder.Encode",
+     "zstd/enc_better.go::betterFastEncoder.Encode",
+     "zstd/enc_better.go::betterFastEncoderDict.Encode",
+     "zstd/enc_dfast.go::doubleFastEncoder.Encode",
+     "zstd/enc_dfast.go::doubleFastEncoderDict.Encode",
+     "zstd/enc_fast.go::fastEncoder.Encode",
+     "zstd/enc_fast.go::fastEncoderDict.Encode"
+    ],
+    "target": "zstd/enc_base.go::fastBase.addBlock"
+   },
+   {
+    "callers": 8,
+    "non_test_callers": [
+     "zstd/enc_best.go::bestFastEncoder.Encode",
+     "zstd/enc_better.go::betterFastEncoder.Encode",
+     "zstd/enc_better.go::betterFastEncoderDict.Encode",
+     "zstd/enc_dfast.go::doubleFastEncoder.Encode",
+     "zstd/enc_dfast.go::doubleFastEncoderDict.Encode",
+     "zstd/enc_fast.go::fastEncoder.Encode",
+     "zstd/enc_fast.go::fastEncoder.EncodeNoHist",
+     "zstd/enc_fast.go::fastEncoderDict.Encode"
+    ],
+    "target": "zstd/enc_base.go::fastBase.matchlen"
+   },
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "gzhttp/writer/zstdkp/zstdkp.go::addLevelPool",
+     "zstd/simple_go124.go::EncodeTo"
+    ],
+    "target": "zstd/encoder_options.go::WithLowerEncoderMem"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "zstd/decoder.go::NewReader",
+     "zstd/dict.go::BuildDict",
+     "zstd/dict.go::InspectDictionary",
+     "zstd/encoder.go::NewWriter",
+     "zstd/snappy.go::SnappyConverter.Convert"
+    ],
+    "target": "zstd/fse_predefined.go::initPredefined"
+   },
+   {
+    "callers": 11,
+    "non_test_callers": [
+     "zstd/decoder.go::Decoder.nextBlock",
+     "zstd/framedec.go::frameDec.checkCRC",
+     "zstd/internal/xxhash/xxhash.go::Digest.Sum"
+    ],
+    "target": "zstd/internal/xxhash/xxhash.go::Digest.Sum64"
+   },
+   {
+    "callers": 11,
+    "non_test_callers": [
+     "zstd/decoder.go::NewReader",
+     "zstd/enc_base.go::fastBase.resetBase",
+     "zstd/enc_base.go::fastBase.resetBasePrefix",
+     "zstd/framedec.go::frameDec.reset"
+    ],
+    "target": "zstd/internal/xxhash/xxhash.go::New"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "zstd/blockdec.go::blockDec.decodeBuf",
+     "zstd/blockdec.go::blockDec.prepareSequences",
+     "zstd/decoder.go::Decoder.nextBlock",
+     "zstd/internal/xxhash/xxhash_safe.go::Sum64String"
+    ],
+    "target": "zstd/internal/xxhash/xxhash_asm.go::Sum64"
+   },
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "zstd/enc_best.go::bestFastEncoder.Encode",
+     "zstd/enc_better.go::betterFastEncoder.Encode",
+     "zstd/enc_better.go::betterFastEncoderDict.Encode",
+     "zstd/enc_dfast.go::doubleFastEncoder.Encode",
+     "zstd/enc_dfast.go::doubleFastEncoder.EncodeNoHist",
+     "zstd/enc_dfast.go::doubleFastEncoderDict.Encode",
+     "zstd/enc_fast.go::fastEncoder.Encode",
+     "zstd/enc_fast.go::fastEncoder.EncodeNoHist",
+     "zstd/enc_fast.go::fastEncoderDict.Encode"
+    ],
+    "target": "zstd/zstd.go::load3232"
+   }
+  ],
+  "repository": "compress"
+ },
+ "testify": {
+  "kind1": [
+   {
+    "target": "assert/assertion_compare.go::compare",
+    "tests": 15,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "assert/assertion_compare.go::compareTwoValues",
+    "tests": 10,
+    "tests_naming_it": 3
+   },
+   {
+    "target": "assert/assertion_compare.go::containsValue",
+    "tests": 14,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "assert/assertion_order.go::isOrdered",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "assert/assertions.go::CollectT.FailNow",
+    "tests": 3,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "assert/assertions.go::CollectT.Helper",
+    "tests": 7,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "assert/assertions.go::CollectT.fail",
+    "tests": 3,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "assert/assertions.go::CollectT.failed",
+    "tests": 8,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "assert/assertions.go::ObjectsAreEqualValues",
+    "tests": 10,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "assert/assertions.go::buildErrorChainString",
+    "tests": 8,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "assert/assertions.go::calcRelativeError",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "assert/assertions.go::copyExportedFields",
+    "tests": 3,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "assert/assertions.go::diffLists",
+    "tests": 5,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "assert/assertions.go::getLen",
+    "tests": 11,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "assert/assertions.go::isList",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "assert/assertions.go::isNumericType",
+    "tests": 6,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "assert/assertions.go::isType",
+    "tests": 9,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "assert/assertions.go::matchRegexp",
+    "tests": 15,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "assert/assertions.go::samePointers",
+    "tests": 5,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "assert/assertions.go::toFloat",
+    "tests": 9,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "assert/assertions.go::unwrapAll",
+    "tests": 8,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "assert/http_assertions.go::HTTPBody",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "assert/http_assertions.go::httpCode",
+    "tests": 7,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/common.go::catchPanic",
+    "tests": 8,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/common.go::handleMethods",
+    "tests": 15,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/common.go::printBool",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/common.go::printComplex",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/common.go::printFloat",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/common.go::printHexPtr",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/common.go::printUint",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/common.go::valuesSorter.Swap",
+    "tests": 8,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/config.go::ConfigState.convertArgs",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/dump.go::dumpState.dumpPtr",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/format.go::NewFormatter",
+    "tests": 3,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "internal/spew/format.go::formatState.Format",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/format.go::formatState.formatPtr",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/format.go::formatState.unpackValue",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/format.go::newFormatter",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "internal/spew/spew.go::convertArgs",
+    "tests": 3,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "mock/mock.go::Arguments.Int",
+    "tests": 11,
+    "tests_naming_it": 2
+   },
+   {
+    "target": "mock/mock.go::FunctionalOptionsArgument.String",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "mock/mock.go::Mock.String",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "mock/mock.go::argumentMatcher.Matches",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "mock/mock.go::argumentMatcher.String",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "mock/mock.go::assertOpts",
+    "tests": 5,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "mock/mock.go::diff",
+    "tests": 15,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "mock/mock.go::diffArguments",
+    "tests": 15,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "mock/mock.go::funcName",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "mock/mock.go::isFuncSame",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "mock/mock.go::runtimeFunc",
+    "tests": 4,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "mock/mock.go::safeTypeName",
+    "tests": 2,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "mock/mock.go::typeAndKind",
+    "tests": 15,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "suite/stats.go::SuiteInformation.end",
+    "tests": 10,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "suite/stats.go::SuiteInformation.start",
+    "tests": 10,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "suite/suite.go::Suite.SetS",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "suite/suite.go::Suite.SetT",
+    "tests": 12,
+    "tests_naming_it": 1
+   },
+   {
+    "target": "suite/suite.go::failOnPanic",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "suite/suite.go::recoverAndFailOnPanic",
+    "tests": 11,
+    "tests_naming_it": 0
+   },
+   {
+    "target": "suite/suite.go::runTests",
+    "tests": 10,
+    "tests_naming_it": 0
+   }
+  ],
+  "kind2": [
+   {
+    "callers": 6,
+    "declarations": 4,
+    "target": "assert/assertion_forward.go::Assertions.Contains"
+   },
+   {
+    "callers": 18,
+    "declarations": 4,
+    "target": "assert/assertion_forward.go::Assertions.False"
+   },
+   {
+    "callers": 10,
+    "declarations": 4,
+    "target": "assert/assertion_forward.go::Assertions.JSONEq"
+   },
+   {
+    "callers": 3,
+    "declarations": 4,
+    "target": "assert/assertion_forward.go::Assertions.NotEqual"
+   },
+   {
+    "callers": 18,
+    "declarations": 4,
+    "target": "assert/assertion_forward.go::Assertions.True"
+   },
+   {
+    "callers": 10,
+    "declarations": 4,
+    "target": "assert/assertion_forward.go::Assertions.YAMLEq"
+   },
+   {
+    "callers": 14,
+    "declarations": 8,
+    "target": "mock/mock.go::Arguments.Error"
+   },
+   {
+    "callers": 4,
+    "declarations": 13,
+    "target": "mock/mock.go::Arguments.String"
+   },
+   {
+    "callers": 3,
+    "declarations": 4,
+    "target": "require/require_forward.go::Assertions.Equal"
+   },
+   {
+    "callers": 10,
+    "declarations": 4,
+    "target": "require/require_forward.go::Assertions.JSONEq"
+   },
+   {
+    "callers": 3,
+    "declarations": 4,
+    "target": "require/require_forward.go::Assertions.True"
+   },
+   {
+    "callers": 10,
+    "declarations": 4,
+    "target": "require/require_forward.go::Assertions.YAMLEq"
+   },
+   {
+    "callers": 4,
+    "declarations": 3,
+    "target": "suite/suite.go::Suite.Run"
+   }
+  ],
+  "kind3": [
+   {
+    "interface_methods": [
+     "scip-go gomod github.com/stretchr/testify d850b3780c45 `github.com/stretchr/testify/mock`/assertExpectationiser#AssertExpectations."
+    ],
+    "target": "mock/mock.go::Mock.AssertExpectations",
+    "via": "interface"
+   },
+   {
+    "interface_methods": [
+     "scip-go gomod github.com/stretchr/testify d850b3780c45 `github.com/stretchr/testify/suite`/TestingSuite#SetS."
+    ],
+    "target": "suite/suite.go::Suite.SetS",
+    "via": "interface"
+   },
+   {
+    "interface_methods": [
+     "scip-go gomod github.com/stretchr/testify d850b3780c45 `github.com/stretchr/testify/suite`/TestingSuite#SetT."
+    ],
+    "target": "suite/suite.go::Suite.SetT",
+    "via": "interface"
+   }
+  ],
+  "kind4": [
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "assert/assertion_compare.go::Greater",
+     "assert/assertion_compare.go::GreaterOrEqual",
+     "assert/assertion_compare.go::Less",
+     "assert/assertion_compare.go::LessOrEqual",
+     "assert/assertion_compare.go::Negative",
+     "assert/assertion_compare.go::Positive"
+    ],
+    "target": "assert/assertion_compare.go::compareTwoValues"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "assert/assertions.go::Fail",
+     "mock/mock.go::Arguments.Assert",
+     "mock/mock.go::Mock.AssertExpectations",
+     "mock/mock.go::Mock.MethodCalled",
+     "mock/mock.go::Mock.On"
+    ],
+    "target": "assert/assertions.go::CallerInfo"
+   },
+   {
+    "callers": 11,
+    "non_test_callers": [
+     "assert/assertion_format.go::EqualErrorf",
+     "assert/assertion_forward.go::Assertions.EqualError",
+     "require/require.go::EqualError"
+    ],
+    "target": "assert/assertions.go::EqualError"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "assert/assertion_format.go::Eventuallyf",
+     "assert/assertion_forward.go::Assertions.Eventually",
+     "require/require.go::Eventually"
+    ],
+    "target": "assert/assertions.go::Eventually"
+   },
+   {
+    "callers": 9,
+    "non_test_callers": [
+     "assert/assertion_format.go::EventuallyWithTf",
+     "assert/assertion_forward.go::Assertions.EventuallyWithT",
+     "require/require.go::EventuallyWithT"
+    ],
+    "target": "assert/assertions.go::EventuallyWithT"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "assert/assertion_format.go::InDeltaf",
+     "assert/assertion_forward.go::Assertions.InDelta",
+     "assert/assertions.go::InDeltaMapValues",
+     "assert/assertions.go::InDeltaSlice",
+     "require/require.go::InDelta"
+    ],
+    "target": "assert/assertions.go::InDelta"
+   },
+   {
+    "callers": 13,
+    "non_test_callers": [
+     "assert/assertion_format.go::JSONEqf",
+     "assert/assertion_forward.go::Assertions.JSONEq",
+     "require/require.go::JSONEq"
+    ],
+    "target": "assert/assertions.go::JSONEq"
+   },
+   {
+    "callers": 12,
+    "non_test_callers": [
+     "assert/assertion_format.go::Lenf",
+     "assert/assertion_forward.go::Assertions.Len",
+     "assert/assertions.go::InEpsilonSlice",
+     "require/require.go::Len"
+    ],
+    "target": "assert/assertions.go::Len"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "assert/assertion_format.go::Neverf",
+     "assert/assertion_forward.go::Assertions.Never",
+     "require/require.go::Never"
+    ],
+    "target": "assert/assertions.go::Never"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "assert/assertions.go::EqualExportedValues",
+     "assert/assertions.go::EqualValues",
+     "assert/assertions.go::NotEqualValues",
+     "assert/assertions.go::ObjectsExportedFieldsAreEqual"
+    ],
+    "target": "assert/assertions.go::ObjectsAreEqualValues"
+   },
+   {
+    "callers": 15,
+    "non_test_callers": [
+     "assert/assertion_format.go::YAMLEqf",
+     "assert/assertion_forward.go::Assertions.YAMLEq",
+     "require/require.go::YAMLEq"
+    ],
+    "target": "assert/assertions.go::YAMLEq"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "assert/assertions.go::NotPanics",
+     "assert/assertions.go::Panics",
+     "assert/assertions.go::PanicsWithError",
+     "assert/assertions.go::PanicsWithValue"
+    ],
+    "target": "assert/assertions.go::didPanic"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "assert/assertions.go::Equal",
+     "assert/assertions.go::EqualExportedValues",
+     "assert/assertions.go::EqualValues"
+    ],
+    "target": "assert/assertions.go::diff"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "assert/assertions.go::ElementsMatch",
+     "assert/assertions.go::Empty",
+     "assert/assertions.go::NotElementsMatch",
+     "assert/assertions.go::NotEmpty"
+    ],
+    "target": "assert/assertions.go::isEmpty"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "assert/assertion_format.go::HTTPSuccessf",
+     "assert/assertion_forward.go::Assertions.HTTPSuccess",
+     "require/require.go::HTTPSuccess"
+    ],
+    "target": "assert/http_assertions.go::HTTPSuccess"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "assert/assertions.go::diff",
+     "mock/mock.go::diff"
+    ],
+    "target": "internal/difflib/difflib.go::GetUnifiedDiffString"
+   },
+   {
+    "callers": 7,
+    "non_test_callers": [
+     "assert/assertions.go::diff",
+     "mock/mock.go::diff"
+    ],
+    "target": "internal/difflib/difflib.go::SplitLines"
+   },
+   {
+    "callers": 6,
+    "non_test_callers": [
+     "internal/spew/config.go::ConfigState.Dump",
+     "internal/spew/config.go::ConfigState.Fdump",
+     "internal/spew/config.go::ConfigState.Sdump",
+     "internal/spew/dump.go::Dump",
+     "internal/spew/dump.go::Fdump",
+     "internal/spew/dump.go::Sdump"
+    ],
+    "target": "internal/spew/dump.go::fdump"
+   },
+   {
+    "callers": 10,
+    "non_test_callers": [
+     "http/test_round_tripper.go::TestRoundTripper.RoundTrip",
+     "mock/mock.go::Arguments.Bool",
+     "mock/mock.go::Arguments.Error",
+     "mock/mock.go::Arguments.Int",
+     "mock/mock.go::Arguments.String"
+    ],
+    "target": "mock/mock.go::Arguments.Get"
+   }
+  ],
+  "repository": "testify"
+ }
+}

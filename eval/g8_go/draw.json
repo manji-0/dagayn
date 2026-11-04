@@ -1,0 +1,69 @@
+{
+ "picks": {
+  "compress/kind1": {
+   "target": "zip/reader.go::File.OpenRaw",
+   "tests": 3,
+   "tests_naming_it": 0
+  },
+  "compress/kind2": {
+   "callers": 3,
+   "declarations": 29,
+   "target": "gzip/gzip.go::Writer.init"
+  },
+  "compress/kind3": {
+   "holders": [
+    "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/gzhttp/writer`/GzipWriterFactory#New."
+   ],
+   "target": "gzhttp/writer/gzkp/gzkp.go::NewWriter",
+   "via": "method value"
+  },
+  "compress/kind4": {
+   "callers": 6,
+   "edited_callers": [
+    "zstd/blockenc.go::blockEnc.encodeLits",
+    "zstd/blockenc.go::blockEnc.encodeRawTo"
+   ],
+   "non_test_callers": [
+    "zstd/blockenc.go::blockEnc.encode",
+    "zstd/blockenc.go::blockEnc.encodeLits",
+    "zstd/blockenc.go::blockEnc.encodeRLE",
+    "zstd/blockenc.go::blockEnc.encodeRaw",
+    "zstd/blockenc.go::blockEnc.encodeRawTo",
+    "zstd/encoder.go::Encoder.encodeAll"
+   ],
+   "target": "zstd/blockenc.go::blockHeader.setSize"
+  },
+  "testify/kind1": {
+   "target": "mock/mock.go::diffArguments",
+   "tests": 15,
+   "tests_naming_it": 0
+  },
+  "testify/kind2": {
+   "callers": 10,
+   "declarations": 4,
+   "target": "assert/assertion_forward.go::Assertions.JSONEq"
+  },
+  "testify/kind3": {
+   "interface_methods": [
+    "scip-go gomod github.com/stretchr/testify d850b3780c45 `github.com/stretchr/testify/suite`/TestingSuite#SetT."
+   ],
+   "target": "suite/suite.go::Suite.SetT",
+   "via": "interface"
+  },
+  "testify/kind4": {
+   "callers": 15,
+   "edited_callers": [
+    "assert/assertion_format.go::YAMLEqf",
+    "assert/assertion_forward.go::Assertions.YAMLEq"
+   ],
+   "non_test_callers": [
+    "assert/assertion_format.go::YAMLEqf",
+    "assert/assertion_forward.go::Assertions.YAMLEq",
+    "require/require.go::YAMLEq"
+   ],
+   "target": "assert/assertions.go::YAMLEq"
+  }
+ },
+ "pools_sha256": "5a6c7b551001e7d97a7bcad335bb1f49ced333778500c3271f7c4a242465956e",
+ "seed": 1517058901
+}
