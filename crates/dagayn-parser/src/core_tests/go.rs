@@ -1046,6 +1046,52 @@ func (d *compressor) init(level int, p *compressor) {
 }
 
 #[test]
+fn go_names_a_function_body_declares_are_no_function_values() {
+    // Each local shares its name with a function of another file of the
+    // package, which a bare reference would resolve to.
+    let source = br#"package p
+
+func use(x any) {}
+
+func Binders(x any, ch chan int, xs []int) {
+	switch v := x.(type) {
+	case int:
+		use(v)
+	}
+	const size = 3
+	use(size)
+	select {
+	case got := <-ch:
+		use(got)
+	}
+	for i := range xs {
+		use(i)
+	}
+	type kind int
+	use(kind(1))
+lbl:
+	for {
+		break lbl
+	}
+	use(lbl)
+}
+"#;
+    let (_, edges) = parse_go("p/p.go", source);
+    let references = |line: i64| {
+        edges
+            .iter()
+            .filter(|edge| edge.kind == "REFERENCES" && edge.line == line)
+            .map(|edge| edge.target.as_str())
+            .collect::<Vec<_>>()
+    };
+    for line in [8, 11, 14, 17, 20] {
+        assert!(references(line).is_empty(), "line {line}: {edges:?}");
+    }
+    // A label is no value: `lbl` after the loop names a function.
+    assert_eq!(references(25), ["lbl"]);
+}
+
+#[test]
 fn go_functions_used_as_values_are_references_to_them() {
     // From klauspost/compress `gzhttp`: `GzipWriterFactory.New` holds
     // `gzkp.NewWriter`, and calls through the field are no edges.

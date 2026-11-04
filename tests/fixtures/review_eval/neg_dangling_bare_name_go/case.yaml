@@ -1,0 +1,44 @@
+description: Replaces mathx/level.go::Level with Base. cmd/demo imports mathx and uses its own
+  constant Level, declared in another file of package main; in Go a bare name never
+  means a function of an imported package, so no dangling_reference.
+negative: true
+commit_change: true
+allowed_kinds: [untested_change]
+base:
+  from: go_module
+  files:
+    mathx/level.go: |
+      package mathx
+
+      // Level maps a number to a level.
+      func Level(n int) int {
+      	return n + 1
+      }
+    cmd/demo/consts.go: |
+      package main
+
+      // Level is the default level.
+      const Level = 3
+    cmd/demo/main.go: |
+      package main
+
+      import (
+      	"fmt"
+
+      	"example.com/demo/mathx"
+      )
+
+      func main() {
+      	level := Level
+      	fmt.Println(mathx.Twice(level), Level)
+      }
+change:
+  files:
+    mathx/level.go: |
+      package mathx
+
+      // Base is the lowest level.
+      func Base() int {
+      	return 1
+      }
+expected_findings: []

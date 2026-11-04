@@ -1,0 +1,42 @@
+description: Replaces mathx/level.go::Level with Base, leaving cmd/demo/main.go::main calling it
+  as Level through the dot import of mathx.
+negative: false
+commit_change: true
+allowed_kinds: [untested_change]
+base:
+  from: go_module
+  files:
+    mathx/level.go: |
+      package mathx
+
+      // Level maps a number to a level.
+      func Level(n int) int {
+      	return n + 1
+      }
+    cmd/demo/main.go: |
+      package main
+
+      import (
+      	"fmt"
+
+      	. "example.com/demo/mathx"
+      )
+
+      func main() {
+      	fmt.Println(Twice(21), Level(2))
+      }
+change:
+  files:
+    mathx/level.go: |
+      package mathx
+
+      // Base is the lowest level.
+      func Base() int {
+      	return 1
+      }
+expected_findings:
+- kind: dangling_reference
+  target: mathx/level.go::Level
+  also:
+  - cmd/demo/main.go::main
+  - cmd/demo/main.go
