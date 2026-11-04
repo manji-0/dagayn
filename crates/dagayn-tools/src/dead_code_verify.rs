@@ -857,21 +857,17 @@ struct FileImports {
 
 impl FileImports {
     /// Whether the mention of `name` on `line` is this file's import of
-    /// `name` from a known module other than `own_file`: the import, or a
-    /// call or reference the graph resolved through it (#257).
-    fn explains(&self, name: &str, line: i64, own_file: &str, root: &Path) -> bool {
+    /// `name` from a module other than `own_file`: the import, or a call or
+    /// reference the graph resolved through it (#257).
+    fn explains(&self, name: &str, line: i64, own_file: &str) -> bool {
         self.bound
             .get(name)
             .into_iter()
             .flatten()
             .any(|(module, uses)| {
-                self.modules
-                    .get(module)
-                    .is_some_and(|(imported_at, external)| {
-                        module != own_file
-                            && (*external || root.join(module).is_file())
-                            && (uses.contains(&line) || imported_at.contains(&line))
-                    })
+                self.modules.get(module).is_some_and(|(imported_at, _)| {
+                    module != own_file && (uses.contains(&line) || imported_at.contains(&line))
+                })
             })
     }
 }
@@ -881,7 +877,9 @@ impl FileImports {
 /// `module::name` for a module it imports (`import { format } from
 /// "date-fns"`, then `format()` calls `date-fns::format`). Calls through a
 /// binding are those resolved to `module::name`, and for an external
-/// package those to the package whose `external_symbol` names it.
+/// package those to the package whose `external_symbol` names it. A binding
+/// from a repository module is kept only when that module defines the name,
+/// so an unresolved re-export never explains a mention.
 fn file_imports(
     store: &GraphStore,
     names: &[String],
@@ -892,6 +890,9 @@ fn file_imports(
     // external package: calls through them target the package and keep the
     // name in `external_symbol` (`textwrap.dedent`).
     let mut external_names: HashMap<(String, String, String), String> = HashMap::new();
+    // (file, local name, module) -> the qualified names a repository module's
+    // binding stands for.
+    let mut definitions: HashMap<(String, String, String), Vec<String>> = HashMap::new();
     for edge in store.get_edges_by_kind("IMPORTS_FROM", false).ok()? {
         let module = relative(&edge.target_qualified);
         let file = relative(&edge.file_path);
@@ -917,6 +918,11 @@ fn file_imports(
                             (file.clone(), module.clone(), imported.to_string()),
                             local.to_string(),
                         );
+                    } else {
+                        definitions
+                            .entry((file.clone(), local.to_string(), module.clone()))
+                            .or_default()
+                            .push(format!("{}::{imported}", edge.target_qualified));
                     }
                 }
             }
@@ -936,9 +942,16 @@ fn file_imports(
                     continue;
                 };
                 let module = relative(module);
-                if let Some(imports) = files.get_mut(&relative(&edge.file_path))
-                    && imports.modules.contains_key(&module)
+                let file = relative(&edge.file_path);
+                if let Some(imports) = files.get_mut(&file)
+                    && let Some((_, external)) = imports.modules.get(&module)
                 {
+                    if !external {
+                        definitions
+                            .entry((file, name.clone(), module.clone()))
+                            .or_default()
+                            .push(edge.target_qualified.clone());
+                    }
                     imports
                         .bound
                         .entry(name.clone())
@@ -980,6 +993,15 @@ fn file_imports(
                     .or_default()
                     .push(edge.line);
             }
+        }
+    }
+    let qualified: Vec<String> = definitions.values().flatten().cloned().collect();
+    let defined = store.get_nodes_by_qualified_names(&qualified).ok()?;
+    for ((file, name, module), qns) in definitions {
+        if !qns.iter().any(|qn| defined.contains_key(qn))
+            && let Some(modules) = files.get_mut(&file).and_then(|i| i.bound.get_mut(&name))
+        {
+            modules.remove(&module);
         }
     }
     Some(files)
@@ -1119,11 +1141,9 @@ pub(crate) fn verify(
                 let explained = family.is_some_and(|family| {
                     dagayn_parser::detect_language(Path::new(file)).and_then(import_scoped_family)
                         == Some(family)
-                        && root.as_deref().is_some_and(|root| {
-                            imports
-                                .get(file)
-                                .is_some_and(|i| i.explains(&node.name, *line, &own_file, root))
-                        })
+                        && imports
+                            .get(file)
+                            .is_some_and(|i| i.explains(&node.name, *line, &own_file))
                 });
                 !explained
             });
