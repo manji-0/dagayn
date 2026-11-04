@@ -45,6 +45,42 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- A Go `callers_of` summary no longer says callers may be missing when
+  the graph knows they are not, and says what each call of the name that
+  goes to no definition is. In G9, 36 of 40 SHORT-question runs grepped
+  the name after a reply with `results_complete: true`, quoting a summary
+  that said callers may be missing (`eval/g9_go/RESULTS.md`). The rules,
+  all from graph facts:
+  - When every such call lies in a function the reply already lists, the
+    summary says no caller is missing from the list, says that bare-name
+    rows are matched by name, and names no function to read. On compress,
+    `zstd/enc_base.go::fastBase.CRC` (G9's C12) said "8 calls named CRC go
+    to no definition ..., so callers may be missing: read
+    zstd/encoder.go::Encoder.writeJobs, ..." about its own five rows. It
+    now says "their 8 calls of CRC that go to no definition are all
+    through interface encoder (zstd/encoder.go:32)".
+  - Each such call is classed by its edge: through an interface the
+    repository declares (its receiver's static type, with the interface's
+    place), on a standard-library or dependency type (`external_symbol`),
+    or on a value of unknown type (naming the function that returned it
+    when the graph knows). Only calls of the last kind are left to read.
+    A call through an interface or on a library type comes with when it
+    can reach the method: only where the value's dynamic type is the
+    method's type or embeds it. On kong, `model.go::Value.IsBool` (G9's
+    K3) said "read those lines to decide"; it now says that both calls,
+    at mapper.go:767 and in `Value.IsBool` itself at model.go:338, go
+    through interface BoolMapper (mapper.go:131). A call on a typed value
+    is a method call, so it is no longer counted for a plain function.
+  - `next` no longer reads a row the reply already lists for its unbound
+    calls (C12 listed `source_of` on `Encoder.writeJobs` twice). With no
+    call of unknown type outside the rows, it reads the interface the
+    calls go through instead.
+  - A complete answer for a method adds how its calls were bound: "every
+    call named Contains in the repository, _test.go files included, is
+    bound to a definition, a method call by its receiver's static type".
+  `results_complete` and every field keep their meaning, and the rows do
+  not change.
+
 - A Go method call on what a standard-library function returned is now
   that package's (#286). `zw := gzip.NewWriter(&buf); zw.Reset(&buf)` is an
   external call,

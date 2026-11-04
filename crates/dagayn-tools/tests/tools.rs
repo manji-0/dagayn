@@ -4282,7 +4282,8 @@ fn go_callers_of_says_whether_a_call_of_its_name_is_left_unbound() {
     assert!(
         summary.contains(
             "No direct caller the graph records is missing; every call named init in \
-             package gzip, _test.go files included, is bound to a definition"
+             package gzip, _test.go files included, is bound to a definition, a method call \
+             by its receiver's static type"
         ),
         "{summary}"
     );
@@ -4292,24 +4293,26 @@ fn go_callers_of_says_whether_a_call_of_its_name_is_left_unbound() {
     assert!(
         summary.contains(
             "Every other call named SetT in the repository, _test.go files included, is bound \
-             to a definition; the 1 that goes to no definition (made through an interface, on a \
-             standard-library or dependency type, or on a value whose type the graph does not \
-             know) is at suite/suite.go:11 in Run: read that line to decide whether it calls \
-             SetT"
+             to a definition; the 1 that goes to no definition is at suite/suite.go:11 in Run, \
+             through interface TestingSuite (suite/suite.go:3); a call through an interface \
+             reaches Suite.SetT only where the value's dynamic type is Suite or embeds it"
         ),
         "{summary}"
     );
     assert!(!summary.contains("is missing;"), "{summary}");
+    assert!(!summary.contains("read "), "{summary}");
     assert_eq!(
         set_t["next"][0]["args"],
-        json!({"pattern": "source_of", "target": "suite/suite.go::Run"}),
+        json!({"pattern": "source_of", "target": "suite/suite.go::TestingSuite"}),
         "{set_t}"
     );
 }
 
-/// A few unbound calls are listed line by line, grouped by the function
-/// they are in, so reading those lines settles the answer; past the cap the
-/// summary counts them and names callers to read.
+/// A few unbound calls are listed line by line, grouped by what the graph
+/// knows of them (through an interface the repository declares, or on a
+/// value of unknown type) and by the function they are in; only the lines
+/// on a value of unknown type are left to read. Past the cap the summary
+/// counts them by kind and names callers to read.
 #[test]
 fn go_callers_of_lists_the_lines_of_a_few_unbound_calls() {
     // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
@@ -4327,7 +4330,9 @@ fn go_callers_of_lists_the_lines_of_a_few_unbound_calls() {
     );
     repo.write(
         "p/q.go",
-        "package p\n\nfunc Done(c closer) {\n\tc.Close()\n}\n",
+        "package p\n\nfunc Done(m map[string]interface{ Close() }) {\n\
+         \tfor _, c := range m {\n\t\tc.Close()\n\t}\n}\n\n\
+         func Direct(f *File) {\n\tf.Close()\n\tf.Flush()\n}\n",
     );
     repo.build();
     let context = repo.context();
@@ -4342,33 +4347,131 @@ fn go_callers_of_lists_the_lines_of_a_few_unbound_calls() {
     let summary = close["summary"].as_str().expect("summary");
     assert!(
         summary.contains(
-            "the 3 that go to no definition (made through an interface, on a standard-library \
-             or dependency type, or on a value whose type the graph does not know) are at \
-             p/p.go:15 and :16 in Shut; p/q.go:4 in Done: read those lines to decide whether \
-             they call Close"
+            "the 3 that go to no definition are at p/p.go:15 and :16 in Shut, through \
+             interface closer (p/p.go:3); and at p/q.go:5 in Done, on a value whose type the \
+             graph does not know; a call through an interface reaches File.Close only where \
+             the value's dynamic type is File or embeds it; read the line on a value of \
+             unknown type to decide whether it calls Close"
         ),
         "{summary}"
     );
     assert_eq!(
         close["next"][0]["args"],
-        json!({"pattern": "source_of", "target": "p/p.go::Shut"}),
+        json!({"pattern": "source_of", "target": "p/q.go::Done"}),
         "{close}"
     );
     assert_eq!(
         close["next"][0]["why"],
-        json!("the calls named Close at p/p.go:15 and :16 go to no definition and may call it"),
+        json!("the calls named Close at p/q.go:5 go to no definition and may call it"),
         "{close}"
     );
     let flush = callers("p/p.go::File.Flush");
     let summary = flush["summary"].as_str().expect("summary");
     assert!(
         summary.contains(
-            "7 calls named Flush go to no definition in the repository (made through an \
-             interface, on a standard-library or dependency type, or on a value whose type the \
-             graph does not know), so callers may be missing: read p/p.go::Drain"
+            "7 calls named Flush go to no definition in the repository, all through \
+             interface closer (p/p.go:3); a call through an interface reaches File.Flush only \
+             where the value's dynamic type is File or embeds it, so callers may be missing: \
+             read p/p.go::Drain"
         ),
         "{summary}"
     );
+}
+
+/// When every Go call of the name that goes to no definition lies in a
+/// function the reply already lists (here the bare-name rows of a method
+/// called only through an interface), the list holds every caller: the
+/// summary says so and says what those calls are, and neither it nor
+/// `next` sends the agent to read more callers or to re-read a row.
+#[test]
+fn go_callers_of_says_no_caller_is_missing_when_unbound_calls_are_in_its_rows() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("go-unbound-calls-in-rows", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "z/enc.go",
+        "package z\n\ntype encoder interface{ CRC() uint32 }\n\n\
+         type fastBase struct{ n uint32 }\n\n\
+         func (f *fastBase) CRC() uint32 { return f.n }\n\n\
+         type fast struct{ fastBase }\n\n\
+         func Write(enc encoder) uint32 {\n\ta := enc.CRC()\n\treturn a + enc.CRC()\n}\n\n\
+         func Close(enc encoder) uint32 {\n\treturn enc.CRC()\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "z/enc.go::fastBase.CRC"}),
+    );
+    let rows: Vec<&str> = reply["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["qualified_name"].as_str())
+        .collect();
+    assert_eq!(rows.len(), 2, "{reply}");
+    let summary = reply["summary"].as_str().expect("summary");
+    assert!(
+        summary.contains(
+            "Every call named CRC in the repository, _test.go files included, is bound to a \
+             definition or lies in a function listed here, so no caller is missing from the \
+             list; the rows are matched by name (match \"bare_name\"), not bound by type: their \
+             3 calls of CRC that go to no definition are all through interface encoder \
+             (z/enc.go:3)"
+        ),
+        "{summary}"
+    );
+    assert!(!summary.contains("may be missing"), "{summary}");
+    assert!(!summary.contains("read "), "{summary}");
+    let next = reply["next"].as_array().expect("next");
+    assert_eq!(
+        next[0]["args"],
+        json!({"pattern": "source_of", "target": "z/enc.go::encoder"}),
+        "{reply}"
+    );
+    let targets: Vec<&str> = next
+        .iter()
+        .filter_map(|call| call["args"]["target"].as_str())
+        .collect();
+    let distinct: HashSet<&str> = targets.iter().copied().collect();
+    assert_eq!(distinct.len(), targets.len(), "{reply}");
+}
+
+/// A call on a value of another package's interface (`m demo.Marker`, here
+/// the module's root package) is named as a call through that interface,
+/// found by the import path its package is known by.
+#[test]
+fn go_callers_of_names_an_interface_of_another_package() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("go-unbound-calls-other-package", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "demo.go",
+        "package demo\n\ntype Marker interface{ Mark() }\n",
+    );
+    repo.write(
+        "b/b.go",
+        "package b\n\ntype T struct{}\n\nfunc (T) Mark() {}\n\nfunc Direct(t T) {\n\tt.Mark()\n}\n",
+    );
+    repo.write(
+        "cmd/use.go",
+        "package main\n\nimport \"example.com/demo\"\n\n\
+         func Use(m demo.Marker) {\n\tm.Mark()\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "b/b.go::T.Mark"}),
+    );
+    let summary = reply["summary"].as_str().expect("summary");
+    assert!(
+        summary.contains("is at cmd/use.go:6 in Use, through interface Marker (demo.go:3)"),
+        "{summary}"
+    );
+    assert!(!summary.contains("read "), "{summary}");
 }
 
 /// A call through a standard-library interface (`w.Write(p)` on `w
@@ -4400,7 +4503,14 @@ fn go_callers_of_counts_calls_through_a_standard_library_interface() {
         summary.contains("the 1 that goes to no definition"),
         "{summary}"
     );
-    assert!(summary.contains("is at gz/gz.go:26 in Copy"), "{summary}");
+    assert!(
+        summary.contains(
+            "is at gz/gz.go:26 in Copy, on the standard-library type io.Writer; a call on a \
+             library type, if that type is an interface, reaches Writer.Write only where the \
+             value's dynamic type is Writer or embeds it"
+        ),
+        "{summary}"
+    );
     // The standard library's function `bytes.Equal` is no method call.
     let equal = answer(
         &context,
