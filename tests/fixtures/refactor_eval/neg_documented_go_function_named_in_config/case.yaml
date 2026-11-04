@@ -1,0 +1,22 @@
+description: An unexported Go function with a doc comment that names it, which no Go code calls. A configuration file names it outside any comment, so the scan still keeps it. Only the function's own doc comment stops counting as a use.
+negative: true
+files:
+  go.mod: |
+    module example.com/hooks
+
+    go 1.22
+  hooks.go: |
+    package hooks
+
+    // Run runs the configured hooks.
+    func Run() int {
+    	return 0
+    }
+
+    // flushCache empties the cache before a deploy.
+    func flushCache() int {
+    	return 1
+    }
+  hooks.yaml: |
+    pre_deploy:
+      - flushCache

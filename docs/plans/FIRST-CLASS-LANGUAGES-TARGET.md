@@ -461,9 +461,11 @@ method-call gap.
     now uses the same per-language limit (no limit for Rust). On tstodon
     and dagayn's own graph its findings do not change (tstodon keeps
     `unitKind`, called at module load). A `format` imported from
-    `date-fns` still hides an unused local `format` from `dead_code`: the
-    source scan counts any occurrence of the name, so the refactor case
-    uses a name no other file mentions.
+    `date-fns` hid an unused local `format` from `dead_code`, because the
+    source scan counted any occurrence of the name, so the refactor case
+    uses a name no other file mentions. 11.1.0 fixes that
+    ([#257](https://github.com/manji-0/dagayn/issues/257)), and the case
+    `pos_unused_function_shadowed_by_import` covers it.
 
 ### Python work
 
