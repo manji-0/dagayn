@@ -184,6 +184,10 @@ _VOLATILE_KEYS = frozenset(
         "updated_at",
         # Interpreter, binary path, and pid of the server process.
         "_runtime",
+        # Every extractor's version in one string: a bump of any language
+        # would rewrite every fixture's metadata. tests/test_incremental.py
+        # checks that a build records it.
+        "extractor_versions",
     }
 )
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}")
