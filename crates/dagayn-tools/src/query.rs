@@ -1246,7 +1246,9 @@ fn edge_caveat(pattern: &str, language: &str, import_kind: Option<&str>) -> &'st
 /// The Go calls named like `node` that go to no definition in the
 /// repository: made through an interface, on a standard-library or
 /// dependency type (`w.Write(p)` on `w io.Writer`), or on a value whose
-/// type the graph does not know, so any may call `node` at run time. An
+/// type the graph does not know, so any may call `node` at run time. A call
+/// on what a function of another module returned (`zw := gzip.NewWriter(w);
+/// zw.Reset(w)`) is that module's and is not one of them (#286). An
 /// unexported name is callable from its own package (its directory) only.
 /// Calls from `node`'s package come first.
 fn go_unbound_calls(store: &GraphStore, node: &GraphNode) -> Option<Vec<GraphEdge>> {

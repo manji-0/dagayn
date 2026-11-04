@@ -320,8 +320,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // another file's function, a method on a receiver of a declared or
         // returned type) at `HIGH`; re-parsing re-binds the calls of
         // unchanged files, which keep their tier otherwise.
+        // 18: post-processing marks a method call on what a function of
+        // another module returned (`zw := gzip.NewWriter(w); zw.Reset(w)`)
+        // external to that module (`compress/gzip.NewWriter().Reset`).
         extractor: "go",
-        version: 17,
+        version: 18,
         languages: &["go"],
     },
     ExtractorVersion {

@@ -263,7 +263,12 @@ transaction:
      package's, never a repository class of the same name; an unqualified
      one (`*Reader`) is a class of the function's own directory; and the
      method may be declared in any file of that directory. `MEDIUM`; a Go
-     method found in the returned type's own package is `HIGH`.
+     method found in the returned type's own package is `HIGH`. A Go method
+     of what a function of another module returned (`zw :=
+     gzip.NewWriter(&buf); zw.Reset(&buf)` with `compress/gzip` the
+     standard library's) is external to that module, symbol
+     `compress/gzip.NewWriter().Reset`, `MEDIUM`; a builtin's result
+     (`min`, `max`) is not, as it has its argument's type.
    - *Declared Go receivers.* A Go call on a field of a struct another file
      declares (`receiver_field`: the struct, a path of fields such as
      `state.jobs`, and `element` for `s.nodes[i]`) takes each field's type

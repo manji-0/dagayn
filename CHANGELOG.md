@@ -45,6 +45,20 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- A Go method call on what a function of another module returned is now
+  that module's (#286). `zw := gzip.NewWriter(&buf); zw.Reset(&buf)` with
+  `compress/gzip` the standard library's is an external call,
+  `compress/gzip.NewWriter().Reset`, and so is `r, err :=
+  gzip.NewReader(..); r.Reset(..)`. Go `callers_of` no longer counts these
+  calls among the ones that go to no definition, and no longer names their
+  functions to read. On compress v1.20.1, `gzip/gzip.go::Writer.Reset`
+  (G9's C11) counted 82 such calls and named
+  `gzip/example_test.go::ExampleReader_Multistream` first, with `source_of`
+  on it as the first `next` call. It now counts 76 and names
+  `gzip/gunzip.go::Reader.readHeader` first. A call on a value of a
+  declared standard-library or dependency type (`w.Write(p)` on `w
+  io.Writer`) is still counted, since that type may be an interface. Go
+  extractor 18: graphs rebuild on the next update.
 - A complete Go `callers_of` answer with at most six calls of the name
   bound to no definition now gives each call's line, grouped by the
   function it is in, and says that every other call of the name is bound:

@@ -164,8 +164,10 @@ impl GraphStore {
     }
 
     /// `CALLS` edges into an external package whose `external_symbol` is a
-    /// method named `method` (`io.Writer.Write`, `bytes.Buffer.Write` for
-    /// `Write`; not the function `bytes.Equal` for `Equal`).
+    /// method named `method` on a type (`io.Writer.Write`, `bytes.Buffer.Write`
+    /// for `Write`; not the function `bytes.Equal` for `Equal`, nor
+    /// `compress/gzip.NewWriter().Write`, made on what a package function
+    /// returned).
     pub fn search_external_calls_by_method(&self, method: &str) -> Result<Vec<GraphEdge>> {
         let mut stmt = self.conn.prepare(
             "SELECT * FROM edges WHERE kind = 'CALLS' \
@@ -181,6 +183,7 @@ impl GraphStore {
                     .get("external_symbol")
                     .and_then(Value::as_str)
                     .and_then(|symbol| symbol.strip_suffix(&suffix))
+                    .filter(|owner| !owner.ends_with(')'))
                     .and_then(|owner| owner.rsplit('/').next())
                     .is_some_and(|owner| owner.contains('.'))
             })

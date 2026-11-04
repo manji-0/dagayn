@@ -4414,6 +4414,52 @@ fn go_callers_of_counts_calls_through_a_standard_library_interface() {
     );
 }
 
+/// A call on what a standard-library function returned (`zw :=
+/// gzip.NewWriter(&buf); zw.Reset(&buf)` in an external test package) is the
+/// standard library's (#286): it is not counted among the calls that go to
+/// no definition, and the summary does not send the agent to read it. A call
+/// on a value of unknown origin still is.
+#[test]
+fn go_callers_of_leaves_out_calls_on_what_a_standard_library_function_returned() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/returned.rs::resolve_returned_receivers
+    let repo = Repo::new("go-std-returned-calls", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "gzip/gzip.go",
+        "package gzip\n\nimport \"io\"\n\ntype Writer struct{ w io.Writer }\n\n\
+         func (z *Writer) Reset(w io.Writer) {\n\tz.w = w\n}\n\n\
+         func Direct(w io.Writer) {\n\tz := &Writer{}\n\tz.Reset(w)\n}\n\n\
+         func Loop(m map[string]interface{ Reset(io.Writer) }) {\n\
+         \tfor _, v := range m {\n\t\tv.Reset(nil)\n\t}\n}\n",
+    );
+    repo.write(
+        "gzip/example_test.go",
+        "package gzip_test\n\nimport (\n\t\"bytes\"\n\t\"compress/gzip\"\n)\n\n\
+         func ExampleWriter() {\n\tvar buf bytes.Buffer\n\tzw := gzip.NewWriter(&buf)\n\
+         \tzw.Reset(&buf)\n\tzr, err := gzip.NewReader(&buf)\n\tif err != nil {\n\t\treturn\n\t}\n\
+         \tzr.Reset(&buf)\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "gzip/gzip.go::Writer.Reset"}),
+    );
+    let summary = reply["summary"].as_str().expect("summary");
+    assert!(
+        summary.contains("the 1 that goes to no definition"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("is at gzip/gzip.go:18 in Loop"),
+        "{summary}"
+    );
+    assert!(!summary.contains("ExampleWriter"), "{summary}");
+    let next = reply["next"].to_string();
+    assert!(!next.contains("ExampleWriter"), "{next}");
+}
+
 /// Go calls bound across the files of a package are `HIGH`, so a
 /// `callers_of` made only of them answers with `confidence: "high"`: a
 /// plain call of the package's function, and method calls on a receiver
