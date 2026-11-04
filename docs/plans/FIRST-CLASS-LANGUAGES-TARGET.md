@@ -177,7 +177,7 @@ these calls with no import at all.
 | C7 | **missing** | no harness; testify measured [above](#tool-answers) |
 | C8 | **missing** | no case in any eval |
 | C9 | present | `init` and protocol methods (`dead_code_verify.rs:319-330`); exported names of importable packages (`go_exported_api`, G5); `Benchmark` / `Fuzz` / `Example` functions are `Test` nodes (G1) |
-| C10 | **failed** | G7, on questions a script cannot answer: tokens 1.00x, time 0.91x, neither significant ([results](../../eval/g7_go/RESULTS.md)) |
+| C10 | **failed** | G7, on questions a script cannot answer: tokens 1.00x, time 0.91x, neither significant ([results](../../eval/g7_go/RESULTS.md)). G8, on eight new questions on 11.0.0: tokens 1.20x (more, Holm p = 0.0003), time 0.97x, 73 against 79 of 80 exact ([results](../../eval/g8_go/RESULTS.md)) |
 | C11 | present | cgo and wasm bridges (`go.rs:280`, `:1316`) |
 
 ## Why Python cost agents tokens
@@ -377,9 +377,24 @@ method-call gap.
     through a field holding a method expression, C3: 1.36x, Holm p = 0.022)
     or listed 65 tests for 4 that run the function (C1). Go is not
     first-class. The defects the runs show are listed in the results.
-    **G8, the rerun on new questions, is pre-registered** (2026-11-04,
+    **G8, the rerun on new questions: measured, not met** (2026-11-04,
     [pre-registration](../../eval/g8_go/PREREG.md),
-    [decisions](#decisions-2026-11-04)).
+    [results](../../eval/g8_go/RESULTS.md),
+    [decisions](#decisions-2026-11-04)). Eight new questions drawn by a
+    seeded rule, 160 runs on 11.0.0 (go extractor 15). Tokens were 1.20x,
+    more than without dagayn (Holm p = 0.0003). Time was 0.97x (Holm p =
+    0.38), and 73 of 80 answers were exact against 79 of 80, so both
+    parts of the bar fail. The one gain was C5's test reach (0.72x time,
+    Holm p = 0.039). The largest cost was a function value called through
+    a field, where dagayn's answer had 1 of 3 callers (C7: 1.39x, Holm
+    p = 0.0096). On questions that the baseline answered in about 5
+    turns, even complete answers cost more. In 34 of 160 runs, the first
+    call named a method in Go's spelling (`(*T).M`) and got `not_found` or
+    a false `ambiguous`
+    ([#275](https://github.com/manji-0/dagayn/issues/275)). On G7's
+    questions (report only), this hid the C3 fix (1.76x), and the pooled
+    tokens moved from 1.00x to 1.07x. Go is not first-class. The defects
+    the runs show are listed in the results.
 
 ### TypeScript work
 

@@ -1,0 +1,81 @@
+id,setup,task,ok,f1,exact,total_tokens,cost_usd,duration_s,turns,tool_calls,dagayn_calls,dagayn_reply_max,dagayn_replies_over_budget,dagayn_tools,mcp_status
+000-C1-baseline,baseline,C1,True,1.0,1,688685,0.0242,76.72,18,17,0,0,0,,
+001-C3-candidate,candidate,C3,True,1.0,1,125797,0.0048,17.52,7,5,1,672,0,query_graph_tool,dagayn:connected
+002-C1-candidate,candidate,C1,True,1.0,1,832078,0.0268,76.24,26,24,4,24550,1,query_graph_tool query_graph_tool query_graph_tool query_graph_tool,dagayn:connected
+003-C2-candidate,candidate,C2,True,1.0,1,231507,0.0105,43.3,8,6,1,3037,0,query_graph_tool,dagayn:connected
+004-C4-candidate,candidate,C4,True,1.0,1,368898,0.0158,53.68,10,8,1,3063,0,query_graph_tool,dagayn:connected
+005-C2-candidate,candidate,C2,True,1.0,1,252758,0.0109,37.61,15,13,1,3037,0,query_graph_tool,dagayn:connected
+006-C4-baseline,baseline,C4,True,1.0,1,637801,0.0231,84.32,15,14,0,0,0,,
+007-C1-candidate,candidate,C1,True,1.0,1,779045,0.0252,76.45,18,16,4,5264,0,query_graph_tool query_graph_tool query_graph_tool query_graph_tool,dagayn:connected
+008-C1-baseline,baseline,C1,True,1.0,1,598908,0.0238,82.58,23,22,0,0,0,,
+009-C3-candidate,candidate,C3,True,1.0,1,152500,0.0053,19.19,8,6,2,1125,0,query_graph_tool query_graph_tool,dagayn:connected
+010-C1-baseline,baseline,C1,True,0.8571,0,743816,0.0221,85.54,19,18,0,0,0,,
+011-C1-candidate,candidate,C1,True,1.0,1,736081,0.0247,76.9,25,23,1,24641,1,query_graph_tool,dagayn:connected
+012-C2-baseline,baseline,C2,True,1.0,1,246137,0.0114,35.61,10,9,0,0,0,,
+013-C4-candidate,candidate,C4,True,1.0,1,323230,0.0182,60.33,18,16,1,3063,0,query_graph_tool,dagayn:connected
+014-C1-candidate,candidate,C1,True,1.0,1,472351,0.0194,59.87,11,9,2,24641,1,query_graph_tool query_graph_tool,dagayn:connected
+015-C4-candidate,candidate,C4,True,1.0,1,281074,0.0152,52.38,10,8,2,3205,0,query_graph_tool query_graph_tool,dagayn:connected
+016-C4-candidate,candidate,C4,True,1.0,1,507540,0.0209,71.17,13,11,2,3205,0,query_graph_tool query_graph_tool,dagayn:connected
+017-C2-candidate,candidate,C2,True,1.0,1,134177,0.0067,22.27,8,6,1,3037,0,query_graph_tool,dagayn:connected
+018-C2-candidate,candidate,C2,True,1.0,1,188551,0.0093,28.36,9,7,1,3037,0,query_graph_tool,dagayn:connected
+019-C3-baseline,baseline,C3,True,1.0,1,95089,0.0043,17.46,6,5,0,0,0,,
+020-C1-candidate,candidate,C1,True,1.0,1,698121,0.0224,72.8,17,15,5,5376,0,query_graph_tool query_graph_tool query_graph_tool query_graph_tool query_graph_tool,dagayn:connected
+021-C3-candidate,candidate,C3,True,1.0,1,215915,0.0072,23.46,10,8,3,1267,0,query_graph_tool semantic_search_nodes_tool query_graph_tool,dagayn:connected
+022-C1-baseline,baseline,C1,True,1.0,1,335765,0.0186,69.25,18,17,0,0,0,,
+023-C4-baseline,baseline,C4,True,1.0,1,412115,0.0171,69.21,15,14,0,0,0,,
+024-C2-baseline,baseline,C2,True,1.0,1,138812,0.0095,28.71,9,8,0,0,0,,
+025-C2-baseline,baseline,C2,True,1.0,1,160577,0.0082,26.67,6,5,0,0,0,,
+026-C2-baseline,baseline,C2,True,1.0,1,328707,0.0135,43.9,11,10,0,0,0,,
+027-C4-baseline,baseline,C4,True,1.0,1,360258,0.0275,147.59,9,8,0,0,0,,
+028-C1-baseline,baseline,C1,True,1.0,1,751421,0.0242,73.22,22,21,0,0,0,,
+029-C4-candidate,candidate,C4,True,1.0,1,382132,0.0181,90.27,12,11,1,2070,0,query_graph_tool,dagayn:connected
+030-C2-candidate,candidate,C2,True,1.0,1,133546,0.0063,21.97,6,4,1,3037,0,query_graph_tool,dagayn:connected
+031-C2-baseline,baseline,C2,True,1.0,1,183380,0.0113,35.94,8,7,0,0,0,,
+032-C4-baseline,baseline,C4,True,0.9474,0,252539,0.0138,56.79,8,7,0,0,0,,
+033-C1-baseline,baseline,C1,True,0.8571,0,427571,0.0162,58.47,21,20,0,0,0,,
+034-C4-baseline,baseline,C4,True,1.0,1,440266,0.0206,124.9,12,11,0,0,0,,
+035-C3-baseline,baseline,C3,True,1.0,1,154172,0.0065,23.65,9,8,0,0,0,,
+036-C4-baseline,baseline,C4,True,1.0,1,463309,0.0236,85.61,17,16,0,0,0,,
+037-C1-baseline,baseline,C1,True,1.0,1,694255,0.0262,88.62,15,14,0,0,0,,
+038-C4-baseline,baseline,C4,True,0.9474,0,341187,0.0182,57.32,10,9,0,0,0,,
+039-C2-candidate,candidate,C2,True,1.0,1,108374,0.0053,17.1,6,4,1,3143,0,query_graph_tool,dagayn:connected
+040-C2-baseline,baseline,C2,True,1.0,1,256777,0.0117,41.19,8,7,0,0,0,,
+041-C2-candidate,candidate,C2,True,1.0,1,166904,0.0076,29.36,8,6,1,3037,0,query_graph_tool,dagayn:connected
+042-C3-baseline,baseline,C3,True,1.0,1,93764,0.004,15.4,5,4,0,0,0,,
+043-C2-baseline,baseline,C2,True,1.0,1,215112,0.0119,41.18,9,8,0,0,0,,
+044-C2-baseline,baseline,C2,True,1.0,1,205861,0.0087,33.88,9,8,0,0,0,,
+045-C2-baseline,baseline,C2,True,1.0,1,225536,0.0115,36.26,8,7,0,0,0,,
+046-C2-baseline,baseline,C2,True,1.0,1,209251,0.0089,33.67,10,9,0,0,0,,
+047-C4-candidate,candidate,C4,True,1.0,1,212121,0.0123,46.57,9,7,2,3063,0,query_graph_tool query_graph_tool,dagayn:connected
+048-C3-candidate,candidate,C3,True,1.0,1,126396,0.0052,20.43,8,6,1,1125,0,query_graph_tool,dagayn:connected
+049-C3-baseline,baseline,C3,True,1.0,1,95970,0.004,18.79,5,4,0,0,0,,
+050-C3-baseline,baseline,C3,True,1.0,1,95456,0.0041,15.51,4,3,0,0,0,,
+051-C1-baseline,baseline,C1,True,1.0,1,1112132,0.0292,89.16,22,21,0,0,0,,
+052-C4-candidate,candidate,C4,True,1.0,1,341105,0.0158,57.07,12,10,2,3063,0,query_graph_tool query_graph_tool,dagayn:connected
+053-C3-candidate,candidate,C3,True,1.0,1,182761,0.0061,17.08,9,7,3,1767,0,query_graph_tool query_graph_tool ensure_graph_tool,dagayn:connected
+054-C1-baseline,baseline,C1,True,0.8571,0,448865,0.0197,74.38,20,19,0,0,0,,
+055-C4-baseline,baseline,C4,True,1.0,1,488162,0.0181,70.69,14,13,0,0,0,,
+056-C1-candidate,candidate,C1,True,1.0,1,643467,0.024,69.97,20,18,2,24065,1,query_graph_tool query_graph_tool,dagayn:connected
+057-C3-baseline,baseline,C3,True,1.0,1,95999,0.0042,15.66,6,5,0,0,0,,
+058-C3-baseline,baseline,C3,True,1.0,1,95781,0.0043,17.31,6,5,0,0,0,,
+059-C4-baseline,baseline,C4,True,1.0,1,321091,0.0174,72.09,14,13,0,0,0,,
+060-C3-baseline,baseline,C3,True,1.0,1,120477,0.005,21.36,5,4,0,0,0,,
+061-C1-baseline,baseline,C1,True,1.0,1,701645,0.0247,99.57,17,16,0,0,0,,
+062-C3-candidate,candidate,C3,True,1.0,1,203775,0.0063,19.72,8,6,4,5931,0,query_graph_tool semantic_search_nodes_tool query_graph_tool query_graph_tool,dagayn:connected
+063-C4-candidate,candidate,C4,True,1.0,1,418416,0.0215,74.25,15,13,1,3205,0,query_graph_tool,dagayn:connected
+064-C2-candidate,candidate,C2,True,1.0,1,226019,0.01,37.14,7,5,1,3037,0,query_graph_tool,dagayn:connected
+065-C3-baseline,baseline,C3,True,1.0,1,95790,0.0041,16.09,5,4,0,0,0,,
+066-C1-candidate,candidate,C1,True,1.0,1,960088,0.0298,86.05,23,21,2,24641,1,query_graph_tool query_graph_tool,dagayn:connected
+067-C3-candidate,candidate,C3,True,1.0,1,205775,0.0062,22.75,8,6,3,1267,0,query_graph_tool semantic_search_nodes_tool query_graph_tool,dagayn:connected
+068-C3-baseline,baseline,C3,True,1.0,1,94894,0.0041,13.3,6,5,0,0,0,,
+069-C1-candidate,candidate,C1,True,1.0,1,812224,0.0279,93.77,26,24,1,24641,1,query_graph_tool,dagayn:connected
+070-C4-candidate,candidate,C4,True,1.0,1,350819,0.0164,56.5,12,10,2,3063,0,query_graph_tool query_graph_tool,dagayn:connected
+071-C1-candidate,candidate,C1,True,1.0,1,871453,0.0288,88.66,25,23,1,24641,1,query_graph_tool,dagayn:connected
+072-C3-candidate,candidate,C3,True,1.0,1,212207,0.0067,26.27,9,7,1,672,0,query_graph_tool,dagayn:connected
+073-C2-candidate,candidate,C2,True,1.0,1,227547,0.0098,29.23,11,9,1,3037,0,query_graph_tool,dagayn:connected
+074-C1-candidate,candidate,C1,True,1.0,1,669348,0.0262,85.45,14,12,2,24550,1,query_graph_tool query_graph_tool,dagayn:connected
+075-C4-baseline,baseline,C4,True,0.9474,0,518975,0.0253,110.0,11,10,0,0,0,,
+076-C4-candidate,candidate,C4,True,0.9474,0,357308,0.0171,57.1,12,11,2,2149,0,query_graph_tool query_graph_tool,dagayn:connected
+077-C3-candidate,candidate,C3,True,1.0,1,204254,0.0064,17.44,9,7,3,1267,0,query_graph_tool semantic_search_nodes_tool query_graph_tool,dagayn:connected
+078-C3-candidate,candidate,C3,True,1.0,1,202265,0.0057,24.59,9,7,3,1267,0,query_graph_tool semantic_search_nodes_tool query_graph_tool,dagayn:connected
+079-C2-candidate,candidate,C2,True,1.0,1,203134,0.0117,38.87,15,13,2,3037,0,query_graph_tool query_graph_tool,dagayn:connected
