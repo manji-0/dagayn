@@ -45,9 +45,9 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
-- A Go method call on what a function of another module returned is now
-  that module's (#286). `zw := gzip.NewWriter(&buf); zw.Reset(&buf)` with
-  `compress/gzip` the standard library's is an external call,
+- A Go method call on what a standard-library function returned is now
+  that package's (#286). `zw := gzip.NewWriter(&buf); zw.Reset(&buf)` is an
+  external call,
   `compress/gzip.NewWriter().Reset`, and so is `r, err :=
   gzip.NewReader(..); r.Reset(..)`. Go `callers_of` no longer counts these
   calls among the ones that go to no definition, and no longer names their
@@ -61,9 +61,9 @@ All notable changes to `dagayn` are documented here.
   call on what a builtin or a generic standard-library API returned is
   still counted too (`best := slices.MaxFunc(nodes, f); best.Visit()`,
   `c := p.Load()` on `p atomic.Pointer[Node]`), since that value may be of
-  the module's own type. A generic function of a dependency is not known
-  as one, so a call on what it returned is still taken for the
-  dependency's. Go extractor 18: graphs rebuild on the next update.
+  the module's own type. A call on what a dependency's function returned
+  is still counted as well, since the graph cannot tell whether that
+  function is generic (`lo.MaxBy(nodes, f)`). Go extractor 18: graphs rebuild on the next update.
 - A complete Go `callers_of` answer with at most six calls of the name
   bound to no definition now gives each call's line, grouped by the
   function it is in, and says that every other call of the name is bound:

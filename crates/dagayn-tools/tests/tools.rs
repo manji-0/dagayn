@@ -4462,13 +4462,17 @@ fn go_callers_of_leaves_out_calls_on_what_a_standard_library_function_returned()
 
 /// A generic standard-library function or type returns a value of the
 /// module's own type (`best := slices.MaxFunc(nodes, cmp); best.Visit()`,
-/// `c := p.Load()` on `p atomic.Pointer[Node]`): a call on it may call the
-/// module's method, so it stays among the calls that go to no definition.
+/// `c := p.Load()` on `p atomic.Pointer[Node]`), and a dependency's
+/// function may (`lo.MaxBy(nodes, by)`): a call on it may call the module's
+/// method, so it stays among the calls that go to no definition.
 #[test]
-fn go_callers_of_keeps_calls_on_what_a_generic_standard_library_api_returned() {
+fn go_callers_of_keeps_calls_on_what_a_generic_or_dependency_api_returned() {
     // dagayn: tests crates/dagayn-graph/src/postprocess/returned.rs::resolve_returned_receivers
     let repo = Repo::new("go-std-generic-returned-calls", false);
-    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "go.mod",
+        "module example.com/demo\n\ngo 1.22\n\nrequire github.com/samber/lo v1.47.0\n",
+    );
     repo.write(
         "tree/node.go",
         "package tree\n\ntype Node struct{ n int }\n\n\
@@ -4476,10 +4480,12 @@ fn go_callers_of_keeps_calls_on_what_a_generic_standard_library_api_returned() {
     );
     repo.write(
         "tree/use.go",
-        "package tree\n\nimport (\n\t\"slices\"\n\t\"sync/atomic\"\n)\n\n\
+        "package tree\n\nimport (\n\t\"slices\"\n\t\"sync/atomic\"\n\n\t\"github.com/samber/lo\"\n)\n\n\
          func UseMax(nodes []*Node, by func(a, b *Node) int) {\n\
          \tbest := slices.MaxFunc(nodes, by)\n\tbest.Visit()\n}\n\n\
-         func UseLoad(p *atomic.Pointer[Node]) {\n\tc := p.Load()\n\tc.Visit()\n}\n",
+         func UseLoad(p *atomic.Pointer[Node]) {\n\tc := p.Load()\n\tc.Visit()\n}\n\n\
+         func UseDep(nodes []*Node, by func(a, b *Node) bool) {\n\
+         \tbest := lo.MaxBy(nodes, by)\n\tbest.Visit()\n}\n",
     );
     repo.build();
     let context = repo.context();
@@ -4490,7 +4496,7 @@ fn go_callers_of_keeps_calls_on_what_a_generic_standard_library_api_returned() {
     );
     let summary = reply["summary"].as_str().expect("summary");
     let rows = reply["results"].to_string();
-    for function in ["UseMax", "UseLoad"] {
+    for function in ["UseMax", "UseLoad", "UseDep"] {
         assert!(
             summary.contains(&format!("in {function}")) || rows.contains(function),
             "{function} is neither a caller nor an unbound call: {summary}"

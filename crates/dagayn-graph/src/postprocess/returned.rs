@@ -1871,33 +1871,33 @@ pub(crate) fn resolve_returned_receivers(
                 ))
             } else if family == "go"
                 && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
+                && inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true)
                 && !inner_extra
                     .get("external_package")
                     .and_then(Value::as_str)
                     .is_some_and(go_may_return_callers_type)
             {
-                // A Go method of what a function of another module returned
+                // A Go method of what a standard-library function returned
                 // (`zw := gzip.NewWriter(&buf); zw.Reset(&buf)`, or `r, err
-                // := yaml.NewDecoder(f)` with its first result) is one of
-                // that module's types: a function outside the module returns
-                // a value of the module's own type only through a type
-                // parameter. The standard library's generic APIs and the
-                // builtins are left out (see [`go_may_return_callers_type`]);
-                // a generic function of a dependency is not known as one, so
-                // a method on what it returned (`lo.MaxBy(nodes, f).Visit()`)
-                // is still taken for the dependency's and its caller missed.
+                // := gzip.NewReader(f)` with its first result) is one of the
+                // standard library's types: it returns a value of the
+                // module's own type only through a type parameter, and its
+                // generic APIs and the builtins are left out (see
+                // [`go_may_return_callers_type`]). A dependency's function is
+                // not known to be generic or not (`lo.MaxBy(nodes, f)`), so a
+                // method on what it returned stays a call the graph does not
+                // bind, rather than one of the dependency's.
                 let package = inner_extra
                     .get("external_package")
                     .and_then(Value::as_str)
                     .unwrap_or(&inner_target);
-                let stdlib = inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true);
                 let symbol = inner_extra
                     .get("external_symbol")
                     .and_then(Value::as_str)
                     .unwrap_or(name);
                 Some(Returned::External(
                     package.to_string(),
-                    stdlib,
+                    true,
                     format!("{symbol}()"),
                 ))
             } else if matches!(family, "python" | "javascript")
