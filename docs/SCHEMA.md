@@ -28,11 +28,13 @@ Rust, a file compiled only under test is a test file whatever its name: under
 `tests/` or `test/`, or the target of a `#[cfg(test)] mod name;` declaration
 (`#[path]` included, `cfg(all(test, ...))` too) or a module below one, in
 every crate that compiles it. Every node of such a file has `is_test`. The
-functions of a `#[cfg(test)]` module, and of a file under a nested `tests/`
-or `test/` directory (`crates/x/tests/`), are `Test` nodes; elsewhere a
-function is a test by its attribute (`#[test]`, `#[tokio::test]`,
-`#[cfg(test)]`, `#[rstest]`, `#[test_case(...)]`): the attribute's path ends
-in `test` or names a test macro, or a `cfg` holds only under test. An
+functions of a `#[cfg(test)]` module are `Test` nodes. Elsewhere, a
+`tests/` or `test/` directory included, a function is a test only by its
+attribute, so a helper or a test double's method there (`Repo.new` in
+`crates/x/tests/`) is an `is_test` Function. In a test attribute
+(`#[test]`, `#[tokio::test]`, `#[cfg(test)]`, `#[rstest]`,
+`#[test_case(...)]`), the path ends in `test` or names a test macro, or a
+`cfg` holds only under test. An
 attribute that only mentions `test` (`#[cfg(not(test))]`, `#[cfg(any(test,
 feature = "x"))]`, a `#[pyo3(signature = (include_tests = false))]`) does not
 make a test. The gate is read

@@ -3960,6 +3960,39 @@ fn go_tests_for_a_method_skips_test_doubles_of_its_name() {
     assert_eq!(rows, ["assert/assertions_test.go::TestCollect"], "{reply}");
 }
 
+/// A test double's method under a Rust crate's `tests/` is test code, not
+/// a test: `tests_for` on `Args.new` names the test that calls it, not the
+/// double's `Repo.new` (#262).
+#[test]
+fn rust_tests_for_a_method_skips_test_doubles_of_its_name() {
+    // dagayn: tests crates/dagayn-parser/src/rust_lang/mod.rs::rust_walk_children
+    let repo = Repo::new("rust-tests-for-doubles", false);
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"crates/app\"]\n");
+    repo.write("crates/app/Cargo.toml", "[package]\nname = \"app\"\n");
+    repo.write(
+        "crates/app/src/lib.rs",
+        "pub struct Args;\n\nimpl Args {\n    pub fn new() -> Args {\n        Args\n    }\n}\n",
+    );
+    repo.write(
+        "crates/app/tests/cli.rs",
+        "use app::Args;\n\nstruct Repo;\n\nimpl Repo {\n    fn new() -> Repo {\n        Repo\n    }\n}\n\n\
+         #[test]\nfn args_build() {\n    let _repo = Repo::new();\n    let _args = Args::new();\n}\n",
+    );
+    repo.build();
+    let reply = answer(
+        &repo.context(),
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "crates/app/src/lib.rs::Args.new"}),
+    );
+    let rows: Vec<&str> = reply["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["qualified_name"].as_str())
+        .collect();
+    assert_eq!(rows, ["crates/app/tests/cli.rs::args_build"], "{reply}");
+}
+
 /// A Go package is a unit, named by its import path; an import of a package
 /// of another module of the repository is a declared dependency when the
 /// importing module's `go.mod` requires that module.
