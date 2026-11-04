@@ -214,7 +214,10 @@ Per question:
 ## Defects in dagayn's Go answers
 
 These are the defects the runs show. They are recorded for the plan and
-are not fixed here. No issue has been filed for them yet.
+are not fixed here. Tracking, added 2026-11-05: defect 1 is #286, fixed
+by #287 (its follow-ups are #288); defect 2 is #289; defect 3 is #290;
+defect 4 is in progress (the `callers_of` summary contradicted
+`results_complete`), with no issue.
 
 1. **The unbound-call hint points at calls on a standard-library type**
    (C11). When more than six calls of the name go to no definition, the

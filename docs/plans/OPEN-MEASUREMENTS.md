@@ -150,7 +150,7 @@ On this sample, "a production `REFERENCES` edge targets a same-named node in
 a file that `IMPORTS_FROM` the function's file" holds for all 3 route
 components and for none of the 4 `wrong` or `helper` entries A added. It is
 one pattern in one file, so it waits for a second repository, or for the
-parser to resolve a member of a dynamic import.
+parser to resolve a member of a dynamic import (#294).
 
 ## Review impact and context
 
@@ -305,7 +305,8 @@ Verdicts: registry **keep** (the only source of repository paths); daemon
 answers nothing per-repo search cannot and costs more characters; it earns
 its call only by saving one call per extra repository. Fixes: carry
 `exactness` and `zero_result_reason` per repository, accept `detail_level`,
-and send `repo_path` once per repository.
+and send `repo_path` once per repository. The ones not yet made are tracked
+in #302.
 
 ## Caveats
 

@@ -811,6 +811,8 @@ package would shrink the wheel; revisit if wheel size becomes a problem.
 
 ### 5.4 Remaining Python surfaces
 
+5.4 to 5.6 are tracked in #303.
+
 | Python | Rust |
 |---|---|
 | `daemon.py`, `incremental_update_pipeline.py` (watchdog) | `notify` |
