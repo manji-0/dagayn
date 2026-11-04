@@ -44,6 +44,7 @@ pub(super) fn parse_go_with_parser(
             struct_fields: go_struct_fields(root, source, &stdlib),
             bindings: RefCell::new(MemberCallBindings::with_types(declared_types.clone())),
             declared_types,
+            declared_values: go_declared_values(root, source),
             locals: RefCell::new(HashSet::new()),
         };
         go_walk_children(root, &context, None, &mut nodes, &mut edges);
@@ -107,8 +108,11 @@ fn go_resolve_call_targets(
     let bare_calls = edges
         .iter()
         .map(|edge| {
-            (edge.kind == crate::core::types::EdgeKind::Calls && !edge.target.contains("::"))
-                .then(|| edge.target.clone())
+            (matches!(
+                edge.kind,
+                crate::core::types::EdgeKind::Calls | crate::core::types::EdgeKind::References
+            ) && !edge.target.contains("::"))
+            .then(|| edge.target.clone())
         })
         .collect::<Vec<_>>();
     let mut edges = resolve_rust_call_targets(nodes, edges, file_path);
@@ -244,6 +248,8 @@ struct GoContext<'a> {
     bindings: RefCell<MemberCallBindings>,
     /// Every type the file declares.
     declared_types: HashSet<String>,
+    /// The file's top-level variables and constants.
+    declared_values: HashSet<String>,
     /// Names the enclosing function declares (parameters, receiver,
     /// `var`, `:=`, `range`): a receiver of these is a variable, never a
     /// package qualifier.
@@ -314,6 +320,9 @@ fn go_walk_children(
             "selector_expression" => {
                 go_emit_method_expression(child, context, enclosing_func, edges);
             }
+            "identifier" => {
+                go_emit_function_value(child, context, enclosing_func, edges);
+            }
             _ => {}
         }
         go_walk_children(child, context, enclosing_func, nodes, edges);
@@ -344,9 +353,105 @@ fn go_emit_method_expression(
     ) else {
         return;
     };
-    let Some(type_name) = go_method_expression_type(operand, context) else {
+    let extra = if let Some(type_name) = go_method_expression_type(operand, context) {
+        json!({"value_reference": true, GO_TYPED_RECEIVER_KEY: type_name})
+    } else if let Some((package, path)) = go_package_function_value(node, operand, context) {
+        // `New: gzkp.NewWriter`: bound through the import like the call
+        // `gzkp.NewWriter(w, level)`.
+        json!({"value_reference": true, "receiver": package, "import_path": path})
+    } else {
         return;
     };
+    go_push_value_reference(
+        node,
+        node_text(field, context.source),
+        extra,
+        context,
+        enclosing_func,
+        edges,
+    );
+}
+
+/// A function of the package used as a value where a function value goes
+/// (`h := helper`, `run(helper)`, `return helper`, `[]F{helper}`):
+/// REFERENCES to it, as for a method expression. A name the file declares
+/// as a type, variable, or constant is none; a name of another file of the
+/// package stays bare for resolution across files.
+fn go_emit_function_value(
+    node: tree_sitter::Node<'_>,
+    context: &GoContext<'_>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
+    let name = node_text(node, context.source);
+    if !go_is_value_position(node)
+        || context.locals.borrow().contains(&name)
+        || context.declared_types.contains(&name)
+        || context.declared_values.contains(&name)
+    {
+        return;
+    }
+    go_push_value_reference(
+        node,
+        name,
+        json!({"value_reference": true}),
+        context,
+        enclosing_func,
+        edges,
+    );
+}
+
+/// `pkg.F` used as a value where `pkg` names an import of another package
+/// of the repository or a dependency, never the standard library.
+fn go_package_function_value(
+    node: tree_sitter::Node<'_>,
+    operand: tree_sitter::Node<'_>,
+    context: &GoContext<'_>,
+) -> Option<(String, String)> {
+    if operand.kind() != "identifier" || !go_is_value_position(node) {
+        return None;
+    }
+    let package = node_text(operand, context.source);
+    if context.locals.borrow().contains(&package) {
+        return None;
+    }
+    let path = context.stdlib.packages.get(&package)?;
+    Some((package, path.clone()))
+}
+
+/// Whether an expression stands where a function value can go: the right
+/// side of an assignment or `var`, an argument, a returned value, or an
+/// element of a composite literal (a keyed element's value, not its key).
+fn go_is_value_position(node: tree_sitter::Node<'_>) -> bool {
+    let Some(parent) = node.parent() else {
+        return false;
+    };
+    let holder = parent.parent();
+    match parent.kind() {
+        "argument_list" => true,
+        "expression_list" => holder.is_some_and(|holder| match holder.kind() {
+            "return_statement" => true,
+            "assignment_statement" | "short_var_declaration" => {
+                holder.child_by_field_name("right") == Some(parent)
+            }
+            "var_spec" => holder.child_by_field_name("value") == Some(parent),
+            _ => false,
+        }),
+        "literal_element" => holder.is_some_and(|holder| {
+            holder.kind() == "literal_value" || holder.child_by_field_name("value") == Some(parent)
+        }),
+        _ => false,
+    }
+}
+
+fn go_push_value_reference(
+    node: tree_sitter::Node<'_>,
+    target: String,
+    extra: serde_json::Value,
+    context: &GoContext<'_>,
+    enclosing_func: Option<&str>,
+    edges: &mut Vec<ParsedEdge>,
+) {
     let file_path = context.file_path;
     let source = enclosing_func
         .map(|func| qualify(file_path, func, None))
@@ -354,10 +459,10 @@ fn go_emit_method_expression(
     edges.push(ParsedEdge {
         kind: crate::core::types::EdgeKind::References,
         source,
-        target: node_text(field, context.source),
+        target,
         file_path: file_path.clone(),
         line: node.start_position().row as i64 + 1,
-        extra: json!({"value_reference": true, GO_TYPED_RECEIVER_KEY: type_name}),
+        extra,
     });
 }
 
@@ -1211,6 +1316,30 @@ fn go_declared_types(root: tree_sitter::Node<'_>, source: &[u8]) -> HashSet<Stri
     }
     let mut out = HashSet::new();
     collect(root, source, &mut out);
+    out
+}
+
+/// The names the file's top-level `var` and `const` declarations bind.
+fn go_declared_values(root: tree_sitter::Node<'_>, source: &[u8]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    let mut declarations = root.walk();
+    for declaration in root.children(&mut declarations) {
+        if !matches!(declaration.kind(), "var_declaration" | "const_declaration") {
+            continue;
+        }
+        let mut stack = vec![declaration];
+        while let Some(node) = stack.pop() {
+            if matches!(node.kind(), "var_spec" | "const_spec") {
+                let mut names = node.walk();
+                for name in node.children_by_field_name("name", &mut names) {
+                    out.insert(node_text(name, source));
+                }
+                continue;
+            }
+            let mut children = node.walk();
+            stack.extend(node.children(&mut children));
+        }
+    }
     out
 }
 

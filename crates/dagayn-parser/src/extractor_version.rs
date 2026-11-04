@@ -314,8 +314,10 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // type of the file) is a REFERENCES edge to the method.
         // 15: a `test_*.go` file at the repository root is not test code;
         // a Go file is a test only by its `_test.go` suffix.
+        // 16: a function used as a value (`New: gzkp.NewWriter`,
+        // `run(helper)`) is a REFERENCES edge to the function.
         extractor: "go",
-        version: 15,
+        version: 16,
         languages: &["go"],
     },
     ExtractorVersion {

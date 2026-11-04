@@ -24,6 +24,16 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `callers_of` on a Go function used as a value now lists the place that
+  uses it, with `relation: "references"`, and its summary says that callers
+  through the value may be missing (#235, G8 C7). Before, `callers_of` on
+  compress's `gzkp.NewWriter` listed only its test and said no direct caller
+  was missing, though `NewWrapper` stores it in `GzipWriterFactory.New`. The
+  go extractor (version 16) records a function on the right of an
+  assignment, passed as an argument, returned, or in a composite literal as
+  a REFERENCES edge, as 11.0.0 did for method expressions (#260). A rename
+  preview of such a function now edits that place too. Calls through the
+  value are still no edges.
 - `tests_for` on a Rust method no longer lists a test double's method of
   the same name from a crate's `tests/` directory (#262). A function there
   was a `Test` node by its path, so `Repo.new` in
