@@ -33,6 +33,19 @@ All notable changes to `dagayn` are documented here.
   summary counted the calls and named the function, and agents grepped the
   repository for the name instead of reading it (G8 pilot, T7). With more
   than six such calls the summary keeps its count-and-callers form.
+- Go calls bound within a package are `HIGH`, not `MEDIUM`, so a
+  `callers_of` made only of them answers with `confidence: "high"`. This
+  covers a plain call of another file's function and a method call on a
+  receiver typed by a parameter, a struct field, or a returned type
+  (`assert := New(t); assert.JSONEq(..)`). Before, the reply said
+  "medium" for 10 of the 12 G8/G7 `callers_of` questions, and agents
+  re-checked the rows with a text search. Against scip-go, those
+  `MEDIUM` edges were as precise as the `HIGH` ones. On testify v1.12.1
+  and compress v1.20.1, all 7,363 that could be checked name the
+  definition scip-go names. The 188 edges in build-tagged files that
+  scip-go does not index were left out of that count. Rows are unchanged, and only the reply's `confidence` and each
+  row's `confidence_tier` change. The Go extractor version is now 17, so
+  the next `dagayn update` re-binds the calls of unchanged files.
 - A complete `callers_of` answer on a Go function or method now says what
   it checked, instead of the caveat "calls dispatched at run time are not
   edges" (G8 defect 5). When every call of the name is bound to a

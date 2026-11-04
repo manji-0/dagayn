@@ -222,7 +222,10 @@ transaction:
    in a `_test.go` file (two, under different build tags, bind nothing),
    `HIGH`; a typed
    receiver's method is looked up in its type's directory, whose files are
-   its package ([SCHEMA.md](./SCHEMA.md#edges)); a call on another
+   its package ([SCHEMA.md](./SCHEMA.md#edges)). A Go call bound to a
+   declaration in the caller's own package, plain or on a typed receiver,
+   is `HIGH`: the package is one namespace the compiler checks, though no
+   import joins its files. A call on another
    package's type (`receiver_package`) is left to step 4. For a call on a
    named type (`receiver_type`), a method in a file the caller sees (its
    own, or one it imports) wins over one that only a same-named class
@@ -259,7 +262,8 @@ transaction:
      (`io.ReadCloser`) is the imported
      package's, never a repository class of the same name; an unqualified
      one (`*Reader`) is a class of the function's own directory; and the
-     method may be declared in any file of that directory. `MEDIUM`.
+     method may be declared in any file of that directory. `MEDIUM`; a Go
+     method found in the returned type's own package is `HIGH`.
    - *Declared Go receivers.* A Go call on a field of a struct another file
      declares (`receiver_field`: the struct, a path of fields such as
      `state.jobs`, and `element` for `s.nodes[i]`) takes each field's type
@@ -270,7 +274,8 @@ transaction:
      repository, an interface), bind nothing. An unqualified type is its own
      package's; a qualified one (`receiver_package`, `import/path.Name` in
      `field_types`) is that import path's package in the repository, found
-     through the File nodes' namespaces. `MEDIUM`.
+     through the File nodes' namespaces. `HIGH`: declared types and Go's
+     selector rule settle the method.
    - *PyO3.* A Python call on a `receiver_type` that a Rust
      `#[pyclass(name = ...)]` exports binds to its `#[pymethods]` method.
    - *Glob-imported crate names.* A Rust name a `use super::*` brings in from
