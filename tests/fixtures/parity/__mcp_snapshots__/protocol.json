@@ -574,6 +574,11 @@
                   "default": null,
                   "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links, \"lazy_export\"\nonly Python imports a lazy-export table names, \"path\" only Rust\nfiles reached by a path in code without a ``use``, \"statement\"\nonly import statements (no kind); each kinded row's\n``import_kind`` says which it is."
                 },
+                "offset": {
+                  "default": 0,
+                  "description": "Skip this many rows; a cut reply's ``next`` names the\noffset of the rows after it.",
+                  "type": "integer"
+                },
                 "path_prefix": {
                   "anyOf": [
                     {
@@ -1756,6 +1761,11 @@
                   ],
                   "default": null,
                   "description": "(importers_of, imports_of) \"directive\" or \"link\" follows\nonly Markdown dependency directives or only links, \"lazy_export\"\nonly Python imports a lazy-export table names, \"path\" only Rust\nfiles reached by a path in code without a ``use``, \"statement\"\nonly import statements (no kind); each kinded row's\n``import_kind`` says which it is."
+                },
+                "offset": {
+                  "default": 0,
+                  "description": "Skip this many rows; a cut reply's ``next`` names the\noffset of the rows after it.",
+                  "type": "integer"
                 },
                 "path_prefix": {
                   "anyOf": [

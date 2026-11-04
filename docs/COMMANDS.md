@@ -546,11 +546,16 @@ path written in code (`crate::a::B::f()`) and no `use` is its importer with
 statements (rows with no `import_kind`). An answer the output budget cuts
 lists the files of every row it found in `files` (up to 200, 60 at
 `minimal`), so a question about which files has its whole answer even when
-the rows do not fit. `path_prefix="src/"` keeps only rows (and `files`)
-under that path, after the walk. Rows past hop 1 carry `depth` and `via`
+the rows do not fit. Its `next` starts with the call for the rows after the
+cut: `detail_level="standard"` at `minimal`, and at other levels the same
+call with `offset` set to the rows shown so far. `offset=N` skips the first
+N rows, and `_truncation.results` then carries `offset`; `results_complete`
+is false on any page but the first. `path_prefix="src/"` keeps only rows
+(and `files`) under that path, after the walk. Rows past hop 1 carry `depth` and `via`
 (the node they reach the previous hop through), and each node appears once, at
 its shortest hop. The response adds `depth` and a `reachability` object:
-`state` is `complete` or `truncated` (500 rows past hop 1), and
+`state` is `complete` or `truncated` (500 rows past hop 1, which the
+`summary` says, since no page lists the nodes past them), and
 `depth_limit_reached` is true when the walk stopped at `depth` with nodes whose
 own callers or importers were not checked. Hops past the first follow resolved
 edges only; the bare-name fallback that hop 1 of `callers_of` uses when a node

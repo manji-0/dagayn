@@ -1863,7 +1863,7 @@ fn a_cut_list_pages_to_its_last_row() {
     assert_eq!(reply["results_complete"], false, "{reply}");
     let summary = reply["summary"].as_str().unwrap_or_default();
     assert!(
-        summary.contains("the walk stopped at 500 rows"),
+        summary.contains("The walk stopped at 500 rows"),
         "{summary}"
     );
     let total = reply["_truncation"]["results"]["total"].as_u64().unwrap();
@@ -1894,7 +1894,8 @@ fn a_cut_list_pages_to_its_last_row() {
     assert_eq!(names.len(), 501, "pages {pages}");
     assert_eq!(distinct.len(), 501);
     let summary = reply["summary"].as_str().unwrap_or_default();
-    assert!(summary.contains("of 501 rows"), "{summary}");
+    assert!(summary.contains("Showing rows 409-501 of 501"), "{summary}");
+    assert_eq!(reply["results_complete"], false, "{reply}");
 }
 
 /// `tests_for` with no direct test does not say that no test reaches the

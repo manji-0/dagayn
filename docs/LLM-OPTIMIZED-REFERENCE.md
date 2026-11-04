@@ -63,7 +63,10 @@ The reply contract of `query_graph_tool`, `semantic_search_nodes_tool`,
   test as `review_tool`'s `untested_change` counts it (`hops`,
   `nearest_test`, `counts_as_tested` within `hop_limit`, which is `null`,
   no limit, for Rust). No test there
-  means no path in the graph, which a test run may still cover.
+  means no path in the graph, which a test run may still cover. Its rows
+  are the tests that call the node. With none, a node that has callers
+  gets a `next` that starts with `callers_of` at `depth` 6, which lists the
+  tests that reach it through them.
 - Below `verbose` a reply leaves out what is diagnosis or restatement:
   `_runtime`, `called_subtool`, `guidance` (its claim is `summary`, its
   caveats `missingness`, its action `next`), and search's
