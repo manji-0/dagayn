@@ -46,7 +46,7 @@ Status: measured, nothing built. No measure passed its decision rule
 | ADP | a cycle between units | `IMPORTS_FROM` | `import_cycles` | — |
 | SDP | a unit depending on a less stable one | `IMPORTS_FROM`, `DEPENDS_ON`, `INHERITS`, `IMPLEMENTS` | `unstable_dependency` | — |
 | SAP | abstractness of a stable unit | as SDP, plus type roles | evidence on `unstable_dependency` | a correct count for Rust, Go, Swift, Kotlin ([evidence](#sap-counts-no-rust-struct)) |
-| DIP | whether a cross-unit dependency targets an abstraction or a concrete symbol | `CALLS`, `REFERENCES`, `INHERITS`, `IMPLEMENTS` | — | cases: 2 cross-unit uses of an abstraction in four repositories; TypeScript workspace imports unresolved ([evidence](#type-positions-are-recorded-workspace-packages-are-not)) |
+| DIP | whether a cross-unit dependency targets an abstraction or a concrete symbol | `CALLS`, `REFERENCES`, `INHERITS`, `IMPLEMENTS` | — | cases: 2 cross-unit uses of an abstraction in four repositories ([evidence](#type-positions-are-recorded-workspace-packages-are-not)); TypeScript workspace imports resolved since #212 ([order of work](#order-of-work), item 3), but tstodon has no cross-package `implements` or `extends` to judge |
 | ISP | the share of an abstraction's methods each client unit uses; implementers that stub a method | `CALLS` to members, `IMPLEMENTS` | — | as DIP |
 | CRP | the share of a unit's public surface each depending unit uses | `CALLS`, `REFERENCES` | — | visibility of Rust functions ([evidence](#visibility-is-partly-recorded)) |
 | CCP | files that change in the same commits across units | — | — | git history |
@@ -125,7 +125,7 @@ cross-unit uses of any named type instead:
   and return position, `T: Tr`, and `where T: Tr`. Two gaps: a `const` or
   `static` item's type has no edge (the missed one of the 22), and
   `impl other_crate::Tr for S` in a file with no `use` of that crate leaves
-  `IMPLEMENTS` on the bare name, unresolved.
+  `IMPLEMENTS` on the bare name, unresolved (both: #300).
 - **TypeScript: 0 of 22** tstodon uses have one, but not for a
   type-position reason. Imports of a workspace package (`@tstodon/domain`)
   are not resolved: the module resolver consults only tsconfig `paths` and
@@ -136,7 +136,8 @@ cross-unit uses of any named type instead:
   (`IMPLEMENTS`, `INHERITS`, `REFERENCES`) when the package is reached
   through tsconfig `paths`, and none when it is a plain workspace
   dependency. Mapped by name, tstodon has at least 348 cross-package calls
-  the graph does not connect.
+  the graph does not connect. [#212](https://github.com/manji-0/dagayn/pull/212)
+  resolved these imports since ([order of work](#order-of-work), item 3).
 
 ### Visibility is partly recorded
 

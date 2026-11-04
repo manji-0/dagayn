@@ -227,17 +227,18 @@ grouped by why the graph has no test path:
 | A function called by module path that cross-file module resolution misses | 4 | `python/notebook.rs:30` `parse_notebook` and its 3 callees | Frozen; `build --scip` settles all 4 |
 | A trait method the language, serde, or a library's walker calls | 22 | `types.rs:108` `FilePath.serialize`, `python/mod.rs:253` `PythonWalker.visit_stmt` (ruff's `SourceOrderVisitor`) | The trait step below: 17 |
 | A method on a struct literal, named more than 8 lines below the literal's first line | 3 | `manifest_bridges/mod.rs:299` `Bridge.extra`, called at `cargo.rs:539` | Frozen; the SCIP overlay's 8-line chain window misses it too |
-| A function passed as a value that the extractor does not record (`.map(SignatureChange::to_json)`, a tuple field, `&closure`) | 4 | `base_symbols.rs:308`, called at `base_symbols.rs:409`; `kotlin.rs:645` | Open |
+| A function passed as a value that the extractor does not record (`.map(SignatureChange::to_json)`, a tuple field, `&closure`) | 4 | `base_symbols.rs:308`, called at `base_symbols.rs:409`; `kotlin.rs:645` | Open (#300) |
 | A conversion or operator trait (`?` calling `From`, `==` on a foreign type) | 2 | `graph/lib.rs:233` `GraphError.is_corrupt`, only under `Failure::from` | Left on purpose (below) |
-| A call through `dyn Trait` | 1 | `mcp/lib.rs:147` `NoNative.call_tool` | Open |
-| A binary's `main`, run by tests through `CARGO_BIN_EXE_dagayn` | 1 | `cli/main.rs:8` | Open |
+| A call through `dyn Trait` | 1 | `mcp/lib.rs:147` `NoNative.call_tool` | Open (#300) |
+| A binary's `main`, run by tests through `CARGO_BIN_EXE_dagayn` | 1 | `cli/main.rs:8` | Open (#300) |
 
 Of the 22 trait methods, the step left 5: `GraphLock.drop`, whose type
 was used only as another struct's field, and `JsonVisitor`'s three visit
 methods with `JsonObject.insert` under them, a unit struct passed as a
 value (`deserialize_any(JsonVisitor)`) that no edge records. Since #233 a
 call to an associated function references its type, so
-`GraphLock::acquire_mode` reaches `GraphLock.drop`; the other 4 remain.
+`GraphLock::acquire_mode` reaches `GraphLock.drop`; the other 4 remain
+(#300).
 
 ### Steps
 

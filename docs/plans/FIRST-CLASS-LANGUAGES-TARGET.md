@@ -10,9 +10,12 @@ Rust is the language where dagayn measurably helps an agent. What would it
 take for TypeScript (with JavaScript), Python, and Go to get the same level
 of support, and in what order should it be built?
 
-Status: plan only. No capability below is built. Every work item ships only
-if it moves a number on a real repository, and is recorded as not shipped
-otherwise, the way [dispatch-aware reach](./TEST-REACH-TARGET.md#measured-2026-10-25-not-shipped)
+Status: in progress. M1, M3, G5 to G9, and T1 to T4 record their results
+in the [work list](#work-list); M2 and G1 to G4 record theirs in
+[Go support measurements](./GO-SUPPORT-MEASUREMENTS.md). P1 and P2 have not
+started. Every work item ships only if it moves a number on a real
+repository, and is recorded as not shipped otherwise, the way
+[dispatch-aware reach](./TEST-REACH-TARGET.md#measured-2026-10-25-not-shipped)
 was.
 
 ## What first-class means
@@ -139,10 +142,10 @@ these calls with no import at all.
 | C1 | present | tsconfig `paths` and workspace packages (`js_resolve.rs:76-143`, `js_workspace.rs`, #212); 0.74 of imports reach a file. Package imports (`zod`, `hono`, `@prisma/client`) carried no `external` mark (`extra: {}`), unlike Python's: 0.26 of imports on tstodon, 0 since T1 |
 | C2 | present | `js_declarations.rs:592-626` (`public` / `private` / `protected`, `readonly`, `abstract`, ...); `exported` in `extra` (`js_like.rs:870-885`) |
 | C3 | present | test runner calls (`js_tests.rs`); 662 `Test` nodes on tstodon |
-| C4 | partial | `member_shape` and heritage edges; on tstodon, 1,235 unresolved method calls name a repository method. On Hono, method-call precision 0.95 and recall 0.70 ([E14 and E15](./AGENT-WORKFLOW-TARGET.md#order-of-work)). Lazy `await import()` routes and anonymous route arrows are not resolved ([open measurements](./OPEN-MEASUREMENTS.md#flow-entry-points)) |
+| C4 | partial | `member_shape` and heritage edges; on tstodon, 1,235 unresolved method calls name a repository method. On Hono, method-call precision 0.95 and recall 0.70 ([E14 and E15](./AGENT-WORKFLOW-TARGET.md#order-of-work)). Lazy `await import()` routes and anonymous route arrows are not resolved ([open measurements](./OPEN-MEASUREMENTS.md#flow-entry-points), #294) |
 | C5 | present | npm `dependencies` / `peerDependencies` (`units.rs:209-221`) |
 | C6 | present | authoritative; 73 of 89 node edges agree, 13 where SCIP shows dagayn wrong |
-| C7 | partial | the harness reads vitest's istanbul JSON (M1): 0.091 / 0.964 / 0.995 on tstodon, 0.842 / 0.468 / 0.765 on web-ui; no gate |
+| C7 | partial | the harness reads vitest's istanbul JSON (M1): 0.091 / 0.964 / 0.995 on tstodon, 0.842 / 0.468 / 0.765 on web-ui (#295); no gate (#293) |
 | C8 | partial | review 4, architecture 2, flow 1, refactor 0 |
 | C9 | present | export markers (`dead_code.rs:285-306`); tstodon 4 of 5 right |
 | C10 | partial | E15: time 0.65x at equal accuracy, tokens not different |
@@ -168,14 +171,14 @@ these calls with no import at all.
 
 | # | Status | Evidence |
 |---|---|---|
-| C1 | **missing** | an import is recorded as its path string (`go.rs:133-162`) and never bound to the package's directory, though `go_module_path` (`go.rs:1393`) knows the module path. The package a file declares is not recorded as its namespace: C#, Java, Kotlin, PHP, and Scala call `set_declared_namespaces` (`util.rs:182`), `go.rs` does not. So bare-name binding (`bare_names.rs:399-410`, same file, an import, or a namespace) never binds a call to another file of the same package |
-| C2 | **missing** | `modifiers: None` for every type and function (`go.rs:194`, `:262`). Exported means capitalized; `external_api_candidate` (`dead_code.rs:277-310`) has no Go rule, and `dead_code` reads the name instead (G5) |
-| C3 | **missing in the graph** | `is_test: false` everywhere (`go.rs:195`, `:263`): `TestX`, `BenchmarkX`, `FuzzX`, and `ExampleX` are `Function` nodes, and no `TESTED_BY` edge exists. Only the tools' path rule (`_test.` in `findings.rs:229-239`) knows the files are tests |
+| C1 | present | each file declares its package's import path as its namespace ([G2](./GO-SUPPORT-MEASUREMENTS.md#g2-the-package-as-a-namespace), go 10): on compress, unresolved plain calls to a function of the caller's directory 3,058 → 166. An in-module import targets the package's files and a call through it binds ([G3](./GO-SUPPORT-MEASUREMENTS.md#g3-imports-bound-to-packages), go 12): 12 / 24 / 48 / 127 in-module imports reach a file on kong / testify / scip-go / compress, from 0 |
+| C2 | partial | `modifiers` is still `None` for every type and function (`go.rs:668`, `:859`), and `external_api_candidate` (`dead_code.rs:283`) has no Go rule. Exported means capitalized, and `dead_code` reads the name instead: `go_exported_api` (`dead_code_verify.rs:445`, [G5](./GO-SUPPORT-MEASUREMENTS.md#g5-go-dead-code-rules)) |
+| C3 | present | every node of a `_test.go` file is test code, and `TestX`, `BenchmarkX`, `FuzzX`, and `ExampleX` are `Test` nodes with `TESTED_BY` edges ([G1](./GO-SUPPORT-MEASUREMENTS.md#g1-go-tests-in-the-graph), go 9): on testify, 0 → 479 `Test` nodes and 0 → 1,343 `TESTED_BY`. With G2, functions that ran but are called untested fall from 277 to 42, and to 21 at go 12 |
 | C4 | partial | method calls on a receiver of a declared type (`go.rs:588`); interfaces are satisfied implicitly and no edge records it (0 `IMPLEMENTS`) |
-| C5 | partial | a `go.mod` is one unit (`units.rs:223-229`), with no `require` dependencies; packages, Go's unit of import, are not units |
+| C5 | present | a Go package is a `go_package` unit ([G4](./GO-SUPPORT-MEASUREMENTS.md#g4-units-by-package)): scip-go's overview goes from 1 unit to 15, with 33 edge pairs. An import of another module's package is a declared dependency when the importing `go.mod` requires that module; a `require` alone draws no edge |
 | C6 | present | authoritative under `build --scip`; [G6](./GO-SUPPORT-MEASUREMENTS.md#g6-the-scip-go-comparison) measured it: node edges agree with scip-go on 7,003 of 7,017 (compress) and 287 of 287 (scip-go), and the 234 edges authoritative mode changes on compress are all right ([authoritative Go](./GO-SUPPORT-MEASUREMENTS.md#authoritative-go)) |
-| C7 | **missing** | no harness; testify measured [above](#tool-answers) |
-| C8 | **missing** | no case in any eval |
+| C7 | partial | the harness reads `go tool cover -func` ([M2](./GO-SUPPORT-MEASUREMENTS.md#m2-test-reach-against-go-coverage)): 0.954 / 0.991 / 0.985 on testify and 0.381 / 0.849 / 0.966 on compress at go 12 ([G3](./GO-SUPPORT-MEASUREMENTS.md#test-reach-and-the-no-caller-share)); no gate, because no Go corpus runs coverage in CI (#293) |
+| C8 | partial | review 7, architecture 3, flow 0, refactor 5; no flow case yet (#291) |
 | C9 | present | `init` and protocol methods (`dead_code_verify.rs:319-330`); exported names of importable packages (`go_exported_api`, G5); `Benchmark` / `Fuzz` / `Example` functions are `Test` nodes (G1) |
 | C10 | **failed** | G7, on questions a script cannot answer: tokens 1.00x, time 0.91x, neither significant ([results](../../eval/g7_go/RESULTS.md)). G8, on eight new questions on 11.0.0: tokens 1.20x (more, Holm p = 0.0003), time 0.97x, 73 against 79 of 80 exact ([results](../../eval/g8_go/RESULTS.md)). G9, under the revised bar, on go extractor 17: LONG time 0.79x (Holm p = 0.0003) at tokens 0.95x and 77 against 75 exact, but SHORT tokens 1.17x, above the 1.10 guard ([results](../../eval/g9_go/RESULTS.md)) |
 | C11 | present | cgo and wasm bridges (`go.rs:280`, `:1316`) |
@@ -413,7 +416,8 @@ method-call gap.
     searched for the name after a complete answer. The one accuracy loss
     (C11, 3 runs) followed a summary that pointed at a call on the
     standard library's `gzip.Writer`. Go is not first-class. The defects
-    the runs show are listed in the results.
+    the runs show are listed in the results (#288, #289, #290). The next
+    registered run is G10 (#292).
 
 ### TypeScript work
 
@@ -506,7 +510,8 @@ method-call gap.
 15. **P1, a third-party test reach run.** The existing harness on one
     third-party Python repository with a pytest suite, report only.
     Bar: the numbers recorded. If untested precision is under 0.70, its
-    cause table replaces dagayn's own as the Python baseline.
+    cause table replaces dagayn's own as the Python baseline. Not started
+    (#298).
 16. **P2, overrides through a base class.** Only if P1 or M3 shows calls
     through a base class among the wrong answers. This is the case
     [left open](./TEST-REACH-TARGET.md#code-that-runs-without-a-caller).
@@ -548,7 +553,7 @@ method-call gap.
   as run when any statement ran, so a branch the test does not take is
   invisible, as in Rust.
 - **Hop limit.** Go keeps the 4-hop test walk (`findings.rs:35`) until M2
-  shows how deep its test paths run.
+  shows how deep its test paths run (#293).
 - **Priority.** The positioning puts Rust untested precision before new
   languages. The Go items are new investment in a language with no agent
   measurement, so they wait for the owner's decision below.
@@ -631,7 +636,7 @@ Taken by the owner after M1.
   (10 and 1) and tstodon 1.
 - **No TypeScript test-reach floor or CI gate yet.** Neither tstodon nor
   web-ui runs coverage in dagayn's CI, so a floor would gate nothing.
-  Revisit when a TypeScript corpus runs coverage in CI.
+  Revisit when a TypeScript corpus runs coverage in CI (#293).
 
 ## Decisions (2026-11-04)
 
