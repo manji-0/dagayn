@@ -55,7 +55,11 @@ pub struct SyncAssessment {
 }
 
 /// The lines `dagayn status` prints.
-pub fn status_lines(repo_root: &Path, store: &GraphStore) -> Result<Vec<String>, GraphError> {
+pub fn status_lines(
+    repo_root: &Path,
+    store: &GraphStore,
+    db_path: &Path,
+) -> Result<Vec<String>, GraphError> {
     let stats = store.get_stats()?;
     let mut lines = vec![
         format!("Nodes: {}", stats.total_nodes),
@@ -100,6 +104,12 @@ pub fn status_lines(repo_root: &Path, store: &GraphStore) -> Result<Vec<String>,
                 format!("  Needs re-indexing: {shown}")
             });
         }
+    }
+    if let Some(stalled) = crate::task_queue::stalled_update(
+        &db_path.with_file_name(crate::task_queue::QUEUE_DB_NAME),
+        stats.last_updated.as_deref(),
+    ) {
+        lines.push(stalled.status_line());
     }
     Ok(lines)
 }

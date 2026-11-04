@@ -4,6 +4,22 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixed
+
+- A queued task that runs past its budget is no longer left `running` (#265).
+  The watchdog now records the overrun as a failed attempt before it stops
+  the worker. The task is retried up to 3 times and then parked `dead`, and
+  edits made meanwhile coalesce into the retry instead of each queuing a new
+  `update`. Once an `update` is parked `dead` for overruns, the worker skips
+  hook updates until the graph changes some other way, such as a manual
+  `dagayn update` or a session prepare, so the budget is not spent again on
+  every edit. A dead `update` (or one a crashed worker left `running` past its
+  budget) that the graph has not caught up with since is now reported.
+  `dagayn status` prints a `Hook updates: stopped` line naming the task, and
+  MCP replies carry a new `hook_updates_stopped` missingness code (severity
+  medium, also in `graph_health.reason_codes`). Both say to run
+  `dagayn update` or create `.dagayn/hook-skip`.
+
 ## 11.0.0 — 2026-11-04
 
 dagayn is a tool for agents, so the surfaces built for a human to look at,

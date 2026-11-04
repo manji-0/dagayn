@@ -1005,7 +1005,7 @@ class TestStalledUpdateSurfaced:
         stopped = [item for item in missingness if item["reason_code"] == "hook_updates_stopped"]
         assert len(stopped) == 1, missingness
         assert stopped[0]["severity"] == "medium"
-        assert "dagayn update" in stopped[0]["claim_effect"]
+        assert "dagayn update" in (stopped[0]["claim_effect"] or "")
 
         store = self._store(tmp_path, "2999-01-01T00:00:00")
         try:
