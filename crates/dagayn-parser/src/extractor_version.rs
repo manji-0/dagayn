@@ -316,8 +316,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // a Go file is a test only by its `_test.go` suffix.
         // 16: a function used as a value (`New: gzkp.NewWriter`,
         // `run(helper)`) is a REFERENCES edge to the function.
+        // 17: post-processing binds calls within a package (a plain call of
+        // another file's function, a method on a receiver of a declared or
+        // returned type) at `HIGH`; re-parsing re-binds the calls of
+        // unchanged files, which keep their tier otherwise.
         extractor: "go",
-        version: 16,
+        version: 17,
         languages: &["go"],
     },
     ExtractorVersion {

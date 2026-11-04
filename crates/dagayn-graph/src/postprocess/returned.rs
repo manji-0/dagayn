@@ -23,7 +23,7 @@
 use crate::helpers::*;
 use crate::*;
 
-use super::bare_names::{INFERRED_CONFIDENCE, language_family};
+use super::bare_names::{DIRECT_IMPORT_CONFIDENCE, INFERRED_CONFIDENCE, language_family};
 
 /// How many links of a call chain are followed.
 const MAX_ROUNDS: usize = 6;
@@ -1261,7 +1261,18 @@ fn mark_external(extra: &mut Value, package: &str, stdlib: bool, symbol: String)
     extra["confidence_tier"] = json!("MEDIUM");
 }
 
-fn update_call(tx: &Transaction<'_>, id: i64, target: &str, extra: &Value) -> Result<()> {
+fn update_call(
+    tx: &Transaction<'_>,
+    id: i64,
+    target: &str,
+    extra: &Value,
+    tier: ConfidenceTier,
+) -> Result<()> {
+    let confidence = if tier == ConfidenceTier::High {
+        DIRECT_IMPORT_CONFIDENCE
+    } else {
+        INFERRED_CONFIDENCE
+    };
     tx.execute(
         "UPDATE edges SET target_qualified = ?, target_name = ?, extra = ?, \
          confidence = ?, confidence_tier = ? WHERE id = ?",
@@ -1269,8 +1280,8 @@ fn update_call(tx: &Transaction<'_>, id: i64, target: &str, extra: &Value) -> Re
             target,
             edge_target_name(target),
             serde_json::to_string(extra)?,
-            INFERRED_CONFIDENCE,
-            ConfidenceTier::Medium.as_str(),
+            confidence,
+            tier.as_str(),
             id
         ],
     )?;
@@ -1343,7 +1354,7 @@ fn resolve_field_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
                     map.remove("receiver_unknown");
                 }
                 extra["receiver_type"] = json!(class_name);
-                update_call(tx, id, target, &extra)?;
+                update_call(tx, id, target, &extra, ConfidenceTier::Medium)?;
                 changed += 1;
             }
             Some(Returned::External(package, stdlib, type_name)) => {
@@ -1353,7 +1364,7 @@ fn resolve_field_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
                     stdlib,
                     format!("{type_name}::{method}"),
                 );
-                update_call(tx, id, &package, &extra)?;
+                update_call(tx, id, &package, &extra, ConfidenceTier::Medium)?;
                 changed += 1;
             }
             None => {}
@@ -1363,7 +1374,7 @@ fn resolve_field_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
 }
 
 /// The directory of a file or of a node's QN: a Go package.
-fn go_directory(qualified: &str) -> &str {
+pub(crate) fn go_directory(qualified: &str) -> &str {
     let file = qualified
         .split_once("::")
         .map_or(qualified, |(file, _)| file);
@@ -1556,7 +1567,8 @@ fn resolve_go_declared_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<
             .split_once("::")
             .map_or(class.as_str(), |(_, symbol)| symbol);
         extra["receiver_type"] = json!(symbol.rsplit('.').next().unwrap_or(symbol));
-        update_call(tx, id, target, &extra)?;
+        // Declared types and Go's selector rule settle the method.
+        update_call(tx, id, target, &extra, ConfidenceTier::High)?;
         changed += 1;
     }
     Ok(changed)
@@ -1748,7 +1760,7 @@ fn resolve_shape_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
         }
         extra["receiver_type"] = json!(class_name);
         extra["inferred_from"] = json!("member_shape");
-        update_call(tx, id, &target, &extra)?;
+        update_call(tx, id, &target, &extra, ConfidenceTier::Medium)?;
         changed += 1;
     }
     Ok(changed)
@@ -1910,7 +1922,14 @@ pub(crate) fn resolve_returned_receivers(
                         map.remove("receiver_unknown");
                     }
                     extra["receiver_type"] = json!(class_name);
-                    update_call(tx, id, target, &extra)?;
+                    // A Go method of the returned type's own package is the
+                    // one the compiler binds; one only its name matched is not.
+                    let tier = if family == "go" && go_directory(target) == go_directory(&class) {
+                        ConfidenceTier::High
+                    } else {
+                        ConfidenceTier::Medium
+                    };
+                    update_call(tx, id, target, &extra, tier)?;
                     round += 1;
                 }
                 Some(Returned::External(package, stdlib, type_name)) => {
@@ -1923,7 +1942,7 @@ pub(crate) fn resolve_returned_receivers(
                     if by_table {
                         extra["inferred_from"] = json!("return_table");
                     }
-                    update_call(tx, id, &package, &extra)?;
+                    update_call(tx, id, &package, &extra, ConfidenceTier::Medium)?;
                     round += 1;
                 }
                 None => {}
@@ -2004,7 +2023,7 @@ pub(crate) fn resolve_pyo3_methods(tx: &Transaction<'_>) -> Result<i64> {
         };
         let mut extra: Value = serde_json::from_str(&extra)?;
         extra["ffi_abi"] = json!("pyo3");
-        update_call(tx, id, target, &extra)?;
+        update_call(tx, id, target, &extra, ConfidenceTier::Medium)?;
         resolved += 1;
     }
     Ok(resolved)

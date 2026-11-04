@@ -5,7 +5,7 @@ use crate::postprocess::external_calls::{
 };
 use crate::postprocess::reexports::resolve_reexported_targets;
 use crate::postprocess::returned::{
-    COMMON_MEMBERS, ResolveContext, resolve_member_shapes, resolve_pyo3_methods,
+    COMMON_MEMBERS, ResolveContext, go_directory, resolve_member_shapes, resolve_pyo3_methods,
     resolve_returned_receivers,
 };
 use crate::postprocess::sync_tested_by_with_calls;
@@ -588,6 +588,16 @@ fn bind_bare_call_targets(
         let Some((qualified, confidence, tier)) = resolution else {
             continue;
         };
+        // A Go package is one namespace: a name bound to its one declaration
+        // in the caller's package (by a plain call, or on a receiver of the
+        // package's type) is what the compiler binds, though no import
+        // edge joins the two files.
+        let (confidence, tier) =
+            if go && !on_returned_values && go_directory(&qualified) == go_directory(&src_file) {
+                (DIRECT_IMPORT_CONFIDENCE, ConfidenceTier::High)
+            } else {
+                (confidence, tier)
+            };
         set_call_target(tx, edge_id, &qualified, confidence, tier)?;
         resolved += 1;
     }

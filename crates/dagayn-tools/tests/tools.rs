@@ -4348,6 +4348,104 @@ fn go_callers_of_counts_calls_through_a_standard_library_interface() {
     );
 }
 
+/// Go calls bound across the files of a package are `HIGH`, so a
+/// `callers_of` made only of them answers with `confidence: "high"`: a
+/// plain call of the package's function, and method calls on a receiver
+/// typed by a parameter, by a struct field declared in another file, and by
+/// what `New` returns (`assert := New(t); assert.JSONEq(..)`).
+#[test]
+fn go_calls_bound_within_a_package_are_high_confidence() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/bare_names.rs::bind_bare_call_targets
+    let repo = Repo::new("go-package-bound-tiers", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "assert/assertions.go",
+        "package assert\n\ntype TestingT interface{ Errorf(string, ...any) }\n\n\
+         func JSONEq(t TestingT, expected, actual string) bool {\n\treturn expected == actual\n}\n",
+    );
+    repo.write(
+        "assert/forward_assertions.go",
+        "package assert\n\ntype Assertions struct{ t TestingT }\n\n\
+         func New(t TestingT) *Assertions {\n\treturn &Assertions{t: t}\n}\n",
+    );
+    repo.write(
+        "assert/assertion_forward.go",
+        "package assert\n\nfunc (a *Assertions) JSONEq(expected, actual string) bool {\n\
+         \treturn JSONEq(a.t, expected, actual)\n}\n",
+    );
+    repo.write(
+        "assert/holder.go",
+        "package assert\n\ntype holder struct{ checks *Assertions }\n\n\
+         func check(a *Assertions) {\n\ta.JSONEq(\"1\", \"1\")\n}\n",
+    );
+    repo.write(
+        "assert/runner.go",
+        "package assert\n\nfunc (h *holder) run() {\n\th.checks.JSONEq(\"2\", \"2\")\n}\n",
+    );
+    repo.write(
+        "assert/forward_test.go",
+        "package assert\n\nimport \"testing\"\n\n\
+         func TestJSONEq(t *testing.T) {\n\tassert := New(t)\n\tassert.JSONEq(\"{}\", \"{}\")\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let callers = |target: &str| {
+        answer(
+            &context,
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": target}),
+        )
+    };
+    let tiers = |reply: &Value| {
+        let mut rows: Vec<(String, String)> = reply["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .map(|row| {
+                (
+                    row["qualified_name"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                    row["confidence_tier"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                )
+            })
+            .collect();
+        rows.sort();
+        rows
+    };
+    let method = callers("assert/assertion_forward.go::Assertions.JSONEq");
+    assert_eq!(
+        tiers(&method),
+        vec![
+            (
+                "assert/forward_test.go::TestJSONEq".to_string(),
+                "HIGH".to_string()
+            ),
+            ("assert/holder.go::check".to_string(), "HIGH".to_string()),
+            (
+                "assert/runner.go::holder.run".to_string(),
+                "HIGH".to_string()
+            ),
+        ],
+        "{method}"
+    );
+    assert_eq!(method["confidence"], "high", "{method}");
+    let function = callers("assert/assertions.go::JSONEq");
+    assert_eq!(
+        tiers(&function),
+        vec![(
+            "assert/assertion_forward.go::Assertions.JSONEq".to_string(),
+            "HIGH".to_string()
+        )],
+        "{function}"
+    );
+    assert_eq!(function["confidence"], "high", "{function}");
+}
+
 /// A test double's method in a `_test.go` file is test code, not a test:
 /// `tests_for` on `CollectT.Errorf` names the test that calls it, not the
 /// doubles' methods that share its name.
