@@ -1,0 +1,24 @@
+{
+ "baseline": {
+  "runs": 40,
+  "failed": 0,
+  "token_ratio_vs_baseline": 1.0,
+  "median_turns": 8.5,
+  "median_dagayn_calls": 0.0,
+  "replies_over_8000": 0,
+  "exact": 35,
+  "mean_f1": 0.9787,
+  "cost_usd": 0.5
+ },
+ "candidate": {
+  "runs": 40,
+  "failed": 0,
+  "token_ratio_vs_baseline": 1.007,
+  "median_turns": 9.5,
+  "median_dagayn_calls": 1.0,
+  "replies_over_8000": 0,
+  "exact": 37,
+  "mean_f1": 0.9866,
+  "cost_usd": 0.43
+ }
+}

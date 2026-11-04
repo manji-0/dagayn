@@ -177,7 +177,7 @@ these calls with no import at all.
 | C7 | **missing** | no harness; testify measured [above](#tool-answers) |
 | C8 | **missing** | no case in any eval |
 | C9 | present | `init` and protocol methods (`dead_code_verify.rs:319-330`); exported names of importable packages (`go_exported_api`, G5); `Benchmark` / `Fuzz` / `Example` functions are `Test` nodes (G1) |
-| C10 | **failed** | G7, on questions a script cannot answer: tokens 1.00x, time 0.91x, neither significant ([results](../../eval/g7_go/RESULTS.md)). G8, on eight new questions on 11.0.0: tokens 1.20x (more, Holm p = 0.0003), time 0.97x, 73 against 79 of 80 exact ([results](../../eval/g8_go/RESULTS.md)) |
+| C10 | **failed** | G7, on questions a script cannot answer: tokens 1.00x, time 0.91x, neither significant ([results](../../eval/g7_go/RESULTS.md)). G8, on eight new questions on 11.0.0: tokens 1.20x (more, Holm p = 0.0003), time 0.97x, 73 against 79 of 80 exact ([results](../../eval/g8_go/RESULTS.md)). G9, under the revised bar, on go extractor 17: LONG time 0.79x (Holm p = 0.0003) at tokens 0.95x and 77 against 75 exact, but SHORT tokens 1.17x, above the 1.10 guard ([results](../../eval/g9_go/RESULTS.md)) |
 | C11 | present | cgo and wasm bridges (`go.rs:280`, `:1316`) |
 
 ## Why Python cost agents tokens
@@ -395,12 +395,25 @@ method-call gap.
     questions (report only), this hid the C3 fix (1.76x), and the pooled
     tokens moved from 1.00x to 1.07x. Go is not first-class. The defects
     the runs show are listed in the results.
-    **G9, under the owner's revised bar: registered, not run** (2026-11-04,
+    **G9, under the owner's revised bar: measured, not met** (2026-11-04,
     [pre-registration](../../eval/g9_go/PREREG.md),
+    [results](../../eval/g9_go/RESULTS.md),
     [decisions](#decisions-2026-11-04-after-g8)). Twelve new questions on
     testify, compress, and kong v1.15.0: 8 LONG, where the bar is 0.85x
     tokens or time at Holm p < 0.05, and 4 SHORT, where the token ratio
-    must stay at most 1.10 with no fewer exact answers.
+    must stay at most 1.10 with no fewer exact answers. 240 runs on go
+    extractor 17. LONG is met through time: 0.79x (Holm p = 0.0003), with
+    tokens at 0.95x (Holm p = 0.44) and 77 against 75 of 80 exact. SHORT
+    fails: tokens were 1.17x, though exact answers were 40 against 37. The
+    SHORT cost came from kong (K3 1.66x, K4 1.37x), the one repository the
+    fixes since G8 were not tuned on; kong as a whole was 1.31x tokens
+    (Holm p = 0.0003) and testify 0.80x. On SHORT questions the dagayn arm
+    made one model request more than the baseline (a median of 6 against
+    5): the schema load and the call came first, and 36 of 40 runs still
+    searched for the name after a complete answer. The one accuracy loss
+    (C11, 3 runs) followed a summary that pointed at a call on the
+    standard library's `gzip.Writer`. Go is not first-class. The defects
+    the runs show are listed in the results.
 
 ### TypeScript work
 

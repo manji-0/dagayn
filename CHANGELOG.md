@@ -22,7 +22,7 @@ All notable changes to `dagayn` are documented here.
   named the method as `(*T).M`, or as a `T.M` that names one node, and
   got `not_found` or a false `ambiguous` (#275). Go stays short of first-class.
 - G9, the pre-registered Go agent experiment under the owner's revised bar
-  (`eval/g9_go/PREREG.md`), not yet run. After G8, the owner redefined
+  (`eval/g9_go/PREREG.md`). After G8, the owner redefined
   Go's bar: 0.85x tokens or time (Holm p < 0.05) is tested only on LONG
   questions, the kinds where the baseline needs many steps, and SHORT
   questions must keep the token ratio at most 1.10 with no fewer exact
@@ -33,6 +33,15 @@ All notable changes to `dagayn` are documented here.
   v1.15.0, the added third repository, before dagayn answered them. The
   first-class languages plan records the decision and two exploratory
   pilots of the fixes since G8.
+- G9's results (`eval/g9_go/RESULTS.md`): the bar is not met. On the 8
+  LONG questions, agents with dagayn took 0.79x the time of agents without
+  it (Holm p = 0.0003) at 0.95x the tokens, with 77 exact answers out of
+  80 against 75, so the LONG part holds. On the 4 SHORT questions they
+  used 1.17x the tokens, above the 1.10 guard, with 40 exact against 37.
+  The SHORT cost came from kong (K3 1.66x, K4 1.37x). The dagayn arm made
+  one model request more than the baseline there, and 36 of 40 runs
+  searched for the name after a complete answer. Go stays short of
+  first-class.
 
 ### Fixed
 
