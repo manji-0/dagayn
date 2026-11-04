@@ -785,6 +785,137 @@ fn an_ambiguous_target_names_its_retries() {
     assert_eq!(retried["status"], "ok");
 }
 
+/// The qualified name `query_graph_tool` resolved `target` to, or the
+/// reply's status when it did not resolve.
+fn resolved(context: &Context, target: &str) -> String {
+    let reply = answer(
+        context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": target}),
+    );
+    match reply["status"].as_str() {
+        Some("ok") => reply["target"].as_str().unwrap_or("").to_string(),
+        status => format!("{status:?} {}", reply["candidates"]),
+    }
+}
+
+#[test]
+fn a_go_method_resolves_in_go_spelling() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
+    // #275: a G8 agent wrote `(*File).OpenRaw`; `Writer.Copy` and
+    // `readTestFile` mention File and OpenRaw, so a name search finds them too.
+    let repo = Repo::new("go-receiver", false);
+    repo.write("go.mod", "module example.com/zip\n\ngo 1.21\n");
+    repo.write(
+        "zip/reader.go",
+        "package zip\n\ntype File struct{}\n\nfunc (f *File) OpenRaw() error { return nil }\n",
+    );
+    repo.write(
+        "zip/writer.go",
+        "package zip\n\ntype Writer struct{}\n\nfunc (w *Writer) Copy(f *File) error { return f.OpenRaw() }\n",
+    );
+    repo.write(
+        "zip/reader_test.go",
+        "package zip\n\nimport \"testing\"\n\nfunc readTestFile(t *testing.T, f *File) { f.OpenRaw() }\n",
+    );
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    for target in [
+        "File.OpenRaw",
+        "(*File).OpenRaw",
+        "(File).OpenRaw",
+        "*File.OpenRaw",
+        "zip/reader.go::(*File).OpenRaw",
+        "zip/reader.go::(File).OpenRaw",
+        "zip/reader.go::*File.OpenRaw",
+    ] {
+        assert_eq!(
+            resolved(&context, target),
+            "zip/reader.go::File.OpenRaw",
+            "{target}"
+        );
+    }
+    let callers = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "(*File).OpenRaw"}),
+    );
+    assert_eq!(callers["original_target"], "(*File).OpenRaw");
+    let names: Vec<&str> = callers["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["qualified_name"].as_str())
+        .collect();
+    assert!(names.contains(&"zip/writer.go::Writer.Copy"), "{names:?}");
+
+    let flow = answer(
+        &context,
+        "flow_tool",
+        json!({"mode": "entry_points", "target": "(*File).OpenRaw"}),
+    );
+    assert_eq!(flow["target"], "zip/reader.go::File.OpenRaw", "{flow}");
+}
+
+#[test]
+fn a_member_named_by_type_is_ambiguous_only_among_its_namesakes() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("member-targets", false);
+    repo.write("go.mod", "module example.com/c\n\ngo 1.21\n");
+    for package in ["flate", "gzip"] {
+        repo.write(
+            &format!("{package}/writer.go"),
+            &format!(
+                "package {package}\n\ntype Writer struct{{}}\n\nfunc (w *Writer) Reset() {{}}\n\nfunc use(w *Writer) {{ w.Reset() }}\n"
+            ),
+        );
+    }
+    repo.write(
+        "store.rs",
+        "pub struct Store;\n\nimpl Store {\n    pub fn get(&self) {}\n}\n\npub fn read(store: &Store) {\n    store.get();\n}\n",
+    );
+    repo.write(
+        "repo.py",
+        "class Repo:\n    def load(self):\n        pass\n\n\ndef run(repo: Repo):\n    repo.load()\n",
+    );
+    repo.build();
+    let context = repo.context();
+
+    let reset = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "(*Writer).Reset"}),
+    );
+    assert_eq!(reset["status"], "ambiguous");
+    let mut candidates: Vec<&str> = reset["candidates"]
+        .as_array()
+        .expect("candidates")
+        .iter()
+        .filter_map(|node| node["qualified_name"].as_str())
+        .collect();
+    candidates.sort_unstable();
+    assert_eq!(
+        candidates,
+        [
+            "flate/writer.go::Writer.Reset",
+            "gzip/writer.go::Writer.Reset"
+        ]
+    );
+
+    for (target, node) in [
+        ("Store.get", "store.rs::Store.get"),
+        ("Store::get", "store.rs::Store.get"),
+        ("crate::Store::get", "store.rs::Store.get"),
+        ("Repo.load", "repo.py::Repo.load"),
+    ] {
+        assert_eq!(resolved(&context, target), node, "{target}");
+    }
+}
+
 #[test]
 fn query_graph_answers_callers_and_callees_of_exact_targets() {
     // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
