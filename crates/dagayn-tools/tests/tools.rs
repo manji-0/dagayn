@@ -2,6 +2,7 @@
 //! where they leave the call to Python (`None`). The pytest suite
 //! (`tests/test_mcp_frontend.py`) checks the answers equal fastmcp's.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -783,6 +784,137 @@ fn an_ambiguous_target_names_its_retries() {
     assert!(flow.get("_hints").is_none());
     let retried = answer(&context, "flow_tool", flow["next"][0]["args"].clone());
     assert_eq!(retried["status"], "ok");
+}
+
+/// The qualified name `query_graph_tool` resolved `target` to, or the
+/// reply's status when it did not resolve.
+fn resolved(context: &Context, target: &str) -> String {
+    let reply = answer(
+        context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": target}),
+    );
+    match reply["status"].as_str() {
+        Some("ok") => reply["target"].as_str().unwrap_or("").to_string(),
+        status => format!("{status:?} {}", reply["candidates"]),
+    }
+}
+
+#[test]
+fn a_go_method_resolves_in_go_spelling() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
+    // #275: a G8 agent wrote `(*File).OpenRaw`; `Writer.Copy` and
+    // `readTestFile` mention File and OpenRaw, so a name search finds them too.
+    let repo = Repo::new("go-receiver", false);
+    repo.write("go.mod", "module example.com/zip\n\ngo 1.21\n");
+    repo.write(
+        "zip/reader.go",
+        "package zip\n\ntype File struct{}\n\nfunc (f *File) OpenRaw() error { return nil }\n",
+    );
+    repo.write(
+        "zip/writer.go",
+        "package zip\n\ntype Writer struct{}\n\nfunc (w *Writer) Copy(f *File) error { return f.OpenRaw() }\n",
+    );
+    repo.write(
+        "zip/reader_test.go",
+        "package zip\n\nimport \"testing\"\n\nfunc readTestFile(t *testing.T, f *File) { f.OpenRaw() }\n",
+    );
+    repo.build();
+    let context = Context {
+        runtime: Some(json!({})),
+        ..repo.context()
+    };
+    for target in [
+        "File.OpenRaw",
+        "(*File).OpenRaw",
+        "(File).OpenRaw",
+        "*File.OpenRaw",
+        "zip/reader.go::(*File).OpenRaw",
+        "zip/reader.go::(File).OpenRaw",
+        "zip/reader.go::*File.OpenRaw",
+    ] {
+        assert_eq!(
+            resolved(&context, target),
+            "zip/reader.go::File.OpenRaw",
+            "{target}"
+        );
+    }
+    let callers = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "(*File).OpenRaw"}),
+    );
+    assert_eq!(callers["original_target"], "(*File).OpenRaw");
+    let names: Vec<&str> = callers["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["qualified_name"].as_str())
+        .collect();
+    assert!(names.contains(&"zip/writer.go::Writer.Copy"), "{names:?}");
+
+    let flow = answer(
+        &context,
+        "flow_tool",
+        json!({"mode": "entry_points", "target": "(*File).OpenRaw"}),
+    );
+    assert_eq!(flow["target"], "zip/reader.go::File.OpenRaw", "{flow}");
+}
+
+#[test]
+fn a_member_named_by_type_is_ambiguous_only_among_its_namesakes() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("member-targets", false);
+    repo.write("go.mod", "module example.com/c\n\ngo 1.21\n");
+    for package in ["flate", "gzip"] {
+        repo.write(
+            &format!("{package}/writer.go"),
+            &format!(
+                "package {package}\n\ntype Writer struct{{}}\n\nfunc (w *Writer) Reset() {{}}\n\nfunc use(w *Writer) {{ w.Reset() }}\n"
+            ),
+        );
+    }
+    repo.write(
+        "store.rs",
+        "pub struct Store;\n\nimpl Store {\n    pub fn get(&self) {}\n}\n\npub fn read(store: &Store) {\n    store.get();\n}\n",
+    );
+    repo.write(
+        "repo.py",
+        "class Repo:\n    def load(self):\n        pass\n\n\ndef run(repo: Repo):\n    repo.load()\n",
+    );
+    repo.build();
+    let context = repo.context();
+
+    let reset = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "(*Writer).Reset"}),
+    );
+    assert_eq!(reset["status"], "ambiguous");
+    let mut candidates: Vec<&str> = reset["candidates"]
+        .as_array()
+        .expect("candidates")
+        .iter()
+        .filter_map(|node| node["qualified_name"].as_str())
+        .collect();
+    candidates.sort_unstable();
+    assert_eq!(
+        candidates,
+        [
+            "flate/writer.go::Writer.Reset",
+            "gzip/writer.go::Writer.Reset"
+        ]
+    );
+
+    for (target, node) in [
+        ("Store.get", "store.rs::Store.get"),
+        ("Store::get", "store.rs::Store.get"),
+        ("crate::Store::get", "store.rs::Store.get"),
+        ("Repo.load", "repo.py::Repo.load"),
+    ] {
+        assert_eq!(resolved(&context, target), node, "{target}");
+    }
 }
 
 #[test]
@@ -1839,6 +1971,109 @@ fn a_cut_minimal_list_says_so_and_offers_the_standard_call() {
         "{}",
         cut["next"]
     );
+}
+
+/// A list cut at `standard` names the call for the rows after the cut, and
+/// following it lists every row once; a walk stopped at its row limit says
+/// so (G8 defect 4: 63 of 505 rows, and `next` offered only `source_of`).
+#[test]
+fn a_cut_list_pages_to_its_last_row() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("query-pages", false);
+    let callers: String = (0..600)
+        .map(|i| format!("def caller_with_a_long_descriptive_name_{i:03}():\n    return g()\n\n\n"))
+        .collect();
+    repo.write(
+        "mod.py",
+        &format!("def f():\n    return 1\n\n\ndef g():\n    return f()\n\n\n{callers}"),
+    );
+    repo.build();
+    let context = repo.context();
+    let first = json!({"pattern": "callers_of", "target": "mod.py::f", "depth": 6});
+    let mut reply = answer(&context, "query_graph_tool", first.clone());
+    assert_eq!(reply["results_complete"], false, "{reply}");
+    let summary = reply["summary"].as_str().unwrap_or_default();
+    assert!(
+        summary.contains("The walk stopped at 500 rows"),
+        "{summary}"
+    );
+    let total = reply["_truncation"]["results"]["total"].as_u64().unwrap();
+    assert_eq!(total, 501, "{reply}");
+    let mut names: Vec<String> = Vec::new();
+    let mut pages = 0;
+    loop {
+        pages += 1;
+        let rows = reply["results"].as_array().expect("results");
+        names.extend(
+            rows.iter()
+                .filter_map(|row| row["qualified_name"].as_str().map(str::to_string)),
+        );
+        let page = reply["next"]
+            .as_array()
+            .expect("next")
+            .iter()
+            .find(|call| call["args"].get("offset").is_some())
+            .cloned();
+        let Some(page) = page else { break };
+        let mut expected = first.clone();
+        expected["offset"] = json!(names.len());
+        assert_eq!(page["args"], expected, "{}", reply["next"]);
+        assert!(pages < 20, "{reply}");
+        reply = answer(&context, "query_graph_tool", page["args"].clone());
+    }
+    let distinct: HashSet<&String> = names.iter().collect();
+    assert_eq!(names.len(), 501, "pages {pages}");
+    assert_eq!(distinct.len(), 501);
+    let summary = reply["summary"].as_str().unwrap_or_default();
+    assert!(summary.contains("Showing rows 409-501 of 501"), "{summary}");
+    assert_eq!(reply["results_complete"], false, "{reply}");
+}
+
+/// `tests_for` with no direct test does not say that no test reaches the
+/// node when tests reach it through its callers; `next` lists them (G8
+/// defect 4: T5 said "no test in it reaches it" with `next: []`).
+#[test]
+fn tests_for_without_a_direct_test_names_the_callers_walk() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("go-tests-through-callers", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "mock/mock.go",
+        "package mock\n\nfunc diff() int {\n\treturn 1\n}\n\n\
+         func Called() int {\n\treturn diff()\n}\n\nfunc unused() int {\n\treturn 2\n}\n",
+    );
+    repo.write(
+        "mock/mock_test.go",
+        "package mock\n\nimport \"testing\"\n\nfunc TestCalled(t *testing.T) {\n\tCalled()\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "mock/mock.go::diff"}),
+    );
+    assert_eq!(reply["result_count"], 0, "{reply}");
+    let summary = reply["summary"].as_str().unwrap_or_default();
+    assert!(!summary.contains("no test in it reaches it"), "{summary}");
+    assert!(
+        summary.contains("mock/mock_test.go::TestCalled"),
+        "{summary}"
+    );
+    assert_eq!(
+        reply["next"][0]["args"],
+        json!({"pattern": "callers_of", "target": "mock/mock.go::diff", "depth": 6}),
+        "{}",
+        reply["next"]
+    );
+    let lone = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "mock/mock.go::unused"}),
+    );
+    let summary = lone["summary"].as_str().unwrap_or_default();
+    assert!(summary.contains("no test in it reaches it"), "{summary}");
+    assert_eq!(lone["next"], json!([]), "{lone}");
 }
 
 #[test]

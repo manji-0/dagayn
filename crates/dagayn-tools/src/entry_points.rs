@@ -75,14 +75,19 @@ fn entry_kind(node: &GraphNode, has_callers: bool) -> Option<&'static str> {
     })
 }
 
-/// The target node: an exact qualified name, else a unique node of that
-/// name. `Err` carries the candidates when the name is ambiguous.
+/// The target node: an exact qualified name, else the nodes another
+/// spelling of it names (`crate::target`), else the nodes of that name.
+/// `Err` carries the candidates when there are several.
 fn resolve(store: &GraphStore, target: &str) -> Option<Result<Option<GraphNode>, Vec<GraphNode>>> {
     if let Some(node) = store.get_node(target).ok()? {
         return Some(Ok(Some(node)));
     }
-    let hits = store.search_nodes(target, 50).ok()?;
-    let mut named: Vec<GraphNode> = hits.into_iter().filter(|hit| hit.name == target).collect();
+    let mut named =
+        crate::target::respelled(store, target, |qualified| store.get_node(qualified).ok())?;
+    if named.is_empty() {
+        let hits = store.search_nodes(target, 50).ok()?;
+        named = hits.into_iter().filter(|hit| hit.name == target).collect();
+    }
     match named.len() {
         0 => Some(Ok(None)),
         1 => Some(Ok(named.pop())),

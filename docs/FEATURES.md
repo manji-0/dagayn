@@ -13,7 +13,8 @@
 - local SQLite storage
 - graph queries for callers, callees, imports, tests, and file summaries,
   transitive up to 6 hops in one call, with the files of every row even when
-  the rows are cut (`files`), a path scope (`path_prefix`), and a filter by
+  the rows are cut (`files`), the next page of a cut list (`offset`), a path
+  scope (`path_prefix`), and a filter by
   kind of import edge (`import_kind`: statement, lazy export, Rust path,
   Markdown directive or link)
 - native Japanese FTS (Lindera IPADIC morphemes + CJK bigrams) so inflected queries still AND-match

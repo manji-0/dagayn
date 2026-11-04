@@ -41,6 +41,14 @@ impl GraphStore {
         Ok(out)
     }
 
+    /// Every node named `name`, of any kind.
+    pub fn get_nodes_by_name(&self, name: &str) -> Result<Vec<GraphNode>> {
+        let mut stmt = self.conn.prepare("SELECT * FROM nodes WHERE name = ?")?;
+        let rows = stmt.query_map([name], node_from_row)?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     /// Nodes declared inside `parent_name` under `name`, restricted to `kinds`.
     ///
     /// Used to resolve a method against its declared base class without

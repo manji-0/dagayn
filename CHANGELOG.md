@@ -43,6 +43,30 @@ All notable changes to `dagayn` are documented here.
   bare name still counts in a file that dot-imports the package
   (`import . "example.com/demo/q"`), which the go extractor now records as
   `dot_import` on the import edge.
+- `query_graph_tool` and `flow_tool` resolve a method named the way its
+  language writes it (#275). A Go target `(*T).M`, `(T).M`, or `*T.M`,
+  with or without a `path::` prefix, resolves as `T.M`, and a Rust
+  `Type::method` as `Type.method`. A `T.M` that names one node resolves to
+  it in any language; before, the target matched no node's name and the
+  reply was `ambiguous` with the name search's other hits, such as the
+  method's callers. A `T.M` that several types define is still
+  `ambiguous`, and its candidates are now only those methods. Replaying
+  the first dagayn call of G8's 157 recorded runs on the G8 graphs, 34 of
+  the 47 that got `not_found` or `ambiguous` now resolve to the node the
+  question names.
+- A `query_graph_tool` list that the output budget cuts now names the call
+  for the rest (G8 defect 4). At `standard` and `full`, `next` starts with
+  the same call and a new `offset` argument set to the rows shown so far,
+  and following it reaches the last row. At `minimal` it starts with the
+  `standard` call, as before. Before, a cut `standard` list offered
+  only `source_of` calls: G7's T1 showed 63 of 505 rows and no way to get
+  the other 442. A walk stopped at its 500-row limit now says that no page
+  lists the nodes past it. `tests_for` with no direct test no longer says
+  "no test in it reaches it" for a node that has callers. On G8's T5 it
+  said that while its own `test_reach` named a test one caller away, and
+  its `next` was empty. Its `next` now starts with `callers_of` at depth 6.
+  The reply fields are unchanged. `_truncation.results` gains `offset` on
+  a page after the first.
 - `tests_for` on a Rust method no longer lists a test double's method of
   the same name from a crate's `tests/` directory (#262). A function there
   was a `Test` node by its path, so `Repo.new` in

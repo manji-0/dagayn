@@ -725,7 +725,7 @@ impl Resolution {
 }
 
 /// `looks_like_file_target` (`dagayn.bare_name_resolution`).
-fn looks_like_file_target(target: &str) -> bool {
+pub(crate) fn looks_like_file_target(target: &str) -> bool {
     let path = target.split("::").next().unwrap_or(target);
     if path.contains('/') || path.contains('\\') {
         return true;
@@ -1659,6 +1659,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             "depth",
             "import_kind",
             "path_prefix",
+            "offset",
         ],
     )?;
     let pattern = args.string("pattern")?;
@@ -1672,6 +1673,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     // Python treats any other level as `standard`.
     let (full, minimal) = (detail_level == "full", detail_level == "minimal");
     let depth = args.integer("depth", 1)?;
+    let offset = args.integer("offset", 0)?;
     let import_kind = args.optional_string("import_kind")?;
     let path_prefix = args
         .optional_string("path_prefix")?
@@ -1680,8 +1682,9 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     // Python checks the pattern and depth once the store is open, whatever
     // the checkout.
     let graph = open_graph(&root)?;
-    if let Some(message) =
-        argument_error(pattern, depth).or_else(|| import_kind_error(pattern, import_kind))
+    if let Some(message) = argument_error(pattern, depth)
+        .or_else(|| import_kind_error(pattern, import_kind))
+        .or_else(|| (offset < 0).then(|| format!("offset must be 0 or more, got {offset}.")))
     {
         return Some(
             Ordered::default()
@@ -1692,6 +1695,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         );
     }
     let depth = depth.min(MAX_DEPTH);
+    let offset = usize::try_from(offset).unwrap_or(0);
     let store = &graph.store;
     let answerability = graph.answerability()?;
 
@@ -1716,13 +1720,33 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     }
 
     // `resolve_query_target`.
-    let exact = match store.get_node(target).ok()? {
-        Some(node) => Some(node),
-        None => store.get_node(&joined(&root, target)?).ok()?,
+    let exact = |qualified: &str| -> Option<Option<GraphNode>> {
+        match store.get_node(qualified).ok()? {
+            Some(node) => Some(Some(node)),
+            None => store.get_node(&joined(&root, qualified)?).ok(),
+        }
     };
-    let (node, resolution) = match exact {
-        Some(node) => (Some(node), Resolution::Exact),
-        None => {
+    let exact_node = exact(target)?;
+    let mut respelled = match exact_node {
+        Some(_) => Vec::new(),
+        None => crate::target::respelled(store, target, exact)?,
+    };
+    if respelled.len() > 1 {
+        let mut candidates = crate::next::tests_last(respelled.iter());
+        candidates.truncate(5);
+        return Some(ambiguous(
+            arguments,
+            pattern,
+            target,
+            &candidates,
+            &answerability,
+            &graph,
+        ));
+    }
+    let (node, resolution) = match (exact_node, respelled.pop()) {
+        (Some(node), _) => (Some(node), Resolution::Exact),
+        (None, Some(node)) => (Some(node), Resolution::ExactName),
+        (None, None) => {
             let named_exists = || -> Option<bool> {
                 Some(
                     store
@@ -1816,10 +1840,36 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     // `query_zero_result_fields`.
     let raw_count = found.rows.len();
     // A node the graph has, that no edge of the kind asked for reaches.
-    let empty_note = node
+    let mut empty_note = node
         .as_ref()
         .filter(|_| raw_count == 0 && found.unresolved.is_empty() && exact_count > 0)
         .and_then(|node| no_edges_note(pattern, &node.language, import_kind));
+    // A node no test calls can still run under the tests that call its
+    // callers: say so, and name the walk that lists them, instead of "no
+    // test reaches it" (eval/g8_go/RESULTS.md, defect 4).
+    let mut tests_through_callers = false;
+    if pattern == "tests_for" && empty_note.is_some() {
+        let callers = run_pattern(store, &root, "callers_of", target, node.as_ref(), 1, None)?;
+        if !callers.rows.is_empty() {
+            tests_through_callers = true;
+            let nearest = found
+                .test_reach
+                .as_ref()
+                .and_then(|reach| Some((reach["nearest_test"].as_str()?, reach["hops"].as_u64()?)));
+            let count = callers.rows.len();
+            empty_note = Some(match nearest {
+                Some((test, hops)) => format!(
+                    "No test calls it directly; {test} reaches it through {hops} caller \
+                     hop(s). callers_of with depth {MAX_DEPTH} lists every caller, tests included"
+                ),
+                None => format!(
+                    "No test calls it directly; it has {count} caller(s), and tests can reach \
+                     it through them. callers_of with depth {MAX_DEPTH} lists every caller, \
+                     tests included"
+                ),
+            });
+        }
+    }
     let (confidence, zero_result_reason) = if raw_count > 0 {
         let high = !found.edges.is_empty()
             && found.edges.iter().all(|edge| {
@@ -1880,7 +1930,15 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             .put("answerability", answerability.full())
             .put(
                 "results",
-                json!(found.rows.iter().cloned().map(object).collect::<Vec<_>>()),
+                json!(
+                    found
+                        .rows
+                        .iter()
+                        .skip(offset)
+                        .cloned()
+                        .map(object)
+                        .collect::<Vec<_>>()
+                ),
             )
             .put("edges", json!(edges))
             .put("guidance", guidance);
@@ -1906,6 +1964,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             1,
         );
         let rows_len = rows.len();
+        let rows: Vec<Value> = rows.into_iter().skip(offset).collect();
         payload = payload
             .put("summary", summary)
             .put("result_count", rows_len)
@@ -1926,10 +1985,12 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         };
     }
     payload = payload.apply_output_budget(budget, &["results", "edges"]);
-    let results_complete = !payload
-        .get("_truncation")
-        .and_then(Value::as_object)
-        .is_some_and(|truncation| truncation.contains_key("results"));
+    // A page after the first leaves out the rows before it.
+    let results_complete = offset == 0
+        && !payload
+            .get("_truncation")
+            .and_then(Value::as_object)
+            .is_some_and(|truncation| truncation.contains_key("results"));
     payload = payload.put("results_complete", results_complete);
     // Say that a cut list is cut, and how to get the rest: agents given a
     // cut minimal list walked the graph one hop at a time instead
@@ -1943,17 +2004,18 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
                 results.get("total")?.as_u64()?,
             ))
         });
-    if let Some((kept, total)) = cut
+    let shown_rows = payload
+        .get("results")
+        .and_then(Value::as_array)
+        .map_or(0, |rows| rows.len() as u64);
+    let page = cut.or_else(|| (offset > 0).then_some((shown_rows, shown_rows)));
+    let mut page_kept = 0;
+    if let Some((kept, rest)) = page
         && let Some(summary) = payload
             .get("summary")
             .and_then(Value::as_str)
             .map(str::to_string)
     {
-        let rest = if minimal {
-            "; detail_level=\"standard\" lists more in one call"
-        } else {
-            ""
-        };
         // The files of every row, cut or not: a question about which files
         // gets its whole answer even when the rows do not fit.
         let mut files: Vec<&str> = found.rows.iter().filter_map(row_file).collect();
@@ -1980,13 +2042,49 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             .get("results")
             .and_then(Value::as_array)
             .map_or(kept, |rows| rows.len() as u64);
-        if let Some(truncation) = payload.get("_truncation").cloned() {
-            let mut truncation = truncation;
-            truncation["results"] = json!({"kept": kept, "total": total});
-            payload = payload.replace("_truncation", truncation);
+        page_kept = kept;
+        let total = offset as u64 + rest;
+        let mut record = json!({"kept": kept, "total": total});
+        if offset > 0 {
+            record["offset"] = json!(offset);
         }
+        let mut truncation = payload
+            .get("_truncation")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        truncation["results"] = record;
+        payload = payload.set("_truncation", truncation);
+        let shown = if offset == 0 {
+            format!("Showing {kept} of {total} rows")
+        } else if kept == 0 {
+            format!("Showing no rows: offset {offset} is past the {total} rows")
+        } else {
+            format!(
+                "Showing rows {}-{} of {total}",
+                offset + 1,
+                offset as u64 + kept
+            )
+        };
+        let rest = if minimal && cut.is_some() {
+            "; detail_level=\"standard\" lists more in one call"
+        } else if cut.is_some() {
+            "; the offset call in next lists the rows after these"
+        } else {
+            ""
+        };
+        let summary = format!("{summary}. {shown}{rest}; all {total} lie in {count} files{more}");
+        payload = payload.replace("summary", json!(summary));
+    }
+    // The walk's own row limit bounds what any page can show.
+    if found
+        .reachability
+        .as_ref()
+        .is_some_and(|reach| reach.get("truncated") == Some(&Value::Bool(true)))
+        && let Some(summary) = payload.get("summary").and_then(Value::as_str)
+    {
         let summary = format!(
-            "{summary}. Showing {kept} of {total} rows{rest}; all {total} lie in {count} files{more}"
+            "{summary}. The walk stopped at {TRANSITIVE_ROW_LIMIT} rows past the first hop, so \
+             nodes past them are on no page; a smaller depth may give a closed list"
         );
         payload = payload.replace("summary", json!(summary));
     }
@@ -2035,39 +2133,10 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         .cloned()
         .unwrap_or_default();
     let mut next = crate::next::after_query(pattern, target, &rows);
-    // A chain cut at the depth asked for goes on: the deeper call first.
-    if let Some(reachability) = &found.reachability
-        && reachability.get("depth_limit_reached") == Some(&Value::Bool(true))
-        && reachability.get("truncated") != Some(&Value::Bool(true))
-        && depth < MAX_DEPTH
-        && let Some(calls) = next.as_array_mut()
-    {
-        calls.insert(
-            0,
-            crate::next::call(
-                "query_graph_tool",
-                {
-                    let mut args =
-                        json!({"pattern": pattern, "target": target, "depth": MAX_DEPTH});
-                    if let Some(kind) = import_kind {
-                        args["import_kind"] = json!(kind);
-                    }
-                    if let Some(prefix) = path_prefix {
-                        args["path_prefix"] = json!(prefix);
-                    }
-                    args
-                },
-                format!("nodes beyond {depth} hops may reach it"),
-            ),
-        );
-        calls.truncate(crate::next::MAX_NEXT);
-    }
-    if cut.is_some()
-        && minimal
-        && let Some(calls) = next.as_array_mut()
-    {
-        let mut args = json!({"pattern": pattern, "target": target, "detail_level": "standard"});
-        if found.reachability.is_some() {
+    // This call's arguments, for a call that goes on from it.
+    let this_call = |pattern: &str, depth: Option<i64>| {
+        let mut args = json!({"pattern": pattern, "target": target});
+        if let Some(depth) = depth {
             args["depth"] = json!(depth);
         }
         if let Some(kind) = import_kind {
@@ -2076,11 +2145,57 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         if let Some(prefix) = path_prefix {
             args["path_prefix"] = json!(prefix);
         }
-        calls.insert(
-            0,
-            crate::next::call("query_graph_tool", args, "the rows minimal cut to fit"),
-        );
-        calls.truncate(crate::next::MAX_NEXT);
+        args
+    };
+    let mut first = |call: Value| {
+        if let Some(calls) = next.as_array_mut() {
+            calls.insert(0, call);
+            calls.truncate(crate::next::MAX_NEXT);
+        }
+    };
+    // A chain cut at the depth asked for goes on: the deeper call first.
+    if let Some(reachability) = &found.reachability
+        && reachability.get("depth_limit_reached") == Some(&Value::Bool(true))
+        && reachability.get("truncated") != Some(&Value::Bool(true))
+        && depth < MAX_DEPTH
+    {
+        first(crate::next::call(
+            "query_graph_tool",
+            this_call(pattern, Some(MAX_DEPTH)),
+            format!("nodes beyond {depth} hops may reach it"),
+        ));
+    }
+    let walked = found.reachability.is_some().then_some(depth);
+    if cut.is_some() && minimal {
+        let mut args = this_call(pattern, walked);
+        args["detail_level"] = json!("standard");
+        if offset > 0 {
+            args["offset"] = json!(offset);
+        }
+        first(crate::next::call(
+            "query_graph_tool",
+            args,
+            "the rows minimal cut to fit",
+        ));
+    } else if cut.is_some() && page_kept > 0 {
+        let mut args = this_call(pattern, walked);
+        if detail_level != "standard" {
+            args["detail_level"] = json!(detail_level);
+        }
+        let after = offset as u64 + page_kept;
+        args["offset"] = json!(after);
+        first(crate::next::call(
+            "query_graph_tool",
+            args,
+            format!("the rows after the first {after}"),
+        ));
+    }
+    if tests_through_callers {
+        first(crate::next::call(
+            "query_graph_tool",
+            this_call("callers_of", Some(MAX_DEPTH)),
+            "the tests that reach it through its callers",
+        ));
     }
     payload = payload.replace("next", next);
     if let Some(reach) = found.test_reach.clone() {
