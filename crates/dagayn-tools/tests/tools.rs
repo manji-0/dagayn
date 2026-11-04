@@ -3926,6 +3926,78 @@ fn go_callers_of_a_method_used_as_a_value_name_where_it_is_stored() {
     );
 }
 
+/// A Go function stored in a struct field (`New: gzkp.NewWriter`) is called
+/// through the field, which is no edge: `callers_of` names the place that
+/// stores it, bound through the import path to that package's function.
+#[test]
+fn go_callers_of_a_function_used_as_a_value_name_where_it_is_stored() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("go-function-values", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    for package in ["gzkp", "zstdkp"] {
+        repo.write(
+            &format!("writer/{package}/{package}.go"),
+            &format!("package {package}\n\nfunc NewWriter(level int) int {{ return level }}\n"),
+        );
+    }
+    repo.write(
+        "writer/gzkp/gzkp_test.go",
+        "package gzkp\n\nimport \"testing\"\n\n\
+         func TestNewWriter(t *testing.T) {\n\tNewWriter(1)\n}\n",
+    );
+    repo.write(
+        "compress.go",
+        "package demo\n\nimport (\n\t\"example.com/demo/writer/gzkp\"\n\t\"example.com/demo/writer/zstdkp\"\n)\n\n\
+         type factory struct{ New func(int) int }\n\n\
+         type config struct{ gzip, zstd factory }\n\n\
+         func NewWrapper() config {\n\treturn config{\n\t\tgzip: factory{New: gzkp.NewWriter},\n\t\tzstd: factory{New: zstdkp.NewWriter},\n\t}\n}\n\n\
+         func (c config) write() int {\n\treturn c.gzip.New(1)\n}\n\n\
+         func Handler() int {\n\treturn NewWrapper().write()\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let query = |args: Value| answer(&context, "query_graph_tool", args);
+    let relations = |reply: &Value| -> Vec<(String, Value)> {
+        let mut rows: Vec<(String, Value)> = reply["results"]
+            .as_array()
+            .expect("results")
+            .iter()
+            .map(|row| {
+                (
+                    row["qualified_name"].as_str().unwrap_or("").to_string(),
+                    row["relation"].clone(),
+                )
+            })
+            .collect();
+        rows.sort_by(|a, b| a.0.cmp(&b.0));
+        rows
+    };
+    let gzkp = "writer/gzkp/gzkp.go::NewWriter";
+    let expected = vec![
+        ("compress.go::NewWrapper".to_string(), json!("references")),
+        (
+            "writer/gzkp/gzkp_test.go::TestNewWriter".to_string(),
+            Value::Null,
+        ),
+    ];
+    let callers = query(json!({"pattern": "callers_of", "target": gzkp}));
+    assert_eq!(relations(&callers), expected, "{callers}");
+    let summary = callers["summary"].as_str().expect("summary");
+    assert!(summary.contains("1 use it as a value"), "{summary}");
+    // `Handler` calls the place that stores the function, not the function.
+    let deep = query(json!({"pattern": "callers_of", "target": gzkp, "depth": 2}));
+    assert_eq!(relations(&deep), expected, "{deep}");
+    let zstd = query(json!({
+        "pattern": "callers_of",
+        "target": "writer/zstdkp/zstdkp.go::NewWriter",
+    }));
+    assert_eq!(
+        relations(&zstd),
+        [("compress.go::NewWrapper".to_string(), json!("references"))],
+        "{zstd}"
+    );
+}
+
 /// A test double's method in a `_test.go` file is test code, not a test:
 /// `tests_for` on `CollectT.Errorf` names the test that calls it, not the
 /// doubles' methods that share its name.

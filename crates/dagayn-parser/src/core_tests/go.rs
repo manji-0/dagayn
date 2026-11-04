@@ -1044,3 +1044,90 @@ func (d *compressor) init(level int, p *compressor) {
     assert!(references(24).is_empty());
     assert!(references(26).is_empty());
 }
+
+#[test]
+fn go_functions_used_as_values_are_references_to_them() {
+    // From klauspost/compress `gzhttp`: `GzipWriterFactory.New` holds
+    // `gzkp.NewWriter`, and calls through the field are no edges.
+    let source = br#"package gzhttp
+
+import (
+	"fmt"
+
+	"example.com/m/gzhttp/writer/gzkp"
+)
+
+type factory struct {
+	Levels func() (int, int)
+	New    func(int) int
+}
+
+var DefaultLevel = 5
+
+func helper(n int) int { return n }
+
+func run(f func(int) int) int { return f(1) }
+
+func NewWrapper(local func(int) int) (factory, func(int) int) {
+	c := factory{
+		Levels: gzkp.Levels,
+		New:    gzkp.NewWriter,
+	}
+	h := helper
+	run(helper)
+	_ = []func(int) int{helper, other}
+	_ = gzkp.NewWriter(1)
+	_ = fmt.Println
+	_ = DefaultLevel
+	_ = gzkp.DefaultCompression + 1
+	_ = local
+	_, _ = c, h
+	return c, helper
+}
+
+func (f factory) build() {}
+
+func use() { run(build) }
+"#;
+    let (_, edges) = parse_go("gzhttp/compress.go", source);
+    let references = |line: i64| {
+        let mut found = edges
+            .iter()
+            .filter(|edge| edge.kind == "REFERENCES" && edge.line == line)
+            .map(|edge| (edge.target.as_str(), edge.extra["receiver"].as_str()))
+            .collect::<Vec<_>>();
+        found.sort();
+        found
+    };
+    // A function of an imported package in a composite literal, bound by
+    // its import path like a call through the package. The keys are not.
+    assert_eq!(references(22), [("Levels", Some("gzkp"))]);
+    assert_eq!(references(23), [("NewWriter", Some("gzkp"))]);
+    let new_writer = edges
+        .iter()
+        .find(|edge| edge.kind == "REFERENCES" && edge.line == 23)
+        .expect("NewWriter reference");
+    assert_eq!(new_writer.source, "gzhttp/compress.go::NewWrapper");
+    assert_eq!(new_writer.extra["value_reference"], true);
+    assert_eq!(
+        new_writer.extra["import_path"],
+        "example.com/m/gzhttp/writer/gzkp"
+    );
+    // A function of the file assigned, passed, in a slice literal, and
+    // returned. A name another file of the package may declare stays bare.
+    let helper = [("gzhttp/compress.go::helper", None)];
+    assert_eq!(references(25), helper);
+    assert_eq!(references(26), helper);
+    assert_eq!(
+        references(27),
+        [("gzhttp/compress.go::helper", None), ("other", None)]
+    );
+    assert_eq!(references(34), helper);
+    // A bare name is never a method of the file.
+    assert_eq!(references(39), [("build", None)]);
+    // A call, the standard library, a variable of the file, an operand of
+    // an expression, a parameter, and locals are no references.
+    for line in [16, 18, 28, 29, 30, 31, 32, 33] {
+        assert!(references(line).is_empty(), "line {line}: {edges:?}");
+    }
+}
