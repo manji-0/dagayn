@@ -1339,17 +1339,17 @@ fn go_interface(
         .into_iter()
         .filter(|node| node.kind == "Class" && node.language == "go")
         .filter(|node| node.extra.get("type_role") == Some(&json!("interface")))
-        .filter(|node| {
-            let dir = Path::new(&node.file_path)
-                .parent()
-                .and_then(Path::to_str)
-                .unwrap_or_default();
-            match package {
-                Some(path) => {
-                    !dir.is_empty() && (path == dir || path.ends_with(&format!("/{dir}")))
-                }
-                None => Some(dir) == caller_dir,
-            }
+        .filter(|node| match package {
+            // The import paths a Go file's package is known by are its File
+            // node's `namespaces`.
+            Some(path) => store
+                .get_node(&node.file_path)
+                .ok()
+                .flatten()
+                .and_then(|file| file.extra.get("namespaces").cloned())
+                .and_then(|namespaces| namespaces.as_array().cloned())
+                .is_some_and(|namespaces| namespaces.contains(&json!(path))),
+            None => Path::new(&node.file_path).parent().and_then(Path::to_str) == caller_dir,
         });
     let only = found.next()?;
     found.next().is_none().then_some(only)

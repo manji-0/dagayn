@@ -571,6 +571,14 @@ literal (`New: gzkp.NewWriter`, `run(helper)`). A call through that value
 where to read instead. A method value (`w.Write` passed on) is not recorded.
 Other languages record such references but do not list them yet (#235).
 
+A complete Go `callers_of` summary also accounts for every call of the
+target's name that goes to no definition. It says what each call is: a call
+through an interface the repository declares (with the interface's place), a
+call on a standard-library or dependency type, or a call on a value of unknown
+type. Only calls of the last kind are left to read. When every such call lies
+in a function the reply already lists, the summary says that no caller is
+missing from the list.
+
 On a graph built with `dagayn build --scip`, a `callers_of` or `callees_of`
 row whose call a SCIP index settled (moved to that node, or confirmed)
 carries `resolved_by: "scip"`, at every detail level; a row that folds

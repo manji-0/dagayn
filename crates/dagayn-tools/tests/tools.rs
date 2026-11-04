@@ -4438,6 +4438,42 @@ fn go_callers_of_says_no_caller_is_missing_when_unbound_calls_are_in_its_rows() 
     assert_eq!(distinct.len(), targets.len(), "{reply}");
 }
 
+/// A call on a value of another package's interface (`m demo.Marker`, here
+/// the module's root package) is named as a call through that interface,
+/// found by the import path its package is known by.
+#[test]
+fn go_callers_of_names_an_interface_of_another_package() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("go-unbound-calls-other-package", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "demo.go",
+        "package demo\n\ntype Marker interface{ Mark() }\n",
+    );
+    repo.write(
+        "b/b.go",
+        "package b\n\ntype T struct{}\n\nfunc (T) Mark() {}\n\nfunc Direct(t T) {\n\tt.Mark()\n}\n",
+    );
+    repo.write(
+        "cmd/use.go",
+        "package main\n\nimport \"example.com/demo\"\n\n\
+         func Use(m demo.Marker) {\n\tm.Mark()\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "b/b.go::T.Mark"}),
+    );
+    let summary = reply["summary"].as_str().expect("summary");
+    assert!(
+        summary.contains("is at cmd/use.go:6 in Use, through interface Marker (demo.go:3)"),
+        "{summary}"
+    );
+    assert!(!summary.contains("read "), "{summary}");
+}
+
 /// A call through a standard-library interface (`w.Write(p)` on `w
 /// io.Writer`) goes to the standard library, not to the method it may
 /// reach: an exported `Write` is not claimed to have every call bound.
