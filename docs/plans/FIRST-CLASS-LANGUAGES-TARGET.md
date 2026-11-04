@@ -642,3 +642,61 @@ Taken by the owner after G7.
   keys before any dagayn answer to them existed; G7's eight questions rerun
   as a report-only comparison. The bar is G7's. If G8 misses it, the
   defects its runs show become the rest of the Go work.
+
+## Decisions (2026-11-04, after G8)
+
+<!-- derived-from ../../eval/g8_go/RESULTS.md#where-dagayn-won-and-lost -->
+<!-- derived-from ../../eval/g8_go/RESULTS.md#defects-in-dagayns-go-answers -->
+<!-- derived-from #decisions-2026-11-04 -->
+
+Taken by the owner after G8.
+
+- **G8 missed the bar.** Agents with dagayn used 1.20x the tokens (Holm
+  p = 0.0003) and 0.97x the time, with 73 exact answers against 79. The
+  token loss came from the questions that the baseline answered in 3 to 5
+  tool calls (C6, C8, T6, T7, T8: medians of 3.5 to 4.5 tool calls). dagayn
+  adds a fixed cost of 2 calls, the `ToolSearch` that loads its schemas and
+  the dagayn call, and the agents still repeated the baseline's grep.
+- **Fixes since G8.** [#278](https://github.com/manji-0/dagayn/pull/278)
+  finds a Go method written `(*T).M` (#275).
+  [#279](https://github.com/manji-0/dagayn/pull/279) pages a cut
+  `callers_of` list and points `tests_for` at the callers walk.
+  [#277](https://github.com/manji-0/dagayn/pull/277) records Go functions
+  used as values and lists them in `callers_of` (#235).
+  [#280](https://github.com/manji-0/dagayn/pull/280) makes a complete Go
+  `callers_of` say what it checked (G8 defect 5).
+  [#282](https://github.com/manji-0/dagayn/pull/282) gives the lines of a
+  few unbound calls. [#283](https://github.com/manji-0/dagayn/pull/283)
+  binds calls within a package at `HIGH`. The go extractor is now 17.
+- **Two exploratory pilots, not registered.** Both ran G8's questions C6,
+  C8, T6, and T7, 5 runs per arm, on two candidate builds: #280 alone, and
+  #280 with #282 and #283. The median token ratios (dagayn / none) were:
+
+  | Q | G8 (11.0.0, 10 runs) | pilot 1 (#280) | pilot 2 (#283) |
+  |---|---|---|---|
+  | C6 | 1.37 | 0.96 | 1.27 |
+  | C8 | 1.39 | 1.07 | 0.76 |
+  | T6 | 1.42 | 1.21 | 0.95 |
+  | T7 | 1.27 | 1.54 | 1.54 |
+  | geometric mean | 1.36 | 1.18 | 1.09 |
+
+  These numbers are exploratory. They come from the four questions that
+  the fixes were tuned against, with 5 runs per arm, and the baseline's
+  own medians moved between pilots (C8: 106k, 128k, 137k tokens). They
+  decide nothing. Raw runs are outside the repository (the session's
+  scratchpad `d5/pilot*/`).
+- **The bar changes. This is a redefinition of the goal by the owner, made
+  after G8 missed it.** G7 and G8 tested 0.85x pooled over all their
+  questions. From G9 on, 0.85x is tested only on LONG questions, those of
+  the kinds where the baseline needs many steps. SHORT questions get a
+  guard instead of a gain requirement: pooled over them, the token ratio is
+  at most 1.10 and the exact answers are not fewer than the baseline's.
+  G8 stays "not met" under the bar it registered. Under G9's rule, G8's own
+  questions would split into 3 LONG (1.10x tokens) and 5 SHORT (1.26x), so
+  G8 would not meet the new bar either (report only, from G9's
+  `analyze.py` on G8's runs).
+- **G9 decides.** New questions only, drawn by a seeded rule before any
+  dagayn answer to them exists, on testify, compress, and kong v1.15.0 (a
+  third Go repository with history). The LONG and SHORT kinds are fixed
+  from G7's and G8's baseline turn counts before the draw
+  ([pre-registration](../../eval/g9_go/PREREG.md)).
