@@ -900,7 +900,10 @@ fn a_member_named_by_type_is_ambiguous_only_among_its_namesakes() {
     candidates.sort_unstable();
     assert_eq!(
         candidates,
-        ["flate/writer.go::Writer.Reset", "gzip/writer.go::Writer.Reset"]
+        [
+            "flate/writer.go::Writer.Reset",
+            "gzip/writer.go::Writer.Reset"
+        ]
     );
 
     for (target, node) in [

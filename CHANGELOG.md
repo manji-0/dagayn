@@ -24,6 +24,17 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `query_graph_tool` and `flow_tool` resolve a method named the way its
+  language writes it (#275). A Go target `(*T).M`, `(T).M`, or `*T.M`,
+  with or without a `path::` prefix, resolves as `T.M`, and a Rust
+  `Type::method` as `Type.method`. A `T.M` that names one node resolves to
+  it in any language; before, the target matched no node's name and the
+  reply was `ambiguous` with the name search's other hits, such as the
+  method's callers. A `T.M` that several types define is still
+  `ambiguous`, and its candidates are now only those methods. Replaying
+  the first dagayn call of G8's 157 recorded runs on the G8 graphs, 34 of
+  the 47 that got `not_found` or `ambiguous` now resolve to the node the
+  question names.
 - `tests_for` on a Rust method no longer lists a test double's method of
   the same name from a crate's `tests/` directory (#262). A function there
   was a `Test` node by its path, so `Repo.new` in
