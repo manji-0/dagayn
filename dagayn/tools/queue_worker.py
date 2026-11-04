@@ -10,10 +10,12 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from ..task_queue import (
+    BUDGET_EXCEEDED_NOTE,
     DEFAULT_EMBED_BUDGET_SECONDS,
     DEFAULT_IDLE_SECONDS,
     DEFAULT_POSTPROCESS_BUDGET_SECONDS,
@@ -22,11 +24,13 @@ from ..task_queue import (
     EMBED_PASS_SECONDS,
     MAX_RETRY_BACKOFF_SECONDS,
     RETRY_BACKOFF_SECONDS,
+    STALLED_UPDATE_NEXT_STEP,
     TaskQueue,
     WorkerLock,
     _resolve_repo_root,
     enqueue_embed_refresh,
     queue_db_path,
+    stalled_update,
     worker_lock_path,
 )
 
@@ -35,9 +39,14 @@ logger = logging.getLogger(__name__)
 
 def _stored_base(repo_root: Path) -> str:
     """Git ref the graph describes — same order as ``dagayn update``."""
+    return _graph_metadata(repo_root, "git_head_sha") or "HEAD~1"
+
+
+def _graph_metadata(repo_root: Path, key: str) -> str | None:
+    """One metadata value of the repository's graph, ``None`` when unreadable."""
     db_path = queue_db_path(repo_root).parent / "graph.db"
     if not db_path.exists():
-        return "HEAD~1"
+        return None
     from ..graph import GraphStore
     from ..write_lock import DEFAULT_READ_LOCK_TIMEOUT, graph_read_lock
 
@@ -51,12 +60,59 @@ def _stored_base(repo_root: Path) -> str:
         with graph_read_lock(db_path, timeout=DEFAULT_READ_LOCK_TIMEOUT):
             store = GraphStore(db_path)
             try:
-                return store.get_metadata("git_head_sha") or "HEAD~1"
+                return store.get_metadata(key) or None
             finally:
                 store.close()
     except Exception:  # noqa: BLE001 - a bad peek must not kill the worker
-        logger.warning("Could not read stored git_head_sha; falling back to HEAD~1")
-        return "HEAD~1"
+        logger.warning("Could not read the graph's %s", key)
+        return None
+
+
+def _retry_delay(task: dict[str, Any]) -> float:
+    """Backoff before a failed task is claimable again; grows with its attempts."""
+    return min(MAX_RETRY_BACKOFF_SECONDS, RETRY_BACKOFF_SECONDS * task["attempts"])
+
+
+def _record_overrun(
+    task: dict[str, Any], repo_root: Path, label: str, budget: float
+) -> Callable[[], None]:
+    """What the watchdog runs before it exits: fail *task* as an overrun.
+
+    Without it the row stayed ``running`` until some later worker started, and
+    edits meanwhile queued fresh updates beside it instead of coalescing. The
+    usual retry bound applies, so a task that always overruns ends ``dead``.
+    The timer thread cannot use the worker's connection, so this opens its own.
+    """
+
+    def record() -> None:
+        queue = TaskQueue(queue_db_path(repo_root))
+        try:
+            queue.fail(
+                task,
+                f"{BUDGET_EXCEEDED_NOTE}: {label} ran past {budget:g}s",
+                retry_delay=_retry_delay(task),
+            )
+        finally:
+            queue.close()
+
+    return record
+
+
+def _suspended_by_overruns(repo_root: Path) -> str | None:
+    """Why a hook update must not run: the last one died of budget overruns.
+
+    Re-running it would spend the whole budget again on every edit. A graph
+    updated since then (``dagayn update``, a session prepare) lifts this.
+    """
+    stalled = stalled_update(queue_db_path(repo_root), _graph_metadata(repo_root, "last_updated"))
+    if stalled is None or stalled["state"] != "dead":
+        return None
+    if not str(stalled.get("last_error") or "").startswith(BUDGET_EXCEEDED_NOTE):
+        return None
+    return (
+        f"skipped: update task #{stalled['id']} ran over its budget"
+        f" {stalled['attempts']} time(s); {STALLED_UPDATE_NEXT_STEP}"
+    )
 
 
 def _embed_files_from_payload(payload: dict[str, Any]) -> list[str] | None:
@@ -76,10 +132,17 @@ def _execute_update(task: dict[str, Any], repo_root: Path) -> str | None:
 
     if hook_updates_disabled(repo_root):
         return "hook updates disabled (.dagayn/hook-skip)"
+    suspended = _suspended_by_overruns(repo_root)
+    if suspended is not None:
+        return suspended
     # Hook-update semantics: non-blocking write lock (a manual build in
     # progress wins and will index the same dirty state) and a self budget.
     os.environ["DAGAYN_HOOK_UPDATE"] = "1"
-    watchdog = start_budget_watchdog(DEFAULT_UPDATE_BUDGET_SECONDS, label="queue update")
+    watchdog = start_budget_watchdog(
+        DEFAULT_UPDATE_BUDGET_SECONDS,
+        label="queue update",
+        on_expire=_record_overrun(task, repo_root, "queue update", DEFAULT_UPDATE_BUDGET_SECONDS),
+    )
     try:
         from .build import build_or_update_graph
 
@@ -105,7 +168,11 @@ def _execute_embed(task: dict[str, Any], repo_root: Path) -> str | None:
     from ..hook_guard import start_budget_watchdog
 
     payload = task["payload"]
-    watchdog = start_budget_watchdog(DEFAULT_EMBED_BUDGET_SECONDS, label="queue embed")
+    watchdog = start_budget_watchdog(
+        DEFAULT_EMBED_BUDGET_SECONDS,
+        label="queue embed",
+        on_expire=_record_overrun(task, repo_root, "queue embed", DEFAULT_EMBED_BUDGET_SECONDS),
+    )
     try:
         from .build import build_or_update_graph, run_embedding_pass
 
@@ -213,9 +280,11 @@ def _execute_prepare(task: dict[str, Any], repo_root: Path) -> str | None:
     payload = task["payload"]
     raw = payload.get("budget_seconds", DEFAULT_PREPARE_BUDGET_SECONDS)
     budget = None if raw is None or int(raw) <= 0 else int(raw)
+    hard_stop = prepare_hard_stop_seconds(budget)
     watchdog = start_budget_watchdog(
-        prepare_hard_stop_seconds(budget),
+        hard_stop,
         label="queue prepare",
+        on_expire=_record_overrun(task, repo_root, "queue prepare", hard_stop or 0),
     )
     try:
         result = session_prepare(
@@ -241,7 +310,13 @@ def _execute_postprocess(task: dict[str, Any], repo_root: Path) -> str | None:
     """Run communities/FTS post-processing."""
     from ..hook_guard import start_budget_watchdog
 
-    watchdog = start_budget_watchdog(DEFAULT_POSTPROCESS_BUDGET_SECONDS, label="queue postprocess")
+    watchdog = start_budget_watchdog(
+        DEFAULT_POSTPROCESS_BUDGET_SECONDS,
+        label="queue postprocess",
+        on_expire=_record_overrun(
+            task, repo_root, "queue postprocess", DEFAULT_POSTPROCESS_BUDGET_SECONDS
+        ),
+    )
     try:
         from .build import run_postprocess
 
@@ -320,11 +395,7 @@ def run_worker(
                 # The retry waits out its backoff (the usual transient cause is
                 # something else holding a lock it needs); other queued kinds
                 # are claimable meanwhile instead of sleeping behind it.
-                delay = (
-                    min(MAX_RETRY_BACKOFF_SECONDS, RETRY_BACKOFF_SECONDS * task["attempts"])
-                    if retry_backoff
-                    else 0.0
-                )
+                delay = _retry_delay(task) if retry_backoff else 0.0
                 queue.fail(task, note, retry_delay=delay)
             else:
                 queue.complete(task, note)

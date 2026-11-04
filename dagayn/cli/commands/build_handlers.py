@@ -197,6 +197,15 @@ def _print_sync_state(repo_root: Path, store: object) -> None:
         print(f"  Needs re-indexing: {shown}{more}")
 
 
+def _print_stalled_hook_update(db_path: Path, last_updated: str | None) -> None:
+    """Say so when edit-triggered updates have stopped landing in the graph."""
+    from ...task_queue import QUEUE_DB_NAME, stalled_update, stalled_update_status
+
+    stalled = stalled_update(Path(db_path).parent / QUEUE_DB_NAME, last_updated)
+    if stalled is not None:
+        print(stalled_update_status(stalled))
+
+
 def _print_postprocess_summary(result: Mapping[str, Any]) -> None:
     """Print postprocess counts already returned by the build tool."""
     if result.get("signatures_computed"):
@@ -502,6 +511,7 @@ def handle_status_command(
     _print_embedding_status(db_path)
     _print_vcs_status(repo_root, store)
     _print_sync_state(repo_root, store)
+    _print_stalled_hook_update(db_path, stats.last_updated)
 
 
 def handle_watch_command(

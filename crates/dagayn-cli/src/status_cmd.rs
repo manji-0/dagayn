@@ -24,7 +24,7 @@ pub(crate) fn run(args: &StatusArgs) -> Result<u8, Failure> {
     let _lock = GraphLock::acquire_mode(&db_path, LockMode::Shared, Some(write_lock_timeout()))
         .map_err(|err| err.to_string())?;
     let store = GraphStore::open(&db_path)?;
-    for line in status_lines(&repo_root, &store)? {
+    for line in status_lines(&repo_root, &store, &db_path)? {
         println!("{line}");
     }
     Ok(0)

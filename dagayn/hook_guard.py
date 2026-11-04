@@ -25,6 +25,7 @@ import os
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -99,8 +100,13 @@ def start_budget_watchdog(
     budget_seconds: float | None,
     *,
     label: str = "update",
+    on_expire: Callable[[], None] | None = None,
 ) -> threading.Timer | None:
     """Terminate this process if it outlives *budget_seconds*.
+
+    *on_expire* runs on the timer thread just before the exit, for a caller
+    that must record the overrun (the queue worker marks its task). It must
+    not block for long, and nothing it raises stops the exit.
 
     Returns the timer so a caller that finishes in time can cancel it, or
     ``None`` when no budget applies.
@@ -117,6 +123,11 @@ def start_budget_watchdog(
             " the graph is unchanged\n"
         )
         sys.stderr.flush()
+        if on_expire is not None:
+            try:
+                on_expire()
+            except BaseException:  # noqa: BLE001 - the exit below must happen
+                logger.debug("could not record the %s budget overrun", label, exc_info=True)
         os._exit(BUDGET_EXCEEDED_EXIT_CODE)
 
     timer = threading.Timer(float(budget_seconds), _expire)

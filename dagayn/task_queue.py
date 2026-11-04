@@ -98,6 +98,16 @@ DEFAULT_PREPARE_BUDGET_SECONDS = 300
 #: being killed by the watchdog on every attempt until the task is parked dead.
 EMBED_PASS_SECONDS = DEFAULT_EMBED_BUDGET_SECONDS * 0.7
 
+#: How a task the budget watchdog stopped records its failure (``last_error``).
+BUDGET_EXCEEDED_NOTE = "budget exceeded"
+
+#: A ``running`` update older than this cannot still be live: the watchdog
+#: stops every update at its budget. Such a row was left by a killed worker.
+ORPHANED_UPDATE_SECONDS = DEFAULT_UPDATE_BUDGET_SECONDS + 60
+
+#: What to do when hook updates have stopped landing.
+STALLED_UPDATE_NEXT_STEP = "run 'dagayn update', or create .dagayn/hook-skip to stop hook updates"
+
 QUEUE_DB_NAME = "task_queue.db"
 WORKER_LOCK_NAME = "queue_worker.lock"
 
@@ -334,10 +344,10 @@ class TaskQueue:
     def requeue_stale(self) -> int:
         """Recover tasks abandoned by a worker that died mid-execution.
 
-        The budget watchdog stops an overrunning worker with ``os._exit``, and
-        a crash or a ``SIGKILL`` has the same effect: the row stays ``running``
-        and :meth:`claim` — which only looks at ``pending`` — would never touch
-        it again. Callers must hold the worker lock, which is what makes
+        The budget watchdog records its task's failure before it exits the
+        worker, but a crash or a ``SIGKILL`` leaves the row ``running``, and
+        :meth:`claim`, which only looks at ``pending``, would never touch it
+        again. Callers must hold the worker lock, which is what makes
         ``running`` mean *orphaned*: no other worker can be executing anything.
 
         A task whose ``attempts`` are already spent is parked ``dead`` instead
@@ -489,6 +499,62 @@ class WorkerLock:
 
     def __exit__(self, *exc_info: object) -> None:
         self.release()
+
+
+#: The newest update that stopped landing after the graph last changed: one
+#: parked ``dead``, or one left ``running`` past the budget by a killed
+#: worker. Kept in SQL so the Rust reader (``dagayn_build::task_queue``) can
+#: run the same statement. ``julianday`` reads the queue's offset timestamps
+#: and, with ``'utc'``, the graph's local ``last_updated``.
+_STALLED_UPDATE_SQL = """
+SELECT id, state, attempts, last_error FROM tasks
+WHERE kind = 'update'
+  AND (state = 'dead'
+       OR (state = 'running' AND julianday(updated_at) < julianday('now', ?1)))
+  AND (?2 IS NULL OR julianday(updated_at) > julianday(?2, 'utc'))
+ORDER BY id DESC LIMIT 1
+"""
+
+
+def stalled_update(queue_db: str | Path, graph_last_updated: str | None) -> dict[str, Any] | None:
+    """The update task hook updates are stuck on, or ``None``.
+
+    *graph_last_updated* is the graph's ``last_updated`` metadata: an update
+    that died before the graph last changed (a manual ``dagayn update``, a
+    session prepare) no longer holds anything back. Read-only, and ``None``
+    when there is no queue or it cannot be read.
+    """
+    path = Path(queue_db)
+    if not path.is_file():
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return None
+    try:
+        keep_wal_on_close(conn)
+        row = conn.execute(
+            _STALLED_UPDATE_SQL,
+            (f"-{ORPHANED_UPDATE_SECONDS} seconds", graph_last_updated or None),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    return {"id": row[0], "state": row[1], "attempts": row[2], "last_error": row[3]}
+
+
+def stalled_update_status(task: dict[str, Any]) -> str:
+    """The ``dagayn status`` line for a :func:`stalled_update` row."""
+    if task["state"] == "dead":
+        what = f"update task #{task['id']} dead after {task['attempts']} attempt(s)"
+        if task.get("last_error"):
+            what += f": {task['last_error']}"
+    else:
+        what = f"update task #{task['id']} left running by a worker that exited"
+    return f"Hook updates: stopped — {what}; {STALLED_UPDATE_NEXT_STEP}"
 
 
 def queue_db_path(repo_root: str | Path) -> Path:

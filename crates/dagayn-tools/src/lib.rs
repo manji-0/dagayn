@@ -641,7 +641,7 @@ impl OpenGraph {
     /// `Answerability::recorded` for the graph's current stats.
     pub(crate) fn answerability(&self) -> Option<answerability::Answerability> {
         let stats = self.store.get_stats().ok()?;
-        answerability::Answerability::recorded(&self.store, &stats)
+        answerability::Answerability::recorded(&self.store, &stats, &self.db_path)
     }
 }
 

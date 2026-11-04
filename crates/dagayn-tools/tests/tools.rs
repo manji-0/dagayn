@@ -3960,6 +3960,39 @@ fn go_tests_for_a_method_skips_test_doubles_of_its_name() {
     assert_eq!(rows, ["assert/assertions_test.go::TestCollect"], "{reply}");
 }
 
+/// A test double's method under a Rust crate's `tests/` is test code, not
+/// a test: `tests_for` on `Args.new` names the test that calls it, not the
+/// double's `Repo.new` (#262).
+#[test]
+fn rust_tests_for_a_method_skips_test_doubles_of_its_name() {
+    // dagayn: tests crates/dagayn-parser/src/rust_lang/mod.rs::rust_walk_children
+    let repo = Repo::new("rust-tests-for-doubles", false);
+    repo.write("Cargo.toml", "[workspace]\nmembers = [\"crates/app\"]\n");
+    repo.write("crates/app/Cargo.toml", "[package]\nname = \"app\"\n");
+    repo.write(
+        "crates/app/src/lib.rs",
+        "pub struct Args;\n\nimpl Args {\n    pub fn new() -> Args {\n        Args\n    }\n}\n",
+    );
+    repo.write(
+        "crates/app/tests/cli.rs",
+        "use app::Args;\n\nstruct Repo;\n\nimpl Repo {\n    fn new() -> Repo {\n        Repo\n    }\n}\n\n\
+         #[test]\nfn args_build() {\n    let _repo = Repo::new();\n    let _args = Args::new();\n}\n",
+    );
+    repo.build();
+    let reply = answer(
+        &repo.context(),
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "crates/app/src/lib.rs::Args.new"}),
+    );
+    let rows: Vec<&str> = reply["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .filter_map(|row| row["qualified_name"].as_str())
+        .collect();
+    assert_eq!(rows, ["crates/app/tests/cli.rs::args_build"], "{reply}");
+}
+
 /// A Go package is a unit, named by its import path; an import of a package
 /// of another module of the repository is a declared dependency when the
 /// importing module's `go.mod` requires that module.
@@ -4517,5 +4550,60 @@ fn rust_tests_to_run_names_the_test_behind_an_integration_helper() {
             "cargo test -p demo --test it adds".to_string(),
         )],
         "{review}"
+    );
+}
+
+#[test]
+fn a_dead_hook_update_reaches_every_reply_as_missingness() {
+    // dagayn: tests crates/dagayn-tools/src/answerability.rs::Answerability
+    let repo = Repo::new("hook-queue", true);
+    repo.build();
+    let context = repo.context();
+    let codes = |reply: &Value| -> Vec<String> {
+        reply["missingness"]
+            .as_array()
+            .expect("missingness")
+            .iter()
+            .filter_map(|item| item["reason_code"].as_str().map(str::to_string))
+            .collect()
+    };
+    let args = json!({"pattern": "callers_of", "target": "app.py::helper"});
+    assert!(
+        !codes(&answer(&context, "query_graph_tool", args.clone()))
+            .contains(&"hook_updates_stopped".to_string())
+    );
+
+    let conn = rusqlite::Connection::open(repo.0.join(".dagayn/task_queue.db")).expect("queue");
+    conn.execute_batch(
+        "CREATE TABLE tasks (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, \
+         priority INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL DEFAULT '{}', \
+         state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, \
+         created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_error TEXT, \
+         not_before REAL NOT NULL DEFAULT 0); \
+         INSERT INTO tasks (kind, state, attempts, created_at, updated_at, last_error) \
+         VALUES ('update', 'dead', 3, '2999-01-01T00:00:00+00:00', \
+         '2999-01-01T00:00:00+00:00', 'budget exceeded: queue update ran past 120s');",
+    )
+    .expect("plant a dead update");
+    drop(conn);
+
+    let reply = answer(&context, "query_graph_tool", args);
+    let item = reply["missingness"]
+        .as_array()
+        .expect("missingness")
+        .iter()
+        .find(|item| item["reason_code"] == "hook_updates_stopped")
+        .unwrap_or_else(|| panic!("{reply}"));
+    assert_eq!(item["severity"], "medium");
+    let effect = item["claim_effect"].as_str().expect("claim_effect");
+    assert!(effect.contains("dagayn update"), "{effect}");
+    assert!(effect.contains(".dagayn/hook-skip"), "{effect}");
+    let context_reply = answer(&context, "get_minimal_context_tool", json!({}));
+    assert!(
+        context_reply["graph_health"]["reason_codes"]
+            .as_array()
+            .expect("reason_codes")
+            .contains(&json!("hook_updates_stopped")),
+        "{context_reply}"
     );
 }

@@ -126,3 +126,33 @@ fn every_node_of_a_tests_directory_file_is_test_code() {
     assert!(nodes.iter().all(|(_, _, is_test)| *is_test), "{nodes:?}");
     assert!(nodes.contains(&("Harness".into(), "Class".into(), true)));
 }
+
+/// Under a crate's `tests/`, a helper or a test double's method is test
+/// code, not a test: only a test attribute makes a `Test` node.
+#[test]
+fn only_test_attributes_make_tests_in_a_crate_tests_directory() {
+    let root = repo(
+        "nested",
+        &[
+            ("crates/app/Cargo.toml", "[package]\nname = \"app\"\n"),
+            ("crates/app/src/lib.rs", "pub fn work() -> u8 { 1 }\n"),
+            (
+                "crates/app/tests/cli.rs",
+                "struct Repo;\nimpl Repo {\n    fn new() -> Repo { Repo }\n}\nfn helper() -> u8 { app::work() }\n#[test]\nfn runs() { Repo::new(); helper(); }\n#[tokio::test]\nasync fn runs_async() { helper(); }\n",
+            ),
+        ],
+    );
+    let nodes = nodes_of(&root, "crates/app/tests/cli.rs");
+    for helper in ["new", "helper"] {
+        assert!(
+            nodes.contains(&(helper.into(), "Function".into(), true)),
+            "{helper}: {nodes:?}"
+        );
+    }
+    for test in ["runs", "runs_async"] {
+        assert!(
+            nodes.contains(&(test.into(), "Test".into(), true)),
+            "{test}: {nodes:?}"
+        );
+    }
+}
