@@ -1,0 +1,20 @@
+description: An exported function `format` of a private TypeScript application that nothing imports. The entry imports a `format` from the `date-fns` package and calls it. That binding is not the application's `format`, so the local one is unused (#257).
+files:
+  package.json: |
+    {"name": "app", "private": true, "dependencies": {"date-fns": "^3.6.0"}}
+  src/dates.ts: |
+    export function format(day: Date): string {
+      return day.toISOString().slice(0, 10);
+    }
+
+    export function parseDay(text: string): Date {
+      return new Date(`${text}T00:00:00Z`);
+    }
+  src/index.ts: |
+    import { format } from "date-fns";
+    import { parseDay } from "./dates";
+
+    console.log(format(parseDay("2026-01-01"), "yyyy"));
+expected_findings:
+- kind: unused_symbol
+  target: src/dates.ts::format

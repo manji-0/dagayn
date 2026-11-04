@@ -756,6 +756,17 @@ read by hand are unused: compress `dict/builder.go::hash3` and
 its doc comment and its definition. G5 does not change this. It costs
 recall, not precision.
 
+[#244](https://github.com/manji-0/dagayn/issues/244) fixes this in
+11.1.0: the comment lines directly above a definition no longer count as
+a use of its name. On the same graphs (go extractor 15), compress now
+reports 13 more unused symbols, and kong, testify, and scip-go report the
+same as before. The 13 are among the 29 counted above, and the other 16
+stay left out by the export and protocol rules. Each of the 13 was read
+by hand: no other file or line mentions any of them.
+One of them, `zstd/internal/xxhash/xxhash.go::Digest.BlockSize`, is a
+`hash.Hash` method that nothing in the repository calls through the
+interface.
+
 ## G6: the scip-go comparison
 
 <!-- derived-from ./SCIP-CALL-RESOLUTION.md#measured-comparison -->
