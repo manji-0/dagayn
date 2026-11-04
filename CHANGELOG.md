@@ -4,6 +4,27 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Fixed
+
+- `dead_code` no longer counts two kinds of non-use as uses in its source
+  scan. First, a definition's own doc comment, the comment lines directly
+  above it (read through attribute lines, stopping at a blank line), no
+  longer keeps it alive (#244). A Go doc comment starts with the name it
+  documents, so an unused documented Go function was never reported. On
+  compress v1.20.1, 13 unused functions are now reported, among them
+  `dict/builder.go::hash3` and `gzhttp/compress.go::acceptsGzip`. kong,
+  testify, scip-go, and dagayn itself report the same symbols as before.
+  Second, in a JavaScript, TypeScript, or Python file, a mention of a name
+  that the file imports from another module no longer keeps a same-named
+  definition alive (#257). This covers the import line and the calls and
+  references the graph resolved through that import. An application's
+  unused `format` is now reported when another file imports `format` from
+  `date-fns` and calls it, and a Python `dedent` when another module
+  imports `dedent` from `textwrap`. Other mentions in that file, such as a
+  string or a member access, still count, and so does a same-named
+  definition in another file. Not covered yet: an import split over
+  several lines, where only the statement's first line is matched.
+
 ## 11.0.0 — 2026-11-04
 
 dagayn is a tool for agents, so the surfaces built for a human to look at,

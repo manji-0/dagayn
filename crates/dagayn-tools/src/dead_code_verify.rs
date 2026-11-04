@@ -486,12 +486,7 @@ fn header_annotations(lines: &[String], line: i64, language: &str) -> Vec<String
     let mut names = Vec::new();
     for text in header {
         // Comments name tags (`@param`, `@typedef`), not annotations.
-        let comment = text.starts_with("//")
-            || text.starts_with("/*")
-            || text.starts_with('*')
-            || text.starts_with("--")
-            || (text.starts_with('#') && !text.starts_with("#[") && !text.starts_with("#!["));
-        if comment {
+        if comment_line(text) {
             continue;
         }
         if language == "csharp" && text.starts_with('[') {
@@ -535,6 +530,50 @@ fn header_annotations(lines: &[String], line: i64, language: &str) -> Vec<String
         }
     }
     names
+}
+
+/// Whether the trimmed line `text` is a comment: `//`, `/*`, `*`, `--`, or a
+/// `#` that starts neither a Rust attribute nor a C directive (`#define`).
+fn comment_line(text: &str) -> bool {
+    text.starts_with("//")
+        || text.starts_with("/*")
+        || text.starts_with('*')
+        || text.starts_with("--")
+        || text.strip_prefix('#').is_some_and(|rest| {
+            !rest.starts_with('[')
+                && !rest.starts_with("![")
+                && !rest.starts_with(|c: char| c.is_ascii_alphabetic())
+        })
+}
+
+/// The first line (1-based) of the comments directly above the definition at
+/// `line`, its doc comment, read up through attribute lines to a blank line
+/// or code; `line` when there are none. Go doc comments start with the name
+/// they document, which is no use of it (#244).
+fn own_doc_start(lines: &[String], line: i64) -> i64 {
+    let Ok(at) = usize::try_from(line - 1) else {
+        return line;
+    };
+    let mut start = at;
+    let mut in_block = false;
+    for index in (0..at.min(lines.len())).rev() {
+        let text = lines[index].trim();
+        if in_block {
+            start = index;
+            in_block = !text.contains("/*");
+        } else if text.ends_with("*/") && !text.contains("/*") {
+            start = index;
+            in_block = true;
+        } else if comment_line(text) {
+            start = index;
+        } else if !(text.starts_with('@')
+            || text.starts_with("#[")
+            || (text.starts_with('[') && text.ends_with(']')))
+        {
+            break;
+        }
+    }
+    start as i64 + 1
 }
 
 /// The lowercased last segment of an annotation name.
@@ -795,6 +834,157 @@ fn structural_reason(
     None
 }
 
+/// The languages whose files reach another file's top-level name only by
+/// importing it, grouped by which of them can import from each other.
+fn import_scoped_family(language: &str) -> Option<&'static str> {
+    match language {
+        "javascript" | "typescript" | "tsx" | "vue" | "svelte" => Some("javascript"),
+        "python" => Some("python"),
+        _ => None,
+    }
+}
+
+/// One file's imports, as repository-relative paths or package names.
+#[derive(Default)]
+struct FileImports {
+    /// Each imported module: the lines importing it, and whether the graph
+    /// marks it external (a package, the standard library).
+    modules: HashMap<String, (Vec<i64>, bool)>,
+    /// Each local name an import binds: per module, the lines of the calls
+    /// and references the graph resolved through that binding.
+    bound: HashMap<String, HashMap<String, Vec<i64>>>,
+}
+
+impl FileImports {
+    /// Whether the mention of `name` on `line` is this file's import of
+    /// `name` from a known module other than `own_file`: the import, or a
+    /// call or reference the graph resolved through it (#257).
+    fn explains(&self, name: &str, line: i64, own_file: &str, root: &Path) -> bool {
+        self.bound
+            .get(name)
+            .into_iter()
+            .flatten()
+            .any(|(module, uses)| {
+                self.modules
+                    .get(module)
+                    .is_some_and(|(imported_at, external)| {
+                        module != own_file
+                            && (*external || root.join(module).is_file())
+                            && (uses.contains(&line) || imported_at.contains(&line))
+                    })
+            })
+    }
+}
+
+/// Every file's imports of `names`. A binding comes from an import's
+/// `names` (Python), or from a call or reference in the file resolved to
+/// `module::name` for a module it imports (`import { format } from
+/// "date-fns"`, then `format()` calls `date-fns::format`). Calls through a
+/// binding are those resolved to `module::name`, and for an external
+/// package those to the package whose `external_symbol` names it.
+fn file_imports(
+    store: &GraphStore,
+    names: &[String],
+    relative: impl Fn(&str) -> String,
+) -> Option<HashMap<String, FileImports>> {
+    let mut files: HashMap<String, FileImports> = HashMap::new();
+    // (file, package, imported name) -> local name, for imports from an
+    // external package: calls through them target the package and keep the
+    // name in `external_symbol` (`textwrap.dedent`).
+    let mut external_names: HashMap<(String, String, String), String> = HashMap::new();
+    for edge in store.get_edges_by_kind("IMPORTS_FROM", false).ok()? {
+        let module = relative(&edge.target_qualified);
+        let file = relative(&edge.file_path);
+        let external = edge.extra.get("external").and_then(Value::as_bool) == Some(true);
+        let imports = files.entry(file.clone()).or_default();
+        if let Some(Value::Array(bound)) = edge.extra.get("names") {
+            for pair in bound {
+                let (Some(imported), Some(local)) = (
+                    pair.get(0).and_then(Value::as_str),
+                    pair.get(1).and_then(Value::as_str),
+                ) else {
+                    continue;
+                };
+                if names.iter().any(|name| name == local) {
+                    imports
+                        .bound
+                        .entry(local.to_string())
+                        .or_default()
+                        .entry(module.clone())
+                        .or_default();
+                    if external {
+                        external_names.insert(
+                            (file.clone(), module.clone(), imported.to_string()),
+                            local.to_string(),
+                        );
+                    }
+                }
+            }
+        }
+        let (lines, marked) = imports.modules.entry(module).or_default();
+        lines.push(edge.line);
+        *marked |= external;
+    }
+    for kind in ["CALLS", "REFERENCES"] {
+        for (name, edges) in store.get_edges_by_target_names(names, kind, true).ok()? {
+            for edge in edges {
+                let Some(module) = edge
+                    .target_qualified
+                    .strip_suffix(name.as_str())
+                    .and_then(|rest| rest.strip_suffix("::"))
+                else {
+                    continue;
+                };
+                let module = relative(module);
+                if let Some(imports) = files.get_mut(&relative(&edge.file_path))
+                    && imports.modules.contains_key(&module)
+                {
+                    imports
+                        .bound
+                        .entry(name.clone())
+                        .or_default()
+                        .entry(module)
+                        .or_default()
+                        .push(edge.line);
+                }
+            }
+        }
+    }
+    let packages: Vec<String> = external_names
+        .keys()
+        .map(|(_, package, _)| package.clone())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    let kinds = ["CALLS".to_string(), "REFERENCES".to_string()];
+    for (package, edges) in store.get_edges_by_targets(&packages, &kinds).ok()? {
+        for edge in edges {
+            let file = relative(&edge.file_path);
+            let Some(imported) = edge
+                .extra
+                .get("external_symbol")
+                .and_then(Value::as_str)
+                .and_then(|symbol| symbol.rsplit('.').next())
+            else {
+                continue;
+            };
+            let key = (file.clone(), package.clone(), imported.to_string());
+            if let Some(local) = external_names.get(&key)
+                && let Some(imports) = files.get_mut(&file)
+            {
+                imports
+                    .bound
+                    .entry(local.clone())
+                    .or_default()
+                    .entry(package.clone())
+                    .or_default()
+                    .push(edge.line);
+            }
+        }
+    }
+    Some(files)
+}
+
 /// What [`verify`] kept and left out.
 pub(crate) struct Verified {
     pub dead: Vec<Value>,
@@ -890,18 +1080,52 @@ pub(crate) fn verify(
     let root_prefix = root
         .as_deref()
         .map(|root| format!("{}/", root.to_string_lossy().trim_end_matches('/')));
-    for (node, mut record) in pending {
-        // A graph built with absolute paths names files by them.
-        let own_file = root_prefix
+    // A graph built with absolute paths names files by them.
+    let relative = |path: &str| -> String {
+        root_prefix
             .as_deref()
-            .and_then(|prefix| node.file_path.strip_prefix(prefix))
-            .unwrap_or(&node.file_path);
+            .and_then(|prefix| path.strip_prefix(prefix))
+            .unwrap_or(path)
+            .to_string()
+    };
+    let scoped: Vec<String> = pending
+        .iter()
+        .filter(|(node, _)| {
+            node.parent_name.is_none() && import_scoped_family(&node.language).is_some()
+        })
+        .map(|(node, _)| node.name.clone())
+        .collect();
+    let imports = if scoped.is_empty() {
+        HashMap::new()
+    } else {
+        file_imports(store, &scoped, relative)?
+    };
+    for (node, mut record) in pending {
+        let own_file = relative(&node.file_path);
+        let doc_start = sources
+            .get(&node.file_path)
+            .map_or(node.line_start, |lines| {
+                own_doc_start(lines, node.line_start)
+            });
+        let family = import_scoped_family(&node.language).filter(|_| node.parent_name.is_none());
         let elsewhere = found
             .get(&node.name)
             .into_iter()
             .flatten()
             .any(|(file, line)| {
-                file != own_file || *line < node.line_start || *line > node.line_end
+                if *file == own_file {
+                    return *line < doc_start || *line > node.line_end;
+                }
+                let explained = family.is_some_and(|family| {
+                    dagayn_parser::detect_language(Path::new(file)).and_then(import_scoped_family)
+                        == Some(family)
+                        && root.as_deref().is_some_and(|root| {
+                            imports
+                                .get(file)
+                                .is_some_and(|i| i.explains(&node.name, *line, &own_file, root))
+                        })
+                });
+                !explained
             });
         if elsewhere {
             *out.suppressed
@@ -920,7 +1144,8 @@ pub(crate) fn verify(
 #[cfg(test)]
 mod tests {
     use super::{
-        go_exported_api, header_annotations, implicit_method, rust_impl_trait, rust_trait_context,
+        go_exported_api, header_annotations, implicit_method, own_doc_start, rust_impl_trait,
+        rust_trait_context,
     };
 
     fn lines(text: &str) -> Vec<String> {
@@ -1000,5 +1225,20 @@ mod tests {
         let program = lines("//go:build linux\n\npackage main // the tool\n");
         assert!(!go_exported_api("Run", "cmd/tool/main.go", &program));
         assert!(!go_exported_api("Run", "cmd/tool/main.go", &[]));
+    }
+
+    #[test]
+    fn a_doc_comment_starts_at_the_comment_run_directly_above() {
+        let go = lines(
+            "func a() {}\n\n// hash3 hashes.\n// hash3 is fast.\nfunc hash3() {}\n\n/*\npack joins.\n*/\nfunc pack() {}",
+        );
+        assert_eq!(own_doc_start(&go, 5), 3);
+        assert_eq!(own_doc_start(&go, 10), 7);
+        assert_eq!(own_doc_start(&go, 1), 1);
+        let rust = lines("x();\n/// Docs.\n#[inline]\nfn f() {}\n#[inline]\nfn g() {}");
+        assert_eq!(own_doc_start(&rust, 4), 2);
+        assert_eq!(own_doc_start(&rust, 6), 6);
+        let c = lines("#define pick other\nint pick(void) {}");
+        assert_eq!(own_doc_start(&c, 2), 2);
     }
 }
