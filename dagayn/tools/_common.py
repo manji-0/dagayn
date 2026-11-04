@@ -508,6 +508,16 @@ def _freshness_reason_codes(
     return codes, counts
 
 
+def _hook_updates_stopped(store: Any, last_updated: str | None) -> bool:
+    """True when the queue holds an update that stopped landing (#265)."""
+    db_path = getattr(store, "db_path", None)
+    if not db_path:
+        return False
+    from ..task_queue import QUEUE_DB_NAME, stalled_update
+
+    return stalled_update(Path(db_path).parent / QUEUE_DB_NAME, last_updated) is not None
+
+
 def _unknown_answerability(reason_code: str) -> AnswerabilityRecord:
     return seal_answerability_summary(
         {"status": "unknown", "score": 0.0, "reason_codes": [reason_code]}
@@ -616,6 +626,9 @@ def graph_answerability_summary(
                 if code in {"graph_describes_another_commit", "graph_built_by_older_extractor"}
                 else 0.1
             )
+        if _hook_updates_stopped(store, stats.last_updated):
+            reason_codes.append("hook_updates_stopped")
+            score -= 0.1
 
         score = max(0.0, round(score, 4))
         status = "ok" if score >= 0.75 else "degraded" if score > 0 else "empty"
@@ -763,6 +776,7 @@ def missingness_from_answerability(
         "graph_describes_another_commit": "high",
         "graph_built_by_older_extractor": "high",
         "uncommitted_changes_may_be_unindexed": "medium",
+        "hook_updates_stopped": "medium",
     }
     claim_effect_by_code = {
         "graph_describes_another_commit": (
@@ -775,6 +789,11 @@ def missingness_from_answerability(
         ),
         "uncommitted_changes_may_be_unindexed": (
             "working-tree edits may not be indexed -- a symbol reported missing may exist on disk"
+        ),
+        "hook_updates_stopped": (
+            "edit-triggered updates stopped landing (an update task died; dagayn status names"
+            " it) -- later edits may be unindexed; run dagayn update, or create"
+            " .dagayn/hook-skip to stop hook updates"
         ),
     }
     items: list[MissingnessRecord] = []

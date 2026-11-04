@@ -536,7 +536,7 @@ pub(crate) fn get_minimal_context(
 
     let stats = graph.store.get_stats().ok()?;
     let freshness = commit_tier_from_sync(&sync, git);
-    let health = Answerability::compute(&graph.store, &stats, freshness.as_ref());
+    let health = Answerability::compute(&graph.store, &stats, freshness.as_ref(), &graph.db_path);
 
     let workflow = workflow_for_task(task);
 

@@ -4552,3 +4552,58 @@ fn rust_tests_to_run_names_the_test_behind_an_integration_helper() {
         "{review}"
     );
 }
+
+#[test]
+fn a_dead_hook_update_reaches_every_reply_as_missingness() {
+    // dagayn: tests crates/dagayn-tools/src/answerability.rs::Answerability
+    let repo = Repo::new("hook-queue", true);
+    repo.build();
+    let context = repo.context();
+    let codes = |reply: &Value| -> Vec<String> {
+        reply["missingness"]
+            .as_array()
+            .expect("missingness")
+            .iter()
+            .filter_map(|item| item["reason_code"].as_str().map(str::to_string))
+            .collect()
+    };
+    let args = json!({"pattern": "callers_of", "target": "app.py::helper"});
+    assert!(
+        !codes(&answer(&context, "query_graph_tool", args.clone()))
+            .contains(&"hook_updates_stopped".to_string())
+    );
+
+    let conn = rusqlite::Connection::open(repo.0.join(".dagayn/task_queue.db")).expect("queue");
+    conn.execute_batch(
+        "CREATE TABLE tasks (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, \
+         priority INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL DEFAULT '{}', \
+         state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, \
+         created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_error TEXT, \
+         not_before REAL NOT NULL DEFAULT 0); \
+         INSERT INTO tasks (kind, state, attempts, created_at, updated_at, last_error) \
+         VALUES ('update', 'dead', 3, '2999-01-01T00:00:00+00:00', \
+         '2999-01-01T00:00:00+00:00', 'budget exceeded: queue update ran past 120s');",
+    )
+    .expect("plant a dead update");
+    drop(conn);
+
+    let reply = answer(&context, "query_graph_tool", args);
+    let item = reply["missingness"]
+        .as_array()
+        .expect("missingness")
+        .iter()
+        .find(|item| item["reason_code"] == "hook_updates_stopped")
+        .unwrap_or_else(|| panic!("{reply}"));
+    assert_eq!(item["severity"], "medium");
+    let effect = item["claim_effect"].as_str().expect("claim_effect");
+    assert!(effect.contains("dagayn update"), "{effect}");
+    assert!(effect.contains(".dagayn/hook-skip"), "{effect}");
+    let context_reply = answer(&context, "get_minimal_context_tool", json!({}));
+    assert!(
+        context_reply["graph_health"]["reason_codes"]
+            .as_array()
+            .expect("reason_codes")
+            .contains(&json!("hook_updates_stopped")),
+        "{context_reply}"
+    );
+}
