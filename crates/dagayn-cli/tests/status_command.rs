@@ -142,3 +142,51 @@ fn status_reports_embedding_coverage_for_the_active_provider() {
         "{status}"
     );
 }
+
+/// A queue row as the Python worker leaves it, stamped with SQLite's clock.
+fn plant_update_task(repo: &Repo, state: &str, last_error: &str) {
+    let out = Command::new("sqlite3")
+        .arg(repo.0.join(".dagayn/task_queue.db"))
+        .arg(format!(
+            "CREATE TABLE IF NOT EXISTS tasks (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, \
+             priority INTEGER NOT NULL DEFAULT 0, payload TEXT NOT NULL DEFAULT '{{}}', \
+             state TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, \
+             created_at TEXT NOT NULL, updated_at TEXT NOT NULL, last_error TEXT, \
+             not_before REAL NOT NULL DEFAULT 0); \
+             INSERT INTO tasks (kind, state, attempts, created_at, updated_at, last_error) \
+             VALUES ('update', '{state}', 3, strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'), \
+             strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now'), '{last_error}');"
+        ))
+        .output()
+        .expect("run sqlite3");
+    assert!(out.status.success(), "{out:?}");
+}
+
+#[test]
+fn status_names_a_dead_hook_update_until_the_graph_moves_on() {
+    // dagayn: tests crates/dagayn-build/src/status.rs::status_lines
+    let repo = Repo::new("hook-queue");
+    repo.dagayn("build");
+    assert!(!repo.dagayn("status").contains("Hook updates:"));
+
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    plant_update_task(&repo, "dead", "budget exceeded: queue update ran past 120s");
+    let stopped = repo.dagayn("status");
+    let line = stopped
+        .lines()
+        .find(|line| line.starts_with("Hook updates: stopped"))
+        .unwrap_or_else(|| panic!("{stopped}"));
+    assert!(
+        line.contains("update task #1 dead after 3 attempt(s)"),
+        "{line}"
+    );
+    assert!(line.contains("budget exceeded"), "{line}");
+    assert!(line.contains("'dagayn update'"), "{line}");
+    assert!(line.contains(".dagayn/hook-skip"), "{line}");
+
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::write(repo.0.join("app.py"), "def main():\n    return 2\n").expect("edit");
+    repo.dagayn("update");
+    let resumed = repo.dagayn("status");
+    assert!(!resumed.contains("Hook updates:"), "{resumed}");
+}

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -20,7 +21,9 @@ from typing import Any
 import pytest
 
 import dagayn.task_queue
+import dagayn.tools.build
 import dagayn.tools.queue_worker
+from dagayn.graph import GraphStore
 from dagayn.task_queue import (
     DEFAULT_EMBED_BUDGET_SECONDS,
     DEFAULT_PRIORITIES,
@@ -848,3 +851,167 @@ class TestEmbedTaskStructure:
         assert task is not None
         assert task["payload"]["skip_structure"] is True
         assert task["payload"]["files"] == ["a.py"]
+
+
+_OVERRUN_WORKER = """
+import sys
+import time
+
+import dagayn.tools.build
+import dagayn.tools.queue_worker as worker
+
+worker.DEFAULT_UPDATE_BUDGET_SECONDS = 0.3
+dagayn.tools.build.build_or_update_graph = lambda **kwargs: time.sleep(30)
+worker.run_worker(sys.argv[1], idle_seconds=0.1, max_tasks=1)
+"""
+
+
+def _overrun_one_update(repo_root: Path) -> subprocess.CompletedProcess[str]:
+    """Run a real worker whose update outlives a 0.3 s budget, so the watchdog exits it."""
+    return subprocess.run(  # noqa: S603 - fixed argv
+        [sys.executable, "-c", _OVERRUN_WORKER, str(repo_root)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+
+def _update_rows(repo_root: Path) -> list[tuple[str, int]]:
+    queue = TaskQueue(queue_db_path(repo_root))
+    try:
+        return [
+            (row["state"], row["attempts"])
+            for row in queue._conn.execute(
+                "SELECT state, attempts FROM tasks WHERE kind = 'update' ORDER BY id"
+            )
+        ]
+    finally:
+        queue.close()
+
+
+class TestBudgetOverrun:
+    """#265: an update the watchdog kills must not be left ``running``."""
+
+    def test_a_killed_update_is_retried_and_new_edits_coalesce_into_it(
+        self, tmp_path: Path
+    ) -> None:
+        queue = TaskQueue(queue_db_path(tmp_path))
+        queue.enqueue("update")
+        queue.close()
+
+        run = _overrun_one_update(tmp_path)
+
+        assert run.returncode == 75, run.stderr
+        assert _update_rows(tmp_path) == [("pending", 1)]
+        queue = TaskQueue(queue_db_path(tmp_path))
+        try:
+            action, _ = queue.enqueue("update")
+        finally:
+            queue.close()
+        assert action == "coalesced", "an edit after the overrun must not add a second update"
+
+    def test_repeated_overruns_park_the_update_and_suspend_hook_updates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        queue = TaskQueue(queue_db_path(tmp_path))
+        queue.enqueue("update")
+        queue.close()
+        for _ in range(MAX_ATTEMPTS):
+            assert _overrun_one_update(tmp_path).returncode == 75
+        assert _update_rows(tmp_path) == [("dead", MAX_ATTEMPTS)]
+
+        builds: list[dict[str, Any]] = []
+
+        def fake_build(**kwargs: Any) -> dict[str, Any]:
+            builds.append(kwargs)
+            return {"status": "ok"}
+
+        monkeypatch.setattr(dagayn.tools.build, "build_or_update_graph", fake_build)
+        queue = TaskQueue(queue_db_path(tmp_path))
+        queue.enqueue("update")
+        queue.close()
+        assert run_worker(tmp_path, idle_seconds=0.1, max_tasks=1) == 1
+        assert builds == [], "the same over-budget update must not re-run on the next edit"
+        recent = TaskQueue(queue_db_path(tmp_path)).stats()["recent"]
+        assert "dagayn update" in (recent[-1]["note"] or ""), recent[-1]
+
+        # A manual update moves the graph on, and hook updates resume.
+        store = GraphStore(queue_db_path(tmp_path).parent / "graph.db")
+        store.set_metadata("last_updated", "2999-01-01T00:00:00")
+        store.commit()
+        store.close()
+        queue = TaskQueue(queue_db_path(tmp_path))
+        queue.enqueue("update")
+        queue.close()
+        assert run_worker(tmp_path, idle_seconds=0.1, max_tasks=1) == 1
+        assert len(builds) == 1
+        assert _update_rows(tmp_path) == [("dead", MAX_ATTEMPTS)]
+
+
+class TestStalledUpdateSurfaced:
+    """#265: ``dagayn status`` and MCP missingness name a dead hook update."""
+
+    def _park_dead_update(self, repo_root: Path) -> None:
+        queue = TaskQueue(queue_db_path(repo_root))
+        try:
+            queue.enqueue("update")
+            task = queue.claim()
+            assert task is not None
+            queue._conn.execute(
+                "UPDATE tasks SET attempts = ? WHERE id = ?", (MAX_ATTEMPTS, task["id"])
+            )
+            queue._conn.commit()
+            queue.fail(
+                {**task, "attempts": MAX_ATTEMPTS},
+                "budget exceeded: queue update ran past 120s",
+            )
+        finally:
+            queue.close()
+
+    def _store(self, repo_root: Path, last_updated: str) -> GraphStore:
+        store = GraphStore(queue_db_path(repo_root).parent / "graph.db")
+        store.set_metadata("last_updated", last_updated)
+        store.commit()
+        return store
+
+    def test_status_and_missingness_name_it_until_the_graph_moves_on(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        import argparse
+
+        from dagayn.cli.commands.build_handlers import handle_status_command
+        from dagayn.tools._common import (
+            graph_answerability_summary,
+            missingness_from_answerability,
+        )
+
+        store = self._store(tmp_path, "2000-01-01T00:00:00")
+        self._park_dead_update(tmp_path)
+        try:
+            handle_status_command(argparse.Namespace(), tmp_path, store, store.db_path)
+            missingness = missingness_from_answerability(graph_answerability_summary(store))
+        finally:
+            store.close()
+        lines = [
+            line
+            for line in capsys.readouterr().out.splitlines()
+            if line.startswith("Hook updates:")
+        ]
+        assert len(lines) == 1, lines
+        assert "update task #1 dead after 3 attempt(s)" in lines[0]
+        assert "'dagayn update'" in lines[0]
+        assert ".dagayn/hook-skip" in lines[0]
+        stopped = [item for item in missingness if item["reason_code"] == "hook_updates_stopped"]
+        assert len(stopped) == 1, missingness
+        assert stopped[0]["severity"] == "medium"
+        assert "dagayn update" in stopped[0]["claim_effect"]
+
+        store = self._store(tmp_path, "2999-01-01T00:00:00")
+        try:
+            handle_status_command(argparse.Namespace(), tmp_path, store, store.db_path)
+            codes = graph_answerability_summary(store)["reason_codes"]
+        finally:
+            store.close()
+        assert "Hook updates:" not in capsys.readouterr().out
+        assert "hook_updates_stopped" not in codes
