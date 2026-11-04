@@ -395,6 +395,12 @@ method-call gap.
     questions (report only), this hid the C3 fix (1.76x), and the pooled
     tokens moved from 1.00x to 1.07x. Go is not first-class. The defects
     the runs show are listed in the results.
+    **G9, under the owner's revised bar: registered, not run** (2026-11-04,
+    [pre-registration](../../eval/g9_go/PREREG.md),
+    [decisions](#decisions-2026-11-04-after-g8)). Twelve new questions on
+    testify, compress, and kong v1.15.0: 8 LONG, where the bar is 0.85x
+    tokens or time at Holm p < 0.05, and 4 SHORT, where the token ratio
+    must stay at most 1.10 with no fewer exact answers.
 
 ### TypeScript work
 
