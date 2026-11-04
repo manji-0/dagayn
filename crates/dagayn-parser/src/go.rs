@@ -508,6 +508,14 @@ fn go_emit_imports(
             let mut target = strip_matching_quotes(node_text(child, source).trim()).to_string();
             if !target.is_empty() {
                 let mut extra = json!({});
+                // `. "pkg"` admits the package's names bare in the file.
+                if node.kind() == "import_spec"
+                    && node
+                        .child_by_field_name("name")
+                        .is_some_and(|name| node_text(name, source) == ".")
+                {
+                    extra["dot_import"] = json!(true);
+                }
                 if stdlib.is_std_import(&target) {
                     let package = target.clone();
                     mark_stdlib_edge(&mut target, &mut extra, &package, StdlibEvidence::Certain);
@@ -1453,8 +1461,8 @@ fn go_leave_function(context: &GoContext<'_>, saved: GoSavedScope) {
 }
 
 /// The names a function declares: its receiver and parameters, `var`,
-/// `:=`, and `range` variables, but not those of a function literal in it
-/// (`top` is the function itself).
+/// `const`, `:=`, `range`, type switch, and `select` receive variables, but
+/// not those of a function literal in it (`top` is the function itself).
 fn go_collect_locals(
     node: tree_sitter::Node<'_>,
     source: &[u8],
@@ -1463,14 +1471,22 @@ fn go_collect_locals(
 ) {
     match node.kind() {
         "func_literal" if !top => return,
-        "parameter_declaration" | "variadic_parameter_declaration" | "var_spec" => {
+        "parameter_declaration" | "variadic_parameter_declaration" | "var_spec" | "const_spec" => {
             let mut cursor = node.walk();
             for name in node.children_by_field_name("name", &mut cursor) {
                 out.insert(node_text(name, source));
             }
         }
-        "short_var_declaration" | "range_clause" => {
-            if let Some(left) = node.child_by_field_name("left") {
+        "short_var_declaration"
+        | "range_clause"
+        | "type_switch_statement"
+        | "receive_statement" => {
+            let field = if node.kind() == "type_switch_statement" {
+                "alias"
+            } else {
+                "left"
+            };
+            if let Some(left) = node.child_by_field_name(field) {
                 let mut cursor = left.walk();
                 for name in left.named_children(&mut cursor) {
                     if name.kind() == "identifier" {

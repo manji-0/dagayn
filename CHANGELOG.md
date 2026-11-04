@@ -33,7 +33,16 @@ All notable changes to `dagayn` are documented here.
   assignment, passed as an argument, returned, or in a composite literal as
   a REFERENCES edge, as 11.0.0 did for method expressions (#260). A rename
   preview of such a function now edits that place too. Calls through the
-  value are still no edges.
+  value are still no edges. A name the function declares (a type switch
+  variable, a `select` receive variable, a local `const`) is never such a
+  reference, so `callers_of` and a rename of a same-named function of
+  another file leave it alone.
+- `review_tool` no longer reports a Go bare name as a remaining reference
+  to a removed function of an imported package. In Go, `Level` in package
+  `p` is `p`'s own `Level`; `q.Level` is spelled through the package. A
+  bare name still counts in a file that dot-imports the package
+  (`import . "example.com/demo/q"`), which the go extractor now records as
+  `dot_import` on the import edge.
 - `tests_for` on a Rust method no longer lists a test double's method of
   the same name from a crate's `tests/` directory (#262). A function there
   was a `Test` node by its path, so `Repo.new` in
