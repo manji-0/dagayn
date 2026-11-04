@@ -4460,6 +4460,44 @@ fn go_callers_of_leaves_out_calls_on_what_a_standard_library_function_returned()
     assert!(!next.contains("ExampleWriter"), "{next}");
 }
 
+/// A generic standard-library function or type returns a value of the
+/// module's own type (`best := slices.MaxFunc(nodes, cmp); best.Visit()`,
+/// `c := p.Load()` on `p atomic.Pointer[Node]`): a call on it may call the
+/// module's method, so it stays among the calls that go to no definition.
+#[test]
+fn go_callers_of_keeps_calls_on_what_a_generic_standard_library_api_returned() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/returned.rs::resolve_returned_receivers
+    let repo = Repo::new("go-std-generic-returned-calls", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "tree/node.go",
+        "package tree\n\ntype Node struct{ n int }\n\n\
+         func (x *Node) Visit() {\n\tx.n++\n}\n",
+    );
+    repo.write(
+        "tree/use.go",
+        "package tree\n\nimport (\n\t\"slices\"\n\t\"sync/atomic\"\n)\n\n\
+         func UseMax(nodes []*Node, by func(a, b *Node) int) {\n\
+         \tbest := slices.MaxFunc(nodes, by)\n\tbest.Visit()\n}\n\n\
+         func UseLoad(p *atomic.Pointer[Node]) {\n\tc := p.Load()\n\tc.Visit()\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "tree/node.go::Node.Visit"}),
+    );
+    let summary = reply["summary"].as_str().expect("summary");
+    let rows = reply["results"].to_string();
+    for function in ["UseMax", "UseLoad"] {
+        assert!(
+            summary.contains(&format!("in {function}")) || rows.contains(function),
+            "{function} is neither a caller nor an unbound call: {summary}"
+        );
+    }
+}
+
 /// Go calls bound across the files of a package are `HIGH`, so a
 /// `callers_of` made only of them answers with `confidence: "high"`: a
 /// plain call of the package's function, and method calls on a receiver

@@ -267,8 +267,14 @@ transaction:
      of what a function of another module returned (`zw :=
      gzip.NewWriter(&buf); zw.Reset(&buf)` with `compress/gzip` the
      standard library's) is external to that module, symbol
-     `compress/gzip.NewWriter().Reset`, `MEDIUM`; a builtin's result
-     (`min`, `max`) is not, as it has its argument's type.
+     `compress/gzip.NewWriter().Reset`, `MEDIUM`. What a builtin (`min`,
+     `max`) or a standard-library package with type parameters (`slices`,
+     `maps`, `cmp`, `iter`, `sync`, `sync/atomic`, `container/*`, `unique`,
+     `weak`, `math/rand/v2`) returned is not, as it may be of the module's
+     own type (`slices.MaxFunc(nodes, f)`, `p.Load()` on `p
+     atomic.Pointer[Node]`). A generic function of a dependency is not
+     known as one, so a method on what it returned is still taken for the
+     dependency's.
    - *Declared Go receivers.* A Go call on a field of a struct another file
      declares (`receiver_field`: the struct, a path of fields such as
      `state.jobs`, and `element` for `s.nodes[i]`) takes each field's type

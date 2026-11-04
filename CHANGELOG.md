@@ -57,8 +57,13 @@ All notable changes to `dagayn` are documented here.
   on it as the first `next` call. It now counts 76 and names
   `gzip/gunzip.go::Reader.readHeader` first. A call on a value of a
   declared standard-library or dependency type (`w.Write(p)` on `w
-  io.Writer`) is still counted, since that type may be an interface. Go
-  extractor 18: graphs rebuild on the next update.
+  io.Writer`) is still counted, since that type may be an interface. A
+  call on what a builtin or a generic standard-library API returned is
+  still counted too (`best := slices.MaxFunc(nodes, f); best.Visit()`,
+  `c := p.Load()` on `p atomic.Pointer[Node]`), since that value may be of
+  the module's own type. A generic function of a dependency is not known
+  as one, so a call on what it returned is still taken for the
+  dependency's. Go extractor 18: graphs rebuild on the next update.
 - A complete Go `callers_of` answer with at most six calls of the name
   bound to no definition now gives each call's line, grouped by the
   function it is in, and says that every other call of the name is bound:

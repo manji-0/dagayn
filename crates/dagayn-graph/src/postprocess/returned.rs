@@ -1173,6 +1173,34 @@ fn go_first_result(return_type: &str) -> String {
     }
 }
 
+/// Standard-library packages with type parameters in their API, whose
+/// functions and generic types' methods may return a value of the caller's
+/// own type (`slices.MaxFunc(nodes, f)`, `cmp.Or(a, b)`, `p.Load()` on `p
+/// atomic.Pointer[Node]`, `sync.OnceValue(f)`, `unique.Make(v).Value()`),
+/// and the builtins (`min`, `max`). The graph does not index the standard
+/// library, so it cannot tell a generic function from another one there.
+const GO_GENERIC_STD_PACKAGES: &[&str] = &[
+    "builtin",
+    "cmp",
+    "container/heap",
+    "container/list",
+    "container/ring",
+    "iter",
+    "maps",
+    "math/rand/v2",
+    "slices",
+    "sync",
+    "sync/atomic",
+    "unique",
+    "weak",
+];
+
+/// Whether a call into the Go package `package` may return a value of the
+/// calling module's own type, so a method on its result may be the module's.
+fn go_may_return_callers_type(package: &str) -> bool {
+    GO_GENERIC_STD_PACKAGES.contains(&package)
+}
+
 type PendingCall = (i64, String, String, String, Value);
 
 fn pending_calls(tx: &Transaction<'_>) -> Result<Vec<PendingCall>> {
@@ -1843,15 +1871,21 @@ pub(crate) fn resolve_returned_receivers(
                 ))
             } else if family == "go"
                 && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
-                && inner_extra.get("external_package").and_then(Value::as_str) != Some("builtin")
+                && !inner_extra
+                    .get("external_package")
+                    .and_then(Value::as_str)
+                    .is_some_and(go_may_return_callers_type)
             {
                 // A Go method of what a function of another module returned
                 // (`zw := gzip.NewWriter(&buf); zw.Reset(&buf)`, or `r, err
                 // := yaml.NewDecoder(f)` with its first result) is one of
                 // that module's types: a function outside the module returns
                 // a value of the module's own type only through a type
-                // parameter (`cmp.Or(a, b)`), which is rare. A builtin
-                // (`min`, `max`) returns its argument's type.
+                // parameter. The standard library's generic APIs and the
+                // builtins are left out (see [`go_may_return_callers_type`]);
+                // a generic function of a dependency is not known as one, so
+                // a method on what it returned (`lo.MaxBy(nodes, f).Visit()`)
+                // is still taken for the dependency's and its caller missed.
                 let package = inner_extra
                     .get("external_package")
                     .and_then(Value::as_str)
