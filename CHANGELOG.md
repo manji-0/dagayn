@@ -7,14 +7,20 @@ All notable changes to `dagayn` are documented here.
 ### Added
 
 - G8, the pre-registered rerun of the Go agent experiment
-  (`eval/g8_go/PREREG.md`), not yet run. Its primary test is eight new
-  questions in G7's four kinds on testify v1.12.1 and compress v1.20.1,
-  drawn by a seeded rule from candidate pools built with scip-go v0.2.7 and
+  (`eval/g8_go/PREREG.md`). Its primary test is eight new questions in
+  G7's four kinds on testify v1.12.1 and compress v1.20.1. They were drawn
+  by a seeded rule from candidate pools built with scip-go v0.2.7 and
   per-test Go coverage before dagayn answered them. G7's eight questions
-  rerun as a report-only comparison. The bar is G7's (0.85x tokens or time
-  at Holm p < 0.05, at equal exact matches). The first-class languages plan
-  records the owner's decisions of 2026-11-04: Go first-class is 11.1.0's
-  goal, and G8 decides it.
+  were rerun as a report-only comparison. The bar is G7's (0.85x tokens or
+  time at Holm p < 0.05, at equal exact matches). The first-class
+  languages plan records the owner's decisions of 2026-11-04: Go
+  first-class is 11.1.0's goal, and G8 decides it.
+- G8's results (`eval/g8_go/RESULTS.md`): the bar is not met. On 11.0.0,
+  agents with dagayn used 1.20x the tokens of agents without it (Holm p =
+  0.0003) and 0.97x the time. They gave 73 exact answers out of 80,
+  against 79 without dagayn. In 34 of the 160 dagayn runs, the first call
+  named the method as `(*T).M`, or as a `T.M` that names one node, and
+  got `not_found` or a false `ambiguous` (#275). Go stays short of first-class.
 
 ### Fixed
 
