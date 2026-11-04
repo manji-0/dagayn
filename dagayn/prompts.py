@@ -31,7 +31,10 @@ need a complete list.
 architecture_analysis drill-downs.
 4. Graph reach is not correctness: treat reason codes, blast radius, entry points, and \
 search hits as leads, and confirm a claim with \
-`query_graph_tool(pattern="source_of")` or a reproduction before stating it.
+`query_graph_tool(pattern="source_of")` or a reproduction before stating it. A \
+reply with status ok and results_complete true whose summary says nothing the \
+graph records is missing is the full answer for what that summary covers: do \
+not re-count it with grep; read only the rows you rely on with `source_of`.
 """
 )
 

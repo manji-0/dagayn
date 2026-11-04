@@ -258,8 +258,12 @@ mcp = FastMCP(
         "no node or file, or the graph may be stale, start with "
         "get_minimal_context_tool(task=...): it reports graph freshness "
         "(sync.state) and the first calls to make. "
-        "Graph reach is not correctness: confirm a claim with source_of or a "
-        'reproduction. get_docs_section_tool(section_name="workflow") has the '
+        "Graph reach is not correctness: confirm a lead (a search hit, a blast "
+        "radius, a reason code) with source_of or a reproduction. A reply with "
+        "status ok and results_complete true whose summary says nothing the graph "
+        "records is missing is the full answer for what that summary covers: do "
+        "not re-count it with grep, and read with source_of only the rows you rely "
+        'on. get_docs_section_tool(section_name="workflow") has the '
         'phases; get_docs_section_tool(section_name="trust") ranks which '
         "results to state as fact."
     ),

@@ -24,6 +24,24 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- A complete `callers_of` answer on a Go function or method now says what
+  it checked, instead of the caveat "calls dispatched at run time are not
+  edges" (G8 defect 5). When every call of the name is bound to a
+  definition, the summary says so: "every call named init in package gzip,
+  _test.go files included, is bound to a definition". An unexported name
+  counts the calls in its own package, and an exported name counts the
+  calls in the whole repository. When some calls of the name are bound to
+  no definition (calls through an interface, or calls on a value of
+  unknown type), the summary gives their count and up to three callers to
+  read, from the target's package first. `next` then starts with
+  `source_of` on the first caller. On the G8 and G7 targets, the summaries
+  of `Suite.SetT` and `Suite.T` now name `suite/suite.go::Run`, which is
+  the caller missing from both lists, and the summary of `Writer.Reset`
+  names `testResetOutput`. The rows are unchanged. The server
+  instructions, the `trust` docs section, and the prompts' rule 4 now say
+  how to read such a reply. A reply with `status` ok, `results_complete`
+  true, and a summary that says nothing is missing is the full answer for
+  what that summary covers, so do not count it again with grep.
 - `callers_of` on a Go function used as a value now lists the place that
   uses it, with `relation: "references"`, and its summary says that callers
   through the value may be missing (#235, G8 C7). Before, `callers_of` on
