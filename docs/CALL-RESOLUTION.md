@@ -263,7 +263,17 @@ transaction:
      package's, never a repository class of the same name; an unqualified
      one (`*Reader`) is a class of the function's own directory; and the
      method may be declared in any file of that directory. `MEDIUM`; a Go
-     method found in the returned type's own package is `HIGH`.
+     method found in the returned type's own package is `HIGH`. A Go method
+     of what a standard-library function returned (`zw :=
+     gzip.NewWriter(&buf); zw.Reset(&buf)`) is external, of that package,
+     symbol `compress/gzip.NewWriter().Reset`, `MEDIUM`. What a builtin (`min`,
+     `max`) or a standard-library package with type parameters (`slices`,
+     `maps`, `cmp`, `iter`, `sync`, `sync/atomic`, `container/*`, `unique`,
+     `weak`, `math/rand/v2`) returned is not, as it may be of the module's
+     own type (`slices.MaxFunc(nodes, f)`, `p.Load()` on `p
+     atomic.Pointer[Node]`). What a dependency's function returned is not
+     either: the graph cannot tell whether that function is generic
+     (`lo.MaxBy(nodes, f)`), so a method on it stays unbound.
    - *Declared Go receivers.* A Go call on a field of a struct another file
      declares (`receiver_field`: the struct, a path of fields such as
      `state.jobs`, and `element` for `s.nodes[i]`) takes each field's type
