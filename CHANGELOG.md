@@ -4,6 +4,18 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Added
+
+- G8, the pre-registered rerun of the Go agent experiment
+  (`eval/g8_go/PREREG.md`), not yet run. Its primary test is eight new
+  questions in G7's four kinds on testify v1.12.1 and compress v1.20.1,
+  drawn by a seeded rule from candidate pools built with scip-go v0.2.7 and
+  per-test Go coverage before dagayn answered them. G7's eight questions
+  rerun as a report-only comparison. The bar is G7's (0.85x tokens or time
+  at Holm p < 0.05, at equal exact matches). The first-class languages plan
+  records the owner's decisions of 2026-11-04: Go first-class is 11.1.0's
+  goal, and G8 decides it.
+
 ### Fixed
 
 - `tests_for` on a Rust method no longer lists a test double's method of

@@ -377,6 +377,9 @@ method-call gap.
     through a field holding a method expression, C3: 1.36x, Holm p = 0.022)
     or listed 65 tests for 4 that run the function (C1). Go is not
     first-class. The defects the runs show are listed in the results.
+    **G8, the rerun on new questions, is pre-registered** (2026-11-04,
+    [pre-registration](../../eval/g8_go/PREREG.md),
+    [decisions](#decisions-2026-11-04)).
 
 ### TypeScript work
 
@@ -595,3 +598,32 @@ Taken by the owner after M1.
 - **No TypeScript test-reach floor or CI gate yet.** Neither tstodon nor
   web-ui runs coverage in dagayn's CI, so a floor would gate nothing.
   Revisit when a TypeScript corpus runs coverage in CI.
+
+## Decisions (2026-11-04)
+
+<!-- derived-from ../../eval/g7_go/RESULTS.md#defects-in-dagayns-go-answers -->
+<!-- constrained-by ./SCIP-CALL-RESOLUTION.md#freezing-the-inference-layer -->
+
+Taken by the owner after G7.
+
+- **11.1.0's goal is Go first-class.** It reruns the Go agent experiment
+  as G8 ([pre-registration](../../eval/g8_go/PREREG.md)) and fixes #244,
+  #257, #262, and #265.
+- **G7's defects 1 to 4 are fixed in 11.0.0.** A method expression is a
+  reference that `callers_of` lists
+  ([#260](https://github.com/manji-0/dagayn/pull/260)). `tests_for` skips
+  test doubles that share the method's name
+  ([#258](https://github.com/manji-0/dagayn/pull/258)). A call without a
+  selector never binds to a method
+  ([#250](https://github.com/manji-0/dagayn/pull/250)). Only `_test.go`
+  files hold Go tests, and `tests_to_run` names runnable tests
+  ([#270](https://github.com/manji-0/dagayn/pull/270)). None of them was
+  measured with agents.
+- **Defect 5 is not fixed.** A receiver that comes from a call's result or
+  a function parameter, and a call through an interface, need
+  receiver-type inference, which this plan freezes
+  ([work list](#work-list)).
+- **G8 decides.** Its primary test is eight new questions, drawn from the
+  keys before any dagayn answer to them existed; G7's eight questions rerun
+  as a report-only comparison. The bar is G7's. If G8 misses it, the
+  defects its runs show become the rest of the Go work.
