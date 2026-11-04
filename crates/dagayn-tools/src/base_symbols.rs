@@ -870,6 +870,9 @@ pub(crate) fn references_to(
         );
     }
     let mut importers: HashMap<&str, HashSet<String>> = HashMap::new();
+    // Go files that dot-import a target's package: only there does a bare
+    // name mean the imported package's symbol.
+    let mut dot_importers: HashSet<(&str, String)> = HashSet::new();
     for target in targets {
         let imports = &imports_by_file[&target.file_path];
         let wanted = import_name(target);
@@ -894,6 +897,9 @@ pub(crate) fn references_to(
                     MatchKind::ImportedName
                 };
                 add(target, edge, kind);
+            }
+            if edge.extra.get("dot_import").and_then(Value::as_bool) == Some(true) {
+                dot_importers.insert((target.qualified_name.as_str(), edge.file_path.clone()));
             }
             if names_it || listed.is_empty() {
                 importers
@@ -927,6 +933,15 @@ pub(crate) fn references_to(
                 for edge in by_name.get(&form).into_iter().flatten() {
                     let qualified = edge.target_qualified.contains("::");
                     if qualified || !outside(edge) || !files.contains(&edge.file_path) {
+                        continue;
+                    }
+                    // In Go a bare name is the file's own package's symbol;
+                    // an imported one is spelled through its package.
+                    if target.language == "go"
+                        && edge.extra.get("receiver").is_none()
+                        && !dot_importers
+                            .contains(&(target.qualified_name.as_str(), edge.file_path.clone()))
+                    {
                         continue;
                     }
                     // A same-named symbol of the caller's own file shadows it.

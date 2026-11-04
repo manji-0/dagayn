@@ -24,6 +24,25 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `callers_of` on a Go function used as a value now lists the place that
+  uses it, with `relation: "references"`, and its summary says that callers
+  through the value may be missing (#235, G8 C7). Before, `callers_of` on
+  compress's `gzkp.NewWriter` listed only its test and said no direct caller
+  was missing, though `NewWrapper` stores it in `GzipWriterFactory.New`. The
+  go extractor (version 16) records a function on the right of an
+  assignment, passed as an argument, returned, or in a composite literal as
+  a REFERENCES edge, as 11.0.0 did for method expressions (#260). A rename
+  preview of such a function now edits that place too. Calls through the
+  value are still no edges. A name the function declares (a type switch
+  variable, a `select` receive variable, a local `const`) is never such a
+  reference, so `callers_of` and a rename of a same-named function of
+  another file leave it alone.
+- `review_tool` no longer reports a Go bare name as a remaining reference
+  to a removed function of an imported package. In Go, `Level` in package
+  `p` is `p`'s own `Level`; `q.Level` is spelled through the package. A
+  bare name still counts in a file that dot-imports the package
+  (`import . "example.com/demo/q"`), which the go extractor now records as
+  `dot_import` on the import edge.
 - `query_graph_tool` and `flow_tool` resolve a method named the way its
   language writes it (#275). A Go target `(*T).M`, `(T).M`, or `*T.M`,
   with or without a `path::` prefix, resolves as `T.M`, and a Rust

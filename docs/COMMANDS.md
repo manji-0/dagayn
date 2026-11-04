@@ -563,11 +563,13 @@ has no resolved callers is not repeated further out. Other patterns reject
 `depth` other than 1.
 
 For a Go target, `callers_of` also lists the places that use the function or
-method as a value (a method expression such as `d.step =
-(*compressor).storeFast`), with `relation: "references"`. A call through that
-value (`d.step(d)`) is no edge, so the summary says that callers may be
-missing and where to read instead. Other languages record such references
-but do not list them yet (#235).
+method as a value, with `relation: "references"`. A value use is a method
+expression such as `d.step = (*compressor).storeFast`, or a function on the
+right of an assignment, passed as an argument, returned, or in a composite
+literal (`New: gzkp.NewWriter`, `run(helper)`). A call through that value
+(`d.step(d)`) is no edge, so the summary says that callers may be missing and
+where to read instead. A method value (`w.Write` passed on) is not recorded.
+Other languages record such references but do not list them yet (#235).
 
 On a graph built with `dagayn build --scip`, a `callers_of` or `callees_of`
 row whose call a SCIP index settled (moved to that node, or confirmed)
