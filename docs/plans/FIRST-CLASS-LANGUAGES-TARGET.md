@@ -389,8 +389,8 @@ method-call gap.
     a field, where dagayn's answer had 1 of 3 callers (C7: 1.39x, Holm
     p = 0.0096). On questions that the baseline answered in about 5
     turns, even complete answers cost more. In 34 of 160 runs, the first
-    call named a method in Go's spelling (`(*T).M`) and got `not_found` or
-    a false `ambiguous`
+    call named the method as `(*T).M`, or as a `T.M` that names one node,
+    and got `not_found` or a false `ambiguous`
     ([#275](https://github.com/manji-0/dagayn/issues/275)). On G7's
     questions (report only), this hid the C3 fix (1.76x), and the pooled
     tokens moved from 1.00x to 1.07x. Go is not first-class. The defects

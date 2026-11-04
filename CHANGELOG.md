@@ -19,8 +19,8 @@ All notable changes to `dagayn` are documented here.
   agents with dagayn used 1.20x the tokens of agents without it (Holm p =
   0.0003) and 0.97x the time. They gave 73 exact answers out of 80,
   against 79 without dagayn. In 34 of the 160 dagayn runs, the first call
-  named a method in Go's spelling, `(*T).M`, and got `not_found` or a
-  false `ambiguous` (#275). Go stays short of first-class.
+  named the method as `(*T).M`, or as a `T.M` that names one node, and
+  got `not_found` or a false `ambiguous` (#275). Go stays short of first-class.
 
 ### Fixed
 

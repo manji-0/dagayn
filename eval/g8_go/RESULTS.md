@@ -44,8 +44,8 @@ p = 0.0075), at 74 against 73 exact.
   with dagayn, 0.96 without) and 2.02 for the secondary set (1.00 and
   1.02). The plumbing check cost 0.02 USD. All of it was under the 25 USD
   cap.
-- No run executed the tests. No run in the primary set ran any `go`
-  command. In the secondary set, four runs wrote a `go/ast` or `go/types`
+- No run executed the tests. No Bash command in the primary set ran
+  `go test`, `go run`, `go build`, `go vet`, or `go tool`. In the secondary set, four runs wrote a `go/ast` or `go/types`
   program under `/tmp` and ran it on the checkout, which the prompt
   allows: T2 030 and 071 and C4 027 without dagayn, and C4 029 with
   dagayn.
