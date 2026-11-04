@@ -13,6 +13,7 @@ This directory stores design notes and implementation plans that are more detail
 - `GO-SUPPORT-MEASUREMENTS.md` — Go test reach against `go test` coverage (testify, compress, scip-go), and what Go tests and packages in the graph changed
 - `OXC-PARSER-EVALUATION.md` — whether to parse JavaScript / TypeScript with oxc instead of tree-sitter: measurements, error-recovery gap, and the decision to keep tree-sitter
 - `PURE-RUST-MIGRATION.md` — Phase 5: replacing the remaining Python layer with Rust, its measured effects, and the 5.0 fixes that came first
+- `REFACTOR-PLAN.md` — refactoring the files every change goes through: measured churn, size, and repeated edits, the candidates ranked, one behaviour-preserving step per PR with its verification, and the open questions for the owner
 - `REFACTOR-TOOL-TARGET.md` — what `refactor_tool(mode="suggest")` is for: the measured threshold hits, the findings target contract, the finding kinds, and the eval that gates them
 - `REVIEW-TOOL-TARGET.md` — what `review_tool` is for: the measured noise in today's output, the findings-first target contract, the finding kinds, and the eval that gates them
 - `RUFF-PYTHON-PARSER.md` — parsing Python with Ruff's parser instead of tree-sitter: the differential comparison, every classified difference, error recovery, and performance
