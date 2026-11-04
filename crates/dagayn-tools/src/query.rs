@@ -1268,21 +1268,36 @@ fn go_unbound_calls(store: &GraphStore, node: &GraphNode) -> Option<Vec<GraphEdg
     Some(edges)
 }
 
+/// Up to this many unbound calls, a Go `callers_of` gives each one's line.
+const GO_LISTED_UNBOUND_CALLS: usize = 6;
+
+/// `edges`' lines, sorted and once each, as `133, :182 and :199`.
+fn go_call_lines(edges: &[&GraphEdge]) -> String {
+    let mut lines: Vec<i64> = edges.iter().map(|edge| edge.line).collect();
+    lines.sort_unstable();
+    lines.dedup();
+    let mut lines: Vec<String> = lines.iter().map(i64::to_string).collect();
+    match lines.pop() {
+        Some(last) if !lines.is_empty() => format!("{} and :{last}", lines.join(", :")),
+        last => last.unwrap_or_default(),
+    }
+}
+
 /// The sentence a closed Go `callers_of` ends with: what the graph checked
 /// for `node`'s name, and where the calls it left unbound are.
 fn go_callers_note(node: &GraphNode, unbound: &[GraphEdge]) -> String {
     let name = &node.name;
+    let scope = if name.starts_with(char::is_uppercase) {
+        "the repository".to_string()
+    } else {
+        let package = Path::new(&node.file_path)
+            .parent()
+            .and_then(Path::to_str)
+            .filter(|dir| !dir.is_empty())
+            .unwrap_or(".");
+        format!("package {package}")
+    };
     if unbound.is_empty() {
-        let scope = if name.starts_with(char::is_uppercase) {
-            "the repository".to_string()
-        } else {
-            let package = Path::new(&node.file_path)
-                .parent()
-                .and_then(Path::to_str)
-                .filter(|dir| !dir.is_empty())
-                .unwrap_or(".");
-            format!("package {package}")
-        };
         return format!(
             "No direct caller the graph records is missing; every call named {name} in \
              {scope}, _test.go files included, is bound to a definition"
@@ -1293,6 +1308,42 @@ fn go_callers_note(node: &GraphNode, unbound: &[GraphEdge]) -> String {
         if !sources.contains(&edge.source_qualified.as_str()) {
             sources.push(&edge.source_qualified);
         }
+    }
+    // `go_unbound_calls` holds every call of the name in scope that no
+    // definition takes, so a short list of its lines is all there is to
+    // read; a long one is counted instead.
+    if unbound.len() <= GO_LISTED_UNBOUND_CALLS {
+        let places = sources
+            .iter()
+            .map(|source| {
+                let edges: Vec<&GraphEdge> = unbound
+                    .iter()
+                    .filter(|edge| edge.source_qualified == *source)
+                    .collect();
+                let function = source.split_once("::").map_or(*source, |(_, name)| name);
+                format!(
+                    "{}:{} in {function}",
+                    edges[0].file_path,
+                    go_call_lines(&edges)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        let (left, verb, those, they) = match unbound.len() {
+            1 => ("the 1 that goes".to_string(), "is", "that line", "it calls"),
+            count => (
+                format!("the {count} that go"),
+                "are",
+                "those lines",
+                "they call",
+            ),
+        };
+        return format!(
+            "Every other call named {name} in {scope}, _test.go files included, is bound to a \
+             definition; {left} to no definition (made through an interface, on a standard-library or dependency \
+             type, or on a value whose type the graph does not know) {verb} at {places}: read \
+             {those} to decide whether {they} {name}"
+        );
     }
     let shown = sources
         .iter()
@@ -2204,7 +2255,23 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     {
         let summary = format!("{summary}. {}", go_callers_note(node, &unbound));
         payload = payload.replace("summary", json!(summary));
-        unbound_caller = unbound.first().map(|edge| edge.source_qualified.clone());
+        unbound_caller = unbound.first().map(|first| {
+            let why = if unbound.len() <= GO_LISTED_UNBOUND_CALLS {
+                let edges: Vec<&GraphEdge> = unbound
+                    .iter()
+                    .filter(|edge| edge.source_qualified == first.source_qualified)
+                    .collect();
+                format!(
+                    "the calls named {} at {}:{} go to no definition and may call it",
+                    node.name,
+                    first.file_path,
+                    go_call_lines(&edges)
+                )
+            } else {
+                "a call there is bound to no definition and may call it".to_string()
+            };
+            (first.source_qualified.clone(), why)
+        });
     } else if closed
         && let Some(note) = closed_note(
             pattern,
@@ -2280,11 +2347,11 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             format!("the rows after the first {after}"),
         ));
     }
-    if let Some(caller) = unbound_caller {
+    if let Some((caller, why)) = unbound_caller {
         first(crate::next::call(
             "query_graph_tool",
             json!({"pattern": "source_of", "target": caller}),
-            "a call there is bound to no definition and may call it",
+            why,
         ));
     }
     if tests_through_callers {
