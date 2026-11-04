@@ -1,0 +1,337 @@
+{
+ "graphs": {
+  "testify": {
+   "go_extractor": "17",
+   "last_build_type": "full",
+   "postprocess_level": "full"
+  },
+  "compress": {
+   "go_extractor": "17",
+   "last_build_type": "full",
+   "postprocess_level": "full"
+  },
+  "kong": {
+   "go_extractor": "17",
+   "last_build_type": "full",
+   "postprocess_level": "full"
+  }
+ },
+ "T9": {
+  "target": "assert/assertion_compare.go::compareTwoValues",
+  "tests_for": {
+   "rows": 3,
+   "top_level_tests": 3,
+   "test_reach": {
+    "counts_as_tested": true,
+    "hop_limit": 4,
+    "hops": 0,
+    "nearest_test": "assert/assertion_compare_test.go::Test_compareTwoValuesDifferentValuesTypes"
+   }
+  },
+  "callers_of_depth6": {
+   "rows": 58,
+   "top_level_tests": 10,
+   "results_complete": true
+  },
+  "found": 10,
+  "key": 10,
+  "missing": [],
+  "extra": []
+ },
+ "T10": {
+  "target": "assert/assertion_forward.go::Assertions.True",
+  "callers_of": {
+   "rows": 17,
+   "summary": "Found 17 result(s) for callers_of('assert/assertion_forward.go::Assertions.True'). Every other call named True in the repository, _test.go files included, is bound to a definition; the 3 that go to no definition (made through an interface, on a standard-library or dependency type, or on a value whose type the graph does not know) are at suite/suite_test.go:721 in FailfastSuite.Test_B_Passes; suite/suite_test.go:778 and :786 in TestUnInitializedSuites: read those lines to decide whether they call True",
+   "results_complete": true,
+   "confidence": "high"
+  },
+  "found": 17,
+  "key": 18,
+  "missing": [
+   "suite/suite_test.go::TestUnInitializedSuites"
+  ],
+  "extra": []
+ },
+ "T11": {
+  "target": "assert/assertion_forward.go::Assertions.False",
+  "callers_of": {
+   "rows": 18,
+   "summary": "Found 18 result(s) for callers_of('assert/assertion_forward.go::Assertions.False'). No direct caller the graph records is missing; every call named False in the repository, _test.go files included, is bound to a definition",
+   "results_complete": true,
+   "confidence": "high"
+  },
+  "found": 18,
+  "key": 18,
+  "missing": [],
+  "extra": []
+ },
+ "T12": {
+  "target": "assert/assertion_forward.go::Assertions.Contains",
+  "callers_of": {
+   "rows": 6,
+   "summary": "Found 6 result(s) for callers_of('assert/assertion_forward.go::Assertions.Contains'). No direct caller the graph records is missing; every call named Contains in the repository, _test.go files included, is bound to a definition",
+   "results_complete": true,
+   "confidence": "high"
+  },
+  "found": 6,
+  "key": 6,
+  "missing": [],
+  "extra": []
+ },
+ "C9": {
+  "target": "zstd/encoder.go::Encoder.ReadFrom",
+  "tests_for": {
+   "rows": 6,
+   "top_level_tests": 5,
+   "test_reach": {
+    "counts_as_tested": true,
+    "hop_limit": 4,
+    "hops": 0,
+    "nearest_test": "zstd/decodeheader_test.go::TestHeader_Decode"
+   }
+  },
+  "callers_of_depth6": {
+   "rows": 12,
+   "top_level_tests": 11,
+   "results_complete": true
+  },
+  "found": 9,
+  "key": 9,
+  "missing": [],
+  "extra": [
+   "zstd/decodeheader_test.go::TestHeader_Decode",
+   "zstd/encoder_test.go::TestEncoder_EncoderSilesia"
+  ]
+ },
+ "C10": {
+  "target": "gzhttp/writer/zstdkp/zstdkp.go::NewWriter",
+  "callers_of": {
+   "rows": 1,
+   "summary": "Found 1 result(s) for callers_of('gzhttp/writer/zstdkp/zstdkp.go::NewWriter'). 1 use it as a value (relation \"references\"); calls through that value are not edges, so callers may be missing: read where the value goes",
+   "results_complete": true,
+   "confidence": "high"
+  },
+  "found": 0,
+  "key": 1,
+  "missing": [
+   "gzhttp/compress.go::GzipResponseWriter.init"
+  ],
+  "extra": [
+   "gzhttp/compress.go::NewWrapper"
+  ]
+ },
+ "C11": {
+  "target": "gzip/gzip.go::Writer.Reset",
+  "callers_of": {
+   "rows": 3,
+   "summary": "Found 3 result(s) for callers_of('gzip/gzip.go::Writer.Reset'). 80 calls named Reset go to no definition in the repository (made through an interface, on a standard-library or dependency type, or on a value whose type the graph does not know), so callers may be missing: read gzip/example_test.go::ExampleReader_Multistream, gzip/gunzip.go::Reader.readHeader, gzip/gunzip_test.go::BenchmarkGunzipStdlib and 49 more",
+   "results_complete": true,
+   "confidence": "high"
+  },
+  "found": 3,
+  "key": 3,
+  "missing": [],
+  "extra": []
+ },
+ "C12": {
+  "target": "zstd/enc_base.go::fastBase.CRC",
+  "callers_of": {
+   "rows": 5,
+   "summary": "Found 5 result(s) for callers_of('zstd/enc_base.go::fastBase.CRC'). 8 calls named CRC go to no definition in the repository (made through an interface, on a standard-library or dependency type, or on a value whose type the graph does not know), so callers may be missing: read zstd/encoder.go::Encoder.writeJobs, zstd/encoder.go::Encoder.writeBlocks, zstd/encoder.go::Encoder.ReadFrom and 2 more",
+   "results_complete": true,
+   "confidence": "medium"
+  },
+  "found": 5,
+  "key": 5,
+  "missing": [],
+  "extra": []
+ },
+ "K1": {
+  "target": "exit.go::exitCodeFromError",
+  "tests_for": {
+   "rows": 0,
+   "top_level_tests": 0,
+   "test_reach": {
+    "counts_as_tested": true,
+    "hop_limit": 4,
+    "hops": 1,
+    "nearest_test": "help_test.go::TestUsageOnError"
+   }
+  },
+  "callers_of_depth6": {
+   "rows": 10,
+   "top_level_tests": 4,
+   "results_complete": true
+  },
+  "found": 3,
+  "key": 3,
+  "missing": [],
+  "extra": [
+   "global_test.go::TestParseHandlingBadBuild"
+  ]
+ },
+ "K2": {
+  "target": "context.go::flipBoolValue",
+  "tests_for": {
+   "rows": 0,
+   "top_level_tests": 0,
+   "test_reach": {
+    "counts_as_tested": true,
+    "hop_limit": 4,
+    "hops": 3,
+    "nearest_test": "kong_test.go::TestTraceErrorPartiallySucceeds"
+   }
+  },
+  "callers_of_depth6": {
+   "rows": 118,
+   "top_level_tests": 109,
+   "results_complete": false
+  },
+  "found": 1,
+  "key": 2,
+  "missing": [
+   "kong_test.go::TestBoolPtrNegated"
+  ],
+  "extra": [
+   "config_test.go::TestConfigValidation",
+   "config_test.go::TestMultipleConfigLoading",
+   "defaults_test.go::TestApplyDefaults",
+   "help_test.go::TestAutoGroup",
+   "help_test.go::TestCustomShortUsageOnError",
+   "help_test.go::TestCustomValueFormatter",
+   "help_test.go::TestEnvarAutoHelp",
+   "help_test.go::TestEnvarAutoHelpWithEnvPrefix",
+   "help_test.go::TestFlagsLast",
+   "help_test.go::TestHelp",
+   "help_test.go::TestHelpCompactNoExpand",
+   "help_test.go::TestHelpGrouping",
+   "help_test.go::TestHelpOptionalArgs",
+   "help_test.go::TestHelpProviderOnRoot",
+   "help_test.go::TestHelpTree",
+   "help_test.go::TestMultipleCustomValueFormatter",
+   "help_test.go::TestMultipleEnvarAutoHelp",
+   "help_test.go::TestMultipleEnvarAutoHelpWithEnvPrefix",
+   "help_test.go::TestShortUsageOnError",
+   "help_test.go::TestUsageOnError",
+   "helpwrap1.18_test.go::TestCustomWrap",
+   "helpwrap1.19_test.go::TestCustomWrap",
+   "kong_test.go::TestAlias",
+   "kong_test.go::TestAnd",
+   "kong_test.go::TestAndChild",
+   "kong_test.go::TestAndRequired",
+   "kong_test.go::TestAndRequiredMany",
+   "kong_test.go::TestAnonymousPrefix",
+   "kong_test.go::TestArgSlice",
+   "kong_test.go::TestArgSliceWithSeparator",
+   "kong_test.go::TestArgWithDefaultIsOptional",
+   "kong_test.go::TestBoolOverride",
+   "kong_test.go::TestBranchingArgument",
+   "kong_test.go::TestDefaultCommand",
+   "kong_test.go::TestDefaultCommandPrecedence",
+   "kong_test.go::TestDefaultCommandWithAllowedArgument",
+   "kong_test.go::TestDefaultCommandWithAllowedBranchingArgument",
+   "kong_test.go::TestDefaultCommandWithAllowedSubCommand",
+   "kong_test.go::TestDefaultEnumValidated",
+   "kong_test.go::TestDefaultValueIsHyphen",
+   "kong_test.go::TestDuplicateFlagChoosesLast",
+   "kong_test.go::TestDuplicateSliceAccumulates",
+   "kong_test.go::TestDynamicCommands",
+   "kong_test.go::TestEmbedInterface",
+   "kong_test.go::TestEmbeddedStruct",
+   "kong_test.go::TestEnum",
+   "kong_test.go::TestEnumArg",
+   "kong_test.go::TestEnumMeaningfulOrder",
+   "kong_test.go::TestEnumSequence",
+   "kong_test.go::TestEnvarEnumValidated",
+   "kong_test.go::TestErrorMissingArgs",
+   "kong_test.go::TestExcludeEmbeddedField",
+   "kong_test.go::TestExcludedField",
+   "kong_test.go::TestExistingNoFlag",
+   "kong_test.go::TestExtendedValidateFlag",
+   "kong_test.go::TestFlagSlice",
+   "kong_test.go::TestFlagSliceWithSeparator",
+   "kong_test.go::TestGlobalHooks",
+   "kong_test.go::TestHelpShouldStillWork",
+   "kong_test.go::TestHooks",
+   "kong_test.go::TestHooksCalledForDefault",
+   "kong_test.go::TestHydratePointerCommandsAndEmbeds",
+   "kong_test.go::TestIgnoreRegex",
+   "kong_test.go::TestInvalidDefaultErrors",
+   "kong_test.go::TestIssue153",
+   "kong_test.go::TestIssue179",
+   "kong_test.go::TestIssue244",
+   "kong_test.go::TestIssue40EnumAcrossCommands",
+   "kong_test.go::TestLoneHpyhen",
+   "kong_test.go::TestMapDecoderHelpfulErrorMsg",
+   "kong_test.go::TestMapFlag",
+   "kong_test.go::TestMapFlagWithSliceValue",
+   "kong_test.go::TestMixedRequiredArgs",
+   "kong_test.go::TestMultiAnd",
+   "kong_test.go::TestMultiXor",
+   "kong_test.go::TestOptionalArg",
+   "kong_test.go::TestOptionalArgWithDefault",
+   "kong_test.go::TestOptionalStructArg",
+   "kong_test.go::TestParentBindings",
+   "kong_test.go::TestPassesThroughOriginalCommandError",
+   "kong_test.go::TestPassthroughAll",
+   "kong_test.go::TestPassthroughArgs",
+   "kong_test.go::TestPassthroughCmd",
+   "kong_test.go::TestPassthroughPartial",
+   "kong_test.go::TestPlugins",
+   "kong_test.go::TestPointers",
+   "kong_test.go::TestPositionalArguments",
+   "kong_test.go::TestPropagatedFlags",
+   "kong_test.go::TestRemainderReturnsUnparsedArgs",
+   "kong_test.go::TestRequiredArg",
+   "kong_test.go::TestRequiredFlag",
+   "kong_test.go::TestResetWithDefaults",
+   "kong_test.go::TestRun",
+   "kong_test.go::TestShort",
+   "kong_test.go::TestSliceDecoderHelpfulErrorMsg",
+   "kong_test.go::TestSliceWithDisabledSeparator",
+   "kong_test.go::TestTraceErrorPartiallySucceeds",
+   "kong_test.go::TestUnnamedFieldEmbeds",
+   "kong_test.go::TestValidateApp",
+   "kong_test.go::TestValidateArg",
+   "kong_test.go::TestValidateCmd",
+   "kong_test.go::TestValidateFlag",
+   "kong_test.go::TestVersionFlagShouldStillWork",
+   "kong_test.go::TestXor",
+   "kong_test.go::TestXorAnd",
+   "kong_test.go::TestXorChild",
+   "kong_test.go::TestXorRequired",
+   "kong_test.go::TestXorRequiredMany"
+  ]
+ },
+ "K3": {
+  "target": "model.go::Value.IsBool",
+  "callers_of": {
+   "rows": 3,
+   "summary": "Found 3 result(s) for callers_of('model.go::Value.IsBool'). Every other call named IsBool in the repository, _test.go files included, is bound to a definition; the 2 that go to no definition (made through an interface, on a standard-library or dependency type, or on a value whose type the graph does not know) are at mapper.go:767 in ptrMapper.IsBoolFromValue; model.go:338 in Value.IsBool: read those lines to decide whether they call IsBool",
+   "results_complete": true,
+   "confidence": "high"
+  },
+  "found": 3,
+  "key": 3,
+  "missing": [],
+  "extra": []
+ },
+ "K4": {
+  "target": "help.go::LineIndenter",
+  "callers_of": {
+   "rows": 1,
+   "summary": "Found 1 result(s) for callers_of('help.go::LineIndenter'). 1 use it as a value (relation \"references\"); calls through that value are not edges, so callers may be missing: read where the value goes",
+   "results_complete": true,
+   "confidence": "high"
+  },
+  "found": 0,
+  "key": 1,
+  "missing": [
+   "help.go::HelpOptions.CommandTree"
+  ],
+  "extra": [
+   "help_test.go::TestHelpTree"
+  ]
+ }
+}

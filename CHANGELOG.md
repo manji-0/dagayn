@@ -21,6 +21,18 @@ All notable changes to `dagayn` are documented here.
   against 79 without dagayn. In 34 of the 160 dagayn runs, the first call
   named the method as `(*T).M`, or as a `T.M` that names one node, and
   got `not_found` or a false `ambiguous` (#275). Go stays short of first-class.
+- G9, the pre-registered Go agent experiment under the owner's revised bar
+  (`eval/g9_go/PREREG.md`), not yet run. After G8, the owner redefined
+  Go's bar: 0.85x tokens or time (Holm p < 0.05) is tested only on LONG
+  questions, the kinds where the baseline needs many steps, and SHORT
+  questions must keep the token ratio at most 1.10 with no fewer exact
+  answers. LONG is test reach, or a callers question whose target's name
+  is called on at least 200 lines, a rule fixed from G7's and G8's
+  baseline turn counts before the draw. Twelve new questions (8 LONG, 4
+  SHORT) were drawn by a seeded rule on testify, compress, and kong
+  v1.15.0, the added third repository, before dagayn answered them. The
+  first-class languages plan records the decision and two exploratory
+  pilots of the fixes since G8.
 
 ### Fixed
 

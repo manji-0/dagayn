@@ -1,0 +1,132 @@
+{
+ "picks": [
+  {
+   "kind": 1,
+   "length": "LONG",
+   "name_calls": 10,
+   "repository": "testify",
+   "stratum": "reach",
+   "target": "assert/assertion_compare.go::compareTwoValues",
+   "tests": 10,
+   "tests_naming_it": 3
+  },
+  {
+   "callers": 18,
+   "declarations": 4,
+   "kind": 2,
+   "length": "LONG",
+   "name_calls": 278,
+   "repository": "testify",
+   "stratum": "name",
+   "target": "assert/assertion_forward.go::Assertions.True"
+  },
+  {
+   "callers": 18,
+   "declarations": 4,
+   "kind": 2,
+   "length": "LONG",
+   "name_calls": 268,
+   "repository": "testify",
+   "stratum": "name",
+   "target": "assert/assertion_forward.go::Assertions.False"
+  },
+  {
+   "callers": 6,
+   "declarations": 4,
+   "kind": 2,
+   "length": "SHORT",
+   "name_calls": 140,
+   "repository": "testify",
+   "stratum": "short",
+   "target": "assert/assertion_forward.go::Assertions.Contains"
+  },
+  {
+   "kind": 1,
+   "length": "LONG",
+   "name_calls": 15,
+   "repository": "compress",
+   "stratum": "reach",
+   "target": "zstd/encoder.go::Encoder.ReadFrom",
+   "tests": 9,
+   "tests_naming_it": 4
+  },
+  {
+   "holders": [
+    "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/gzhttp/writer`/ZstdWriterFactory#New."
+   ],
+   "kind": 3,
+   "length": "LONG",
+   "name_calls": 270,
+   "repository": "compress",
+   "stratum": "name",
+   "target": "gzhttp/writer/zstdkp/zstdkp.go::NewWriter",
+   "via": "method value"
+  },
+  {
+   "callers": 3,
+   "declarations": 28,
+   "kind": 2,
+   "length": "LONG",
+   "name_calls": 273,
+   "repository": "compress",
+   "stratum": "name",
+   "target": "gzip/gzip.go::Writer.Reset"
+  },
+  {
+   "interface_methods": [
+    "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/zstd`/encoder#CRC."
+   ],
+   "kind": 3,
+   "length": "SHORT",
+   "name_calls": 10,
+   "repository": "compress",
+   "stratum": "short",
+   "target": "zstd/enc_base.go::fastBase.CRC",
+   "via": "interface"
+  },
+  {
+   "kind": 1,
+   "length": "LONG",
+   "name_calls": 2,
+   "repository": "kong",
+   "stratum": "reach",
+   "target": "exit.go::exitCodeFromError",
+   "tests": 3,
+   "tests_naming_it": 0
+  },
+  {
+   "kind": 1,
+   "length": "LONG",
+   "name_calls": 3,
+   "repository": "kong",
+   "stratum": "reach",
+   "target": "context.go::flipBoolValue",
+   "tests": 2,
+   "tests_naming_it": 0
+  },
+  {
+   "callers": 3,
+   "declarations": 4,
+   "kind": 2,
+   "length": "SHORT",
+   "name_calls": 11,
+   "repository": "kong",
+   "stratum": "short",
+   "target": "model.go::Value.IsBool"
+  },
+  {
+   "holders": [
+    "scip-go gomod github.com/alecthomas/kong e8c0dfe50a3e `github.com/alecthomas/kong`/HelpOptions#Indenter."
+   ],
+   "kind": 3,
+   "length": "SHORT",
+   "name_calls": 1,
+   "repository": "kong",
+   "stratum": "short",
+   "target": "help.go::LineIndenter",
+   "via": "method value"
+  }
+ ],
+ "pools_sha256": "8071362e147ae6c96282cd47e2dbb69441726b5c828ed5b104511aa5e05e42bb",
+ "seed": 2154903086
+}
