@@ -1243,6 +1243,79 @@ fn edge_caveat(pattern: &str, language: &str, import_kind: Option<&str>) -> &'st
     }
 }
 
+/// The Go calls named like `node` that go to no definition in the
+/// repository: made through an interface, on a standard-library or
+/// dependency type (`w.Write(p)` on `w io.Writer`), or on a value whose
+/// type the graph does not know, so any may call `node` at run time. An
+/// unexported name is callable from its own package (its directory) only.
+/// Calls from `node`'s package come first.
+fn go_unbound_calls(store: &GraphStore, node: &GraphNode) -> Option<Vec<GraphEdge>> {
+    let package = Path::new(&node.file_path).parent();
+    let exported = node.name.starts_with(char::is_uppercase);
+    let mut edges: Vec<GraphEdge> = store
+        .get_edges_by_target(&node.name)
+        .ok()?
+        .into_iter()
+        .filter(|edge| edge.kind == "CALLS")
+        .filter(|edge| edge.extra.get("external") != Some(&Value::Bool(true)))
+        .filter(|edge| exported || Path::new(&edge.file_path).parent() == package)
+        .collect();
+    if exported && node.parent_name.is_some() {
+        edges.extend(store.search_external_calls_by_method(&node.name).ok()?);
+    }
+    edges.retain(|edge| edge.file_path.ends_with(".go"));
+    edges.sort_by_key(|edge| Path::new(&edge.file_path).parent() != package);
+    Some(edges)
+}
+
+/// The sentence a closed Go `callers_of` ends with: what the graph checked
+/// for `node`'s name, and where the calls it left unbound are.
+fn go_callers_note(node: &GraphNode, unbound: &[GraphEdge]) -> String {
+    let name = &node.name;
+    if unbound.is_empty() {
+        let scope = if name.starts_with(char::is_uppercase) {
+            "the repository".to_string()
+        } else {
+            let package = Path::new(&node.file_path)
+                .parent()
+                .and_then(Path::to_str)
+                .filter(|dir| !dir.is_empty())
+                .unwrap_or(".");
+            format!("package {package}")
+        };
+        return format!(
+            "No direct caller the graph records is missing; every call named {name} in \
+             {scope}, _test.go files included, is bound to a definition"
+        );
+    }
+    let mut sources: Vec<&str> = Vec::new();
+    for edge in unbound {
+        if !sources.contains(&edge.source_qualified.as_str()) {
+            sources.push(&edge.source_qualified);
+        }
+    }
+    let shown = sources
+        .iter()
+        .take(3)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let more = match sources.len().saturating_sub(3) {
+        0 => String::new(),
+        rest => format!(" and {rest} more"),
+    };
+    let calls = match unbound.len() {
+        1 => "1 call named".to_string(),
+        count => format!("{count} calls named"),
+    };
+    let verb = if unbound.len() == 1 { "goes" } else { "go" };
+    format!(
+        "{calls} {name} {verb} to no definition in the repository (made through an interface, \
+         on a standard-library or dependency type, or on a value whose type the graph does not \
+         know), so callers may be missing: read {shown}{more}"
+    )
+}
+
 /// The summary sentence for a node the graph has but that no edge of
 /// `pattern`'s kind reaches (#195): the node is there, the edges are not.
 fn no_edges_note(pattern: &str, language: &str, import_kind: Option<&str>) -> Option<String> {
@@ -2098,6 +2171,16 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             reach.get("state") == Some(&json!("complete"))
                 && reach.get("depth_limit_reached") != Some(&Value::Bool(true))
         });
+    // A Go method or function has its own sentence: whether every call of
+    // its name is bound, else where the unbound ones are (G8 defect 5,
+    // eval/g8_go/RESULTS.md).
+    let go_direct_callers = node
+        .as_ref()
+        .filter(|node| {
+            pattern == "callers_of" && node.language == "go" && found.reachability.is_none()
+        })
+        .and_then(|node| Some((node, go_unbound_calls(store, node)?)));
+    let mut unbound_caller = None;
     // Counted by node, as `merge` folds the rows.
     let value_uses = found
         .rows
@@ -2115,6 +2198,13 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
              value goes"
         );
         payload = payload.replace("summary", json!(summary));
+    } else if closed
+        && let Some((node, unbound)) = go_direct_callers
+        && let Some(summary) = payload.get("summary").and_then(Value::as_str)
+    {
+        let summary = format!("{summary}. {}", go_callers_note(node, &unbound));
+        payload = payload.replace("summary", json!(summary));
+        unbound_caller = unbound.first().map(|edge| edge.source_qualified.clone());
     } else if closed
         && let Some(note) = closed_note(
             pattern,
@@ -2188,6 +2278,13 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             "query_graph_tool",
             args,
             format!("the rows after the first {after}"),
+        ));
+    }
+    if let Some(caller) = unbound_caller {
+        first(crate::next::call(
+            "query_graph_tool",
+            json!({"pattern": "source_of", "target": caller}),
+            "a call there is bound to no definition and may call it",
         ));
     }
     if tests_through_callers {

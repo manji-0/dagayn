@@ -98,6 +98,12 @@ Highest (state it as fact):
   by dagayn alone, or sit in files `dagayn update` re-parsed since the last
   `build --scip`.
 - `source_of` spans: the live source of a node.
+- A closed list: a reply with `status` `ok` and `results_complete` true whose
+  `summary` says nothing the graph records is missing. It is the full answer
+  for what that summary covers (for Go `callers_of`, every call of the name in
+  the package or repository, `_test.go` files included, is bound). Do not
+  re-count it with grep; read only the rows you rely on with `source_of`. A
+  summary that says callers may be missing, and names where, is a lead.
 - Authored doc contracts: `implemented_by` / `implements_contract` links with
   `evidence_type=authored` whose target exists (a section or symbol missing
   from an indexed file is demoted to `LOW`). `evidence_type=authored` alone

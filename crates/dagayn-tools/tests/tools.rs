@@ -4233,6 +4233,121 @@ fn go_callers_of_a_function_used_as_a_value_name_where_it_is_stored() {
     );
 }
 
+/// A closed Go `callers_of` says what it checked: with every call of the
+/// method's name bound, it claims the whole package (tests included) and
+/// drops the run-time caveat; a call left unbound, here one through an
+/// interface, keeps the caveat and names where it is.
+#[test]
+fn go_callers_of_says_whether_a_call_of_its_name_is_left_unbound() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("go-unbound-calls", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "gzip/gzip.go",
+        "package gzip\n\ntype Writer struct{ level int }\n\n\
+         func (z *Writer) init(level int) { z.level = level }\n\n\
+         func (z *Writer) Reset() { z.init(1) }\n",
+    );
+    repo.write(
+        "gzip/gzip_test.go",
+        "package gzip\n\nimport \"testing\"\n\n\
+         func TestInit(t *testing.T) {\n\tw := &Writer{}\n\tw.init(2)\n}\n",
+    );
+    // Another package's `init` calls on values of no known type cannot
+    // reach the unexported `gzip.Writer.init`.
+    repo.write(
+        "zstd/dec.go",
+        "package zstd\n\ntype initer interface{ init(int) }\n\n\
+         func start(items []initer) {\n\tfor _, item := range items {\n\t\titem.init(3)\n\t}\n}\n",
+    );
+    repo.write(
+        "suite/suite.go",
+        "package suite\n\ntype TestingSuite interface{ SetT(t int) }\n\n\
+         type Suite struct{ t int }\n\n\
+         func (s *Suite) SetT(t int) { s.t = t }\n\n\
+         func (s *Suite) Setup() { s.SetT(0) }\n\n\
+         func Run(s TestingSuite) { s.SetT(1) }\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let callers = |target: &str| {
+        answer(
+            &context,
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": target}),
+        )
+    };
+    let init = callers("gzip/gzip.go::Writer.init");
+    let summary = init["summary"].as_str().expect("summary");
+    assert!(
+        summary.contains(
+            "No direct caller the graph records is missing; every call named init in \
+             package gzip, _test.go files included, is bound to a definition"
+        ),
+        "{summary}"
+    );
+    assert!(!summary.contains("run time"), "{summary}");
+    let set_t = callers("suite/suite.go::Suite.SetT");
+    let summary = set_t["summary"].as_str().expect("summary");
+    assert!(
+        summary.contains(
+            "1 call named SetT goes to no definition in the repository (made through an \
+             interface, on a standard-library or dependency type, or on a value whose type the \
+             graph does not know), so callers may be missing: read suite/suite.go::Run"
+        ),
+        "{summary}"
+    );
+    assert!(!summary.contains("is missing;"), "{summary}");
+    assert_eq!(
+        set_t["next"][0]["args"],
+        json!({"pattern": "source_of", "target": "suite/suite.go::Run"}),
+        "{set_t}"
+    );
+}
+
+/// A call through a standard-library interface (`w.Write(p)` on `w
+/// io.Writer`) goes to the standard library, not to the method it may
+/// reach: an exported `Write` is not claimed to have every call bound.
+#[test]
+fn go_callers_of_counts_calls_through_a_standard_library_interface() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("go-std-interface-calls", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "gz/gz.go",
+        "package gz\n\nimport (\n\t\"bytes\"\n\t\"io\"\n)\n\ntype Writer struct{ n int }\n\n\
+         func (z *Writer) Write(p []byte) (int, error) {\n\tz.n += len(p)\n\treturn len(p), nil\n}\n\n\
+         func (z *Writer) Equal(p []byte) bool {\n\treturn bytes.Equal(p, nil)\n}\n\n\
+         func Direct(z *Writer) {\n\tz.Write(nil)\n\tz.Equal(nil)\n}\n\n\
+         func Copy(gz *Writer, p []byte) {\n\tvar w io.Writer = gz\n\tw.Write(p)\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "gz/gz.go::Writer.Write"}),
+    );
+    let summary = reply["summary"].as_str().expect("summary");
+    assert!(!summary.contains("is missing;"), "{summary}");
+    assert!(
+        summary.contains("1 call named Write goes to no definition in the repository"),
+        "{summary}"
+    );
+    assert!(summary.contains("read gz/gz.go::Copy"), "{summary}");
+    // The standard library's function `bytes.Equal` is no method call.
+    let equal = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "gz/gz.go::Writer.Equal"}),
+    );
+    let summary = equal["summary"].as_str().expect("summary");
+    assert!(
+        summary.contains("every call named Equal in the repository"),
+        "{summary}"
+    );
+}
+
 /// A test double's method in a `_test.go` file is test code, not a test:
 /// `tests_for` on `CollectT.Errorf` names the test that calls it, not the
 /// doubles' methods that share its name.
