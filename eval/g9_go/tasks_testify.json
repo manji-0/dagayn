@@ -1,0 +1,99 @@
+{
+ "_about": "G9 (eval/g9_go/PREREG.md): four Go questions on testify v1.12.1 (959dbda), drawn by keys/g9draw.py. Keys were built without dagayn (keys/g9keys.py).",
+ "source_commit": "959dbdacf1533e155162811ea90c90117a420463",
+ "preamble": "このリポジトリ (カレントディレクトリ。Go のモジュール github.com/stretchr/testify v1.12.1 のチェックアウト) について、次の質問に答えてください。\n- リポジトリのファイルは変更しないこと。一時ファイルが必要なら /tmp の下に作ること。\n- テストやリポジトリのコードは実行しないこと (go test や go run は使わない。読む・検索する・解析用のスクリプトを書いて実行するのはよい)。\n- 回答の最後に、次の形式の JSON コードブロックを 1 つだけ置くこと: ```json\n{\"answer\": [...]}\n```\n\n質問: ",
+ "condition_line": {
+  "graph": "- dagayn の MCP ツール (サーバ名 dagayn) が使える。まずそれで調べ、必要なら他の道具で確かめること。\n",
+  "none": "- dagayn の MCP ツールは使えない。標準の道具 (検索・ファイルの読み込み・シェル) で調べること。\n"
+ },
+ "tasks": {
+  "T9": {
+   "prompt": "`assert/assertion_compare.go` の関数 `compareTwoValues` の本体は、どのテストを実行したときに実行されるか。`func TestXxx(t *testing.T)` の形のテスト関数のうち、そのテストを 1 つだけ実行したとき (`go test -run '^TestXxx$'` で、そのサブテストを含む。`-short` は付けない) に `compareTwoValues` の本体が実行されるものをすべて挙げてください。対象はリポジトリのすべてのパッケージのテスト。`Benchmark`・`Fuzz`・`Example` で始まる関数は数えない。形式は \"ファイルパス::テスト関数名\" (ファイルパスはリポジトリルートから)。",
+   "kind": "symbols",
+   "length": "LONG",
+   "stratum": "reach",
+   "question_kind": 1,
+   "truth": [
+    "assert/assertion_compare_test.go::TestComparingMsgAndArgsForwarding",
+    "assert/assertion_compare_test.go::TestGreater",
+    "assert/assertion_compare_test.go::TestGreaterOrEqual",
+    "assert/assertion_compare_test.go::TestLess",
+    "assert/assertion_compare_test.go::TestLessOrEqual",
+    "assert/assertion_compare_test.go::TestNegative",
+    "assert/assertion_compare_test.go::TestPositive",
+    "assert/assertion_compare_test.go::Test_compareTwoValuesCorrectCompareResult",
+    "assert/assertion_compare_test.go::Test_compareTwoValuesDifferentValuesTypes",
+    "assert/assertion_compare_test.go::Test_compareTwoValuesNotComparableValues"
+   ]
+  },
+  "T10": {
+   "prompt": "`assert/assertion_forward.go` のメソッド `(*Assertions).True` を直接呼んでいる関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.True(...)` は、x の静的な型が assert パッケージの `*Assertions` (または `Assertions`) か、それを埋め込んだ型で、呼び出しがこのメソッドに解決されるなら数える。インタフェース型の値を通した呼び出し、ほかの型の `True`、同じ名前の関数、標準ライブラリや外部パッケージの関数・メソッドは数えない。コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "length": "LONG",
+   "stratum": "name",
+   "question_kind": 2,
+   "truth": [
+    "assert/forward_assertions_test.go::TestEmptyWrapper",
+    "assert/forward_assertions_test.go::TestEqualErrorWrapper",
+    "assert/forward_assertions_test.go::TestErrorContainsWrapper",
+    "assert/forward_assertions_test.go::TestErrorWrapper",
+    "assert/forward_assertions_test.go::TestLenWrapper",
+    "assert/forward_assertions_test.go::TestNoErrorWrapper",
+    "assert/forward_assertions_test.go::TestNotEmptyWrapper",
+    "assert/forward_assertions_test.go::TestNotZeroWrapper",
+    "assert/forward_assertions_test.go::TestTrueWrapper",
+    "assert/forward_assertions_test.go::TestWithinDurationWrapper",
+    "assert/forward_assertions_test.go::TestZeroWrapper",
+    "assert/http_assertions_test.go::TestHTTPError",
+    "assert/http_assertions_test.go::TestHTTPRedirect",
+    "assert/http_assertions_test.go::TestHTTPStatusCode",
+    "assert/http_assertions_test.go::TestHTTPSuccess",
+    "assert/http_assertions_test.go::TestHttpBody",
+    "assert/http_assertions_test.go::TestHttpBodyWrappers",
+    "suite/suite_test.go::TestUnInitializedSuites"
+   ]
+  },
+  "T11": {
+   "prompt": "`assert/assertion_forward.go` のメソッド `(*Assertions).False` を直接呼んでいる関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.False(...)` は、x の静的な型が assert パッケージの `*Assertions` (または `Assertions`) か、それを埋め込んだ型で、呼び出しがこのメソッドに解決されるなら数える。インタフェース型の値を通した呼び出し、ほかの型の `False`、同じ名前の関数、標準ライブラリや外部パッケージの関数・メソッドは数えない。コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "length": "LONG",
+   "stratum": "name",
+   "question_kind": 2,
+   "truth": [
+    "assert/forward_assertions_test.go::TestEmptyWrapper",
+    "assert/forward_assertions_test.go::TestEqualErrorWrapper",
+    "assert/forward_assertions_test.go::TestErrorContainsWrapper",
+    "assert/forward_assertions_test.go::TestErrorWrapper",
+    "assert/forward_assertions_test.go::TestFalseWrapper",
+    "assert/forward_assertions_test.go::TestLenWrapper",
+    "assert/forward_assertions_test.go::TestNoErrorWrapper",
+    "assert/forward_assertions_test.go::TestNotEmptyWrapper",
+    "assert/forward_assertions_test.go::TestNotZeroWrapper",
+    "assert/forward_assertions_test.go::TestWithinDurationWrapper",
+    "assert/forward_assertions_test.go::TestZeroWrapper",
+    "assert/http_assertions_test.go::TestHTTPError",
+    "assert/http_assertions_test.go::TestHTTPRedirect",
+    "assert/http_assertions_test.go::TestHTTPStatusCode",
+    "assert/http_assertions_test.go::TestHTTPSuccess",
+    "assert/http_assertions_test.go::TestHttpBody",
+    "assert/http_assertions_test.go::TestHttpBodyWrappers",
+    "suite/suite_test.go::subtestPanicSuite.TestSubtestPanic"
+   ]
+  },
+  "T12": {
+   "prompt": "`assert/assertion_forward.go` のメソッド `(*Assertions).Contains` を直接呼んでいる関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.Contains(...)` は、x の静的な型が assert パッケージの `*Assertions` (または `Assertions`) か、それを埋め込んだ型で、呼び出しがこのメソッドに解決されるなら数える。インタフェース型の値を通した呼び出し、ほかの型の `Contains`、同じ名前の関数、標準ライブラリや外部パッケージの関数・メソッドは数えない。コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "length": "SHORT",
+   "stratum": "short",
+   "question_kind": 2,
+   "truth": [
+    "assert/forward_assertions_test.go::TestContainsWrapper",
+    "assert/http_assertions_test.go::TestHTTPError",
+    "assert/http_assertions_test.go::TestHTTPRedirect",
+    "assert/http_assertions_test.go::TestHTTPStatusCode",
+    "assert/http_assertions_test.go::TestHTTPSuccess",
+    "assert/http_assertions_test.go::TestHttpBody"
+   ]
+  }
+ }
+}
