@@ -262,8 +262,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 27: an associated function's path names its type
         // (`Names::default()`, `names::Names::<T>::new()`): a type reference,
         // as a struct literal of it is.
+        // 28: a function under a `tests/` or `test/` directory is a test only
+        // by a test attribute; the helpers and test doubles there are
+        // `is_test` Functions.
         extractor: "rust",
-        version: 27,
+        version: 28,
         languages: &["rust"],
     },
     ExtractorVersion {

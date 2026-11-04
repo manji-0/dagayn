@@ -18,7 +18,7 @@ use super::stdlib::{StdlibEvidence, mark_external_edge, mark_stdlib_edge};
 use super::types::{FilePath, ParsedEdge, ParsedNode};
 use super::util::{direct_child_text, line_count, line_of, node_text, should_skip_value_reference};
 use super::{
-    add_tested_by_edges, is_rust_test_function, qualify, resolve_rust_call_targets,
+    add_tested_by_edges, has_rust_test_attribute, qualify, resolve_rust_call_targets,
     rust_node_with_leading_attributes,
 };
 
@@ -323,8 +323,8 @@ fn rust_walk_children(
                 if let Some(name) = rust_identifier_child(child, context.source) {
                     let qualified = qualify(&context.file_path, &name, owner());
                     let params = direct_child_text(child, context.source, &["parameters"]);
-                    let is_test = context.cfg_test_file
-                        || is_rust_test_function(&context.file_path, child, context.source);
+                    let is_test =
+                        context.cfg_test_file || has_rust_test_attribute(child, context.source);
                     let mut extra = if child.kind() == "function_signature_item" {
                         json!({"is_abstract": true})
                     } else {

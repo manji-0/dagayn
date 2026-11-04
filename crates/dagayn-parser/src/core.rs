@@ -1094,19 +1094,6 @@ fn is_test_function(
         || has_rust_test_attribute(node, source)
 }
 
-/// A Rust test: a test attribute (`#[test]`, `#[tokio::test]`, ...) or a
-/// function under a `test`/`tests` directory. A `test` name prefix alone is
-/// a helper's name (`test_node_json`), not a test.
-pub(super) fn is_rust_test_function(
-    file_path: &str,
-    node: tree_sitter::Node<'_>,
-    source: &[u8],
-) -> bool {
-    contains_ascii_ignore_case(file_path, "/test/")
-        || contains_ascii_ignore_case(file_path, "/tests/")
-        || has_rust_test_attribute(node, source)
-}
-
 fn rust_node_with_leading_attributes(
     node: tree_sitter::Node<'_>,
 ) -> impl Iterator<Item = tree_sitter::Node<'_>> {
@@ -1124,7 +1111,11 @@ fn rust_node_with_leading_attributes(
     attrs.into_iter().chain(std::iter::once(node))
 }
 
-fn has_rust_test_attribute(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
+/// A Rust test: a function with a test attribute (`#[test]`,
+/// `#[tokio::test]`, ...). Neither a `test` name prefix (`test_node_json`)
+/// nor a `tests/` path makes one: the helpers and test doubles there are
+/// test code, not tests.
+pub(super) fn has_rust_test_attribute(node: tree_sitter::Node<'_>, source: &[u8]) -> bool {
     for candidate in rust_node_with_leading_attributes(node) {
         if matches!(candidate.kind(), "attribute_item" | "inner_attribute_item")
             && rust_attribute_marks_test(&node_text(candidate, source))
