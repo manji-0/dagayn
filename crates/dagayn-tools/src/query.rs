@@ -1243,11 +1243,12 @@ fn edge_caveat(pattern: &str, language: &str, import_kind: Option<&str>) -> &'st
     }
 }
 
-/// The Go calls named like `node` that resolution bound to no definition:
-/// made through an interface, or on a value whose type the graph does not
-/// know, so any may call `node` at run time. An unexported name is
-/// callable from its own package (its directory) only. Calls from `node`'s
-/// package come first.
+/// The Go calls named like `node` that go to no definition in the
+/// repository: made through an interface, on a standard-library or
+/// dependency type (`w.Write(p)` on `w io.Writer`), or on a value whose
+/// type the graph does not know, so any may call `node` at run time. An
+/// unexported name is callable from its own package (its directory) only.
+/// Calls from `node`'s package come first.
 fn go_unbound_calls(store: &GraphStore, node: &GraphNode) -> Option<Vec<GraphEdge>> {
     let package = Path::new(&node.file_path).parent();
     let exported = node.name.starts_with(char::is_uppercase);
@@ -1255,10 +1256,14 @@ fn go_unbound_calls(store: &GraphStore, node: &GraphNode) -> Option<Vec<GraphEdg
         .get_edges_by_target(&node.name)
         .ok()?
         .into_iter()
-        .filter(|edge| edge.kind == "CALLS" && edge.file_path.ends_with(".go"))
+        .filter(|edge| edge.kind == "CALLS")
         .filter(|edge| edge.extra.get("external") != Some(&Value::Bool(true)))
         .filter(|edge| exported || Path::new(&edge.file_path).parent() == package)
         .collect();
+    if exported && node.parent_name.is_some() {
+        edges.extend(store.search_external_calls_by_method(&node.name).ok()?);
+    }
+    edges.retain(|edge| edge.file_path.ends_with(".go"));
     edges.sort_by_key(|edge| Path::new(&edge.file_path).parent() != package);
     Some(edges)
 }
@@ -1303,10 +1308,11 @@ fn go_callers_note(node: &GraphNode, unbound: &[GraphEdge]) -> String {
         1 => "1 call named".to_string(),
         count => format!("{count} calls named"),
     };
-    let verb = if unbound.len() == 1 { "is" } else { "are" };
+    let verb = if unbound.len() == 1 { "goes" } else { "go" };
     format!(
-        "{calls} {name} {verb} bound to no definition (made through an interface, or on a value \
-         whose type the graph does not know), so callers may be missing: read {shown}{more}"
+        "{calls} {name} {verb} to no definition in the repository (made through an interface, \
+         on a standard-library or dependency type, or on a value whose type the graph does not \
+         know), so callers may be missing: read {shown}{more}"
     )
 }
 

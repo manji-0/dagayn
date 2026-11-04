@@ -163,6 +163,30 @@ impl GraphStore {
             .map_err(Into::into)
     }
 
+    /// `CALLS` edges into an external package whose `external_symbol` is a
+    /// method named `method` (`io.Writer.Write`, `bytes.Buffer.Write` for
+    /// `Write`; not the function `bytes.Equal` for `Equal`).
+    pub fn search_external_calls_by_method(&self, method: &str) -> Result<Vec<GraphEdge>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT * FROM edges WHERE kind = 'CALLS' \
+             AND json_extract(extra, '$.external_symbol') LIKE '%.' || ?",
+        )?;
+        let rows = stmt.query_map(params![method], edge_from_row)?;
+        let edges = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+        let suffix = format!(".{method}");
+        Ok(edges
+            .into_iter()
+            .filter(|edge| {
+                edge.extra
+                    .get("external_symbol")
+                    .and_then(Value::as_str)
+                    .and_then(|symbol| symbol.strip_suffix(&suffix))
+                    .and_then(|owner| owner.rsplit('/').next())
+                    .is_some_and(|owner| owner.contains('.'))
+            })
+            .collect())
+    }
+
     /// `IMPORTS_FROM` edges resolving to `defining_file`.
     ///
     /// `IMPORTS_FROM.target_qualified` holds the resolved module file path, not

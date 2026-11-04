@@ -30,10 +30,12 @@ All notable changes to `dagayn` are documented here.
   definition, the summary says so: "every call named init in package gzip,
   _test.go files included, is bound to a definition". An unexported name
   counts the calls in its own package, and an exported name counts the
-  calls in the whole repository. When some calls of the name are bound to
-  no definition (calls through an interface, or calls on a value of
-  unknown type), the summary gives their count and up to three callers to
-  read, from the target's package first. `next` then starts with
+  calls in the whole repository. When some calls of the name go to no
+  definition in the repository, the summary gives their count and up to
+  three callers to read, from the target's package first. Such calls are
+  made through an interface, on a value of unknown type, or (for an
+  exported method) on a standard-library or dependency type, such as
+  `w.Write(p)` on `w io.Writer`. `next` then starts with
   `source_of` on the first caller. On the G8 and G7 targets, the summaries
   of `Suite.SetT` and `Suite.T` now name `suite/suite.go::Run`, which is
   the caller missing from both lists, and the summary of `Writer.Reset`
