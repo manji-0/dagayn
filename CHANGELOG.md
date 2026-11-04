@@ -6,6 +6,23 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `tests_for` on a Rust method no longer lists a test double's method of
+  the same name from a crate's `tests/` directory (#262). A function there
+  was a `Test` node by its path, so `Repo.new` in
+  `crates/dagayn-tools/tests/tools.rs` was a candidate test for
+  `Args.new`. Under `tests/` or `test/`, as elsewhere, only a test
+  attribute (`#[test]`, `#[tokio::test]`, `#[rstest]`, ...) now makes a
+  `Test` node; the helpers and doubles there are Functions marked
+  `is_test`, which `tests_for` takes only by a test-like name (#258). The
+  functions of a `#[cfg(test)]` module file stay `Test` nodes. Rust
+  extractor 28. On dagayn, 72 functions under `tests/` move from `Test` to
+  Function (Rust `Test` nodes 915 to 845 with this change's own tests),
+  and `tests_for` on the 54 production functions that share a name with
+  one drops 4 same-name rows (`Args.new`, `NotebookCell.new`,
+  `PySource.new`, `answer`). Test reach does not move: it counts `is_test`
+  nodes, so Rust stays at untested precision 0.442, recall 0.27, tested
+  precision 0.949 (3,162 functions to 3,161), and Python at 0.934, 0.656,
+  0.949 on 1,134.
 - A queued task that runs past its budget is no longer left `running` (#265).
   The watchdog now records the overrun as a failed attempt before it stops
   the worker. The task is retried up to 3 times and then parked `dead`, and

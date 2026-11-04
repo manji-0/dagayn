@@ -394,8 +394,9 @@ fn runnable_tests(inputs: &Inputs, test: &GraphNode) -> Option<Vec<(GraphNode, b
         let (_, incoming) = inputs.store.get_edges_by_endpoints(&qns).ok()?;
         let mut next = Vec::new();
         for node in frontier {
-            // A Rust function under `tests/` is a `Test` node by its path,
-            // attribute or not; one that other test code calls is a helper.
+            // A Rust function of a `#[cfg(test)]` module file is a `Test`
+            // node, attribute or not; one that other test code calls is a
+            // helper.
             if node.kind == "Test" && node.language != "rust" {
                 found.push(node);
                 continue;
