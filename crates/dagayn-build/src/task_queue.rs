@@ -411,6 +411,90 @@ pub fn ensure_worker(data_dir: &Path, repo_root: &Path, python: &Path, pythonpat
     }
 }
 
+/// `ORPHANED_UPDATE_SECONDS`: the update budget plus a minute, past which a
+/// `running` update cannot still be live.
+const ORPHANED_UPDATE_SECONDS: u32 = 120 + 60;
+
+/// `STALLED_UPDATE_NEXT_STEP`.
+pub const STALLED_UPDATE_NEXT_STEP: &str =
+    "run 'dagayn update', or create .dagayn/hook-skip to stop hook updates";
+
+/// `_STALLED_UPDATE_SQL`, statement for statement.
+const STALLED_UPDATE_SQL: &str = "
+SELECT id, state, attempts, last_error FROM tasks
+WHERE kind = 'update'
+  AND (state = 'dead'
+       OR (state = 'running' AND julianday(updated_at) < julianday('now', ?1)))
+  AND (?2 IS NULL OR julianday(updated_at) > julianday(?2, 'utc'))
+ORDER BY id DESC LIMIT 1
+";
+
+/// An update task hook updates are stuck on (`stalled_update`'s row).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StalledUpdate {
+    pub id: i64,
+    /// `dead`, or `running` for one a killed worker left behind.
+    pub state: String,
+    pub attempts: i64,
+    pub last_error: Option<String>,
+}
+
+impl StalledUpdate {
+    /// `stalled_update_status`: the `dagayn status` line.
+    pub fn status_line(&self) -> String {
+        let what = if self.state == "dead" {
+            let mut what = format!(
+                "update task #{} dead after {} attempt(s)",
+                self.id, self.attempts
+            );
+            if let Some(error) = self.last_error.as_deref().filter(|e| !e.is_empty()) {
+                what.push_str(&format!(": {error}"));
+            }
+            what
+        } else {
+            format!(
+                "update task #{} left running by a worker that exited",
+                self.id
+            )
+        };
+        format!("Hook updates: stopped — {what}; {STALLED_UPDATE_NEXT_STEP}")
+    }
+}
+
+/// `stalled_update(queue_db, graph_last_updated)`: read-only, and `None`
+/// when there is no queue or it cannot be read.
+pub fn stalled_update(queue_db: &Path, graph_last_updated: Option<&str>) -> Option<StalledUpdate> {
+    if !queue_db.is_file() {
+        return None;
+    }
+    let conn = Connection::open_with_flags(
+        queue_db,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+    conn.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)
+        .ok()?;
+    conn.busy_timeout(Duration::from_secs(5)).ok()?;
+    conn.query_row(
+        STALLED_UPDATE_SQL,
+        params![
+            format!("-{ORPHANED_UPDATE_SECONDS} seconds"),
+            graph_last_updated.filter(|value| !value.is_empty())
+        ],
+        |row| {
+            Ok(StalledUpdate {
+                id: row.get(0)?,
+                state: row.get(1)?,
+                attempts: row.get(2)?,
+                last_error: row.get(3)?,
+            })
+        },
+    )
+    .optional()
+    .ok()
+    .flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

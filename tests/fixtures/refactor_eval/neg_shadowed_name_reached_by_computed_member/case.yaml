@@ -1,0 +1,16 @@
+description: A file imports `format` from `date-fns` and calls it. The same file imports the application's `src/dates.ts` as a namespace and reaches its `format` through a computed member the graph does not resolve. Because that file imports the module that defines `format`, its mentions still count as uses, so the local `format` is not reported.
+negative: true
+files:
+  package.json: |
+    {"name": "app", "private": true, "dependencies": {"date-fns": "^3.6.0"}}
+  src/dates.ts: |
+    export function format(day: Date): string {
+      return day.toISOString().slice(0, 10);
+    }
+  src/index.ts: |
+    import { format } from "date-fns";
+    import * as dates from "./dates";
+
+    const table: Record<string, (day: Date) => string> = dates;
+    const pick = process.argv[2] ?? "format";
+    console.log(format(new Date(), "yyyy"), table[pick](new Date()));

@@ -177,9 +177,17 @@ queued before it; `--priority` overrides this. A task already running is not
 preempted, so an update enqueued mid-`embed` waits for it (bounded by the
 embed budget). A failing task is retried up to 3 times, waiting 1s longer per
 attempt spent, before it is parked `dead`; other queued tasks run while a
-retry waits. A worker that died mid-task (budget
-watchdog, crash) leaves its task `running`; the next worker requeues it, or
-parks it `dead` when its attempts are already spent. `dagayn queue status`
+retry waits. A task the budget watchdog stops counts as a failed attempt
+before the worker exits, so the next edit coalesces into its retry. A worker
+that crashed mid-task leaves its task `running`; the next worker requeues it,
+or parks it `dead` when its attempts are already spent. Once an `update` is
+parked `dead` for running over its budget, the worker skips hook updates
+until the graph changes some other way (`dagayn update`, a session prepare),
+instead of spending the budget again on every edit. While an `update` is
+`dead`, or left `running` past its budget, and the graph has not changed
+since, `dagayn status` prints a `Hook updates: stopped` line and MCP replies
+carry the `hook_updates_stopped` missingness code; both say to run
+`dagayn update` or create `.dagayn/hook-skip`. `dagayn queue status`
 shows pending/running/dead counts and the last 10 log entries (`--json` for
 machine output). The queue lives at `.dagayn/task_queue.db` (or the
 `CRG_DATA_DIR` location), deliberately separate from `graph.db` so it stays

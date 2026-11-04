@@ -1,6 +1,8 @@
 //! `graph_answerability_summary` and `missingness_from_answerability`
 //! (`dagayn.tools._common`).
 
+use std::path::Path;
+
 use dagayn_build::CommitFreshness;
 use dagayn_graph::{GraphStats, GraphStore};
 use serde_json::{Map, Value, json};
@@ -28,7 +30,7 @@ impl Answerability {
     /// `graph_answerability_summary(store)` without a freshness argument: the
     /// commit tier of the root the graph records, none when it records none;
     /// `None` where Python would fail.
-    pub(crate) fn recorded(store: &GraphStore, stats: &GraphStats) -> Option<Self> {
+    pub(crate) fn recorded(store: &GraphStore, stats: &GraphStats, db_path: &Path) -> Option<Self> {
         let freshness = match store.get_metadata("repo_root").ok()? {
             Some(recorded) if !recorded.is_empty() => {
                 dagayn_build::commit_tier_freshness(store, std::path::Path::new(&recorded)).ok()?
@@ -36,15 +38,17 @@ impl Answerability {
             Some(_) => return None,
             None => None,
         };
-        Some(Self::compute(store, stats, freshness.as_ref()))
+        Some(Self::compute(store, stats, freshness.as_ref(), db_path))
     }
 
     /// The summary for `stats`, with the freshness codes of `freshness`
-    /// (`None` where Python's freshness state is `None`).
+    /// (`None` where Python's freshness state is `None`) and the hook queue
+    /// beside the graph at `db_path`.
     pub(crate) fn compute(
         store: &GraphStore,
         stats: &GraphStats,
         freshness: Option<&CommitFreshness>,
+        db_path: &Path,
     ) -> Self {
         let counts = store.answerability_counts();
         let edge_kind = |kind: &str| stats.edges_by_kind.get(kind).copied().unwrap_or(0);
@@ -115,6 +119,16 @@ impl Answerability {
             freshness_counts.insert("graph_head_sha".into(), json!(fresh.git_head_sha));
             freshness_counts.insert("current_head_sha".into(), json!(fresh.current_head_sha));
             freshness_counts.insert("worktree_dirty".into(), json!(fresh.worktree_dirty));
+        }
+        // `_hook_updates_stopped` (#265).
+        if dagayn_build::task_queue::stalled_update(
+            &db_path.with_file_name(dagayn_build::task_queue::QUEUE_DB_NAME),
+            stats.last_updated.as_deref(),
+        )
+        .is_some()
+        {
+            reason_codes.push("hook_updates_stopped");
+            score -= 0.1;
         }
         let score = round_to(score, 4).max(0.0);
         let status = if score >= 0.75 {
@@ -208,7 +222,8 @@ fn severity(code: &str) -> &'static str {
         | "missing_cross_artifact_edge_metadata"
         | "missing_cross_artifact_edges"
         | "answerability_unavailable"
-        | "uncommitted_changes_may_be_unindexed" => "medium",
+        | "uncommitted_changes_may_be_unindexed"
+        | "hook_updates_stopped" => "medium",
         _ => "low",
     }
 }
@@ -225,6 +240,11 @@ fn claim_effect(code: &str) -> &'static str {
         }
         "uncommitted_changes_may_be_unindexed" => {
             "working-tree edits may not be indexed -- a symbol reported missing may exist on disk"
+        }
+        "hook_updates_stopped" => {
+            "edit-triggered updates stopped landing (an update task died; dagayn status names \
+             it) -- later edits may be unindexed; run dagayn update, or create \
+             .dagayn/hook-skip to stop hook updates"
         }
         _ => "claims should be treated as graph-limited until this is resolved",
     }

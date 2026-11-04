@@ -90,7 +90,7 @@ pub(crate) fn ensure_graph(context: &Context, arguments: &Map<String, Value>) ->
         return None;
     }
     let stats = graph.store.get_stats().ok()?;
-    let health = Answerability::recorded(&graph.store, &stats)?.full();
+    let health = Answerability::recorded(&graph.store, &stats, &graph.db_path)?.full();
 
     let reason = if sync.state == "worktree_ahead" || sync.worktree_dirty {
         "graph_ready_worktree_dirty"
