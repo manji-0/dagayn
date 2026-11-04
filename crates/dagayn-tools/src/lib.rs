@@ -43,6 +43,7 @@ mod source;
 mod stability;
 mod stats;
 mod suggestions;
+mod target;
 mod units;
 
 use std::collections::HashSet;

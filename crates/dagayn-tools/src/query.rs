@@ -725,7 +725,7 @@ impl Resolution {
 }
 
 /// `looks_like_file_target` (`dagayn.bare_name_resolution`).
-fn looks_like_file_target(target: &str) -> bool {
+pub(crate) fn looks_like_file_target(target: &str) -> bool {
     let path = target.split("::").next().unwrap_or(target);
     if path.contains('/') || path.contains('\\') {
         return true;
@@ -1720,13 +1720,33 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     }
 
     // `resolve_query_target`.
-    let exact = match store.get_node(target).ok()? {
-        Some(node) => Some(node),
-        None => store.get_node(&joined(&root, target)?).ok()?,
+    let exact = |qualified: &str| -> Option<Option<GraphNode>> {
+        match store.get_node(qualified).ok()? {
+            Some(node) => Some(Some(node)),
+            None => store.get_node(&joined(&root, qualified)?).ok(),
+        }
     };
-    let (node, resolution) = match exact {
-        Some(node) => (Some(node), Resolution::Exact),
-        None => {
+    let exact_node = exact(target)?;
+    let mut respelled = match exact_node {
+        Some(_) => Vec::new(),
+        None => crate::target::respelled(store, target, exact)?,
+    };
+    if respelled.len() > 1 {
+        let mut candidates = crate::next::tests_last(respelled.iter());
+        candidates.truncate(5);
+        return Some(ambiguous(
+            arguments,
+            pattern,
+            target,
+            &candidates,
+            &answerability,
+            &graph,
+        ));
+    }
+    let (node, resolution) = match (exact_node, respelled.pop()) {
+        (Some(node), _) => (Some(node), Resolution::Exact),
+        (None, Some(node)) => (Some(node), Resolution::ExactName),
+        (None, None) => {
             let named_exists = || -> Option<bool> {
                 Some(
                     store
