@@ -24,6 +24,15 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- A complete Go `callers_of` answer with at most six calls of the name
+  bound to no definition now gives each call's line, grouped by the
+  function it is in, and says that every other call of the name is bound:
+  "the 3 that go to no definition (...) are at suite/suite.go:133, :182
+  and :199 in Run: read those lines to decide whether they call SetT". The
+  first `next` call reads that function and names its lines. Before, the
+  summary counted the calls and named the function, and agents grepped the
+  repository for the name instead of reading it (G8 pilot, T7). With more
+  than six such calls the summary keeps its count-and-callers form.
 - A complete `callers_of` answer on a Go function or method now says what
   it checked, instead of the caveat "calls dispatched at run time are not
   edges" (G8 defect 5). When every call of the name is bound to a

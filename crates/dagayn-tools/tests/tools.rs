@@ -4291,9 +4291,11 @@ fn go_callers_of_says_whether_a_call_of_its_name_is_left_unbound() {
     let summary = set_t["summary"].as_str().expect("summary");
     assert!(
         summary.contains(
-            "1 call named SetT goes to no definition in the repository (made through an \
-             interface, on a standard-library or dependency type, or on a value whose type the \
-             graph does not know), so callers may be missing: read suite/suite.go::Run"
+            "Every other call named SetT in the repository, _test.go files included, is bound \
+             to a definition; the 1 that goes to no definition (made through an interface, on a \
+             standard-library or dependency type, or on a value whose type the graph does not \
+             know) is at suite/suite.go:11 in Run: read that line to decide whether it calls \
+             SetT"
         ),
         "{summary}"
     );
@@ -4302,6 +4304,70 @@ fn go_callers_of_says_whether_a_call_of_its_name_is_left_unbound() {
         set_t["next"][0]["args"],
         json!({"pattern": "source_of", "target": "suite/suite.go::Run"}),
         "{set_t}"
+    );
+}
+
+/// A few unbound calls are listed line by line, grouped by the function
+/// they are in, so reading those lines settles the answer; past the cap the
+/// summary counts them and names callers to read.
+#[test]
+fn go_callers_of_lists_the_lines_of_a_few_unbound_calls() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("go-unbound-call-lines", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "p/p.go",
+        "package p\n\ntype closer interface {\n\tClose()\n\tFlush()\n}\n\n\
+         type File struct{}\n\n\
+         func (f *File) Close() {}\n\n\
+         func (f *File) Flush() {}\n\n\
+         func Shut(c closer) {\n\tc.Close()\n\tc.Close()\n}\n\n\
+         func Drain(c closer) {\n\tc.Flush()\n\tc.Flush()\n\tc.Flush()\n\tc.Flush()\n\
+         \tc.Flush()\n\tc.Flush()\n\tc.Flush()\n}\n",
+    );
+    repo.write(
+        "p/q.go",
+        "package p\n\nfunc Done(c closer) {\n\tc.Close()\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let callers = |target: &str| {
+        answer(
+            &context,
+            "query_graph_tool",
+            json!({"pattern": "callers_of", "target": target}),
+        )
+    };
+    let close = callers("p/p.go::File.Close");
+    let summary = close["summary"].as_str().expect("summary");
+    assert!(
+        summary.contains(
+            "the 3 that go to no definition (made through an interface, on a standard-library \
+             or dependency type, or on a value whose type the graph does not know) are at \
+             p/p.go:15 and :16 in Shut; p/q.go:4 in Done: read those lines to decide whether \
+             they call Close"
+        ),
+        "{summary}"
+    );
+    assert_eq!(
+        close["next"][0]["args"],
+        json!({"pattern": "source_of", "target": "p/p.go::Shut"}),
+        "{close}"
+    );
+    assert_eq!(
+        close["next"][0]["why"],
+        json!("the calls named Close at p/p.go:15 and :16 go to no definition and may call it"),
+        "{close}"
+    );
+    let flush = callers("p/p.go::File.Flush");
+    let summary = flush["summary"].as_str().expect("summary");
+    assert!(
+        summary.contains(
+            "7 calls named Flush go to no definition in the repository (made through an \
+             interface, on a standard-library or dependency type, or on a value whose type the \
+             graph does not know), so callers may be missing: read p/p.go::Drain"
+        ),
+        "{summary}"
     );
 }
 
@@ -4331,10 +4397,10 @@ fn go_callers_of_counts_calls_through_a_standard_library_interface() {
     let summary = reply["summary"].as_str().expect("summary");
     assert!(!summary.contains("is missing;"), "{summary}");
     assert!(
-        summary.contains("1 call named Write goes to no definition in the repository"),
+        summary.contains("the 1 that goes to no definition"),
         "{summary}"
     );
-    assert!(summary.contains("read gz/gz.go::Copy"), "{summary}");
+    assert!(summary.contains("is at gz/gz.go:26 in Copy"), "{summary}");
     // The standard library's function `bytes.Equal` is no method call.
     let equal = answer(
         &context,
