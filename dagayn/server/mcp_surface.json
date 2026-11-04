@@ -354,6 +354,11 @@
       ],
       "default": null,
       "description": "Keep only result rows (and ``files``) whose file starts\nwith this path, e.g. \"src/\"; a chain through files outside it\nstill counts."
+     },
+     "offset": {
+      "default": 0,
+      "type": "integer",
+      "description": "Skip this many rows; a cut reply's ``next`` names the\noffset of the rows after it."
      }
     },
     "required": [

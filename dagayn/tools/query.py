@@ -158,6 +158,7 @@ def query_graph(
     depth: int = 1,
     import_kind: str | None = None,
     path_prefix: str | None = None,
+    offset: int = 0,
     *,
     _corrupt_retried: bool = False,
 ) -> dict[str, Any]:
@@ -182,6 +183,7 @@ def query_graph(
                edge; "statement" follows only import statements.
         path_prefix: Keep only rows (and ``files``) whose file starts with
                this path; a chain through files outside it still counts.
+        offset: Skip this many rows, to read the rows after a cut reply's.
 
     Returns:
         Matching nodes and edges for the query.
@@ -191,11 +193,13 @@ def query_graph(
         # Resolves the repository and creates, migrates, or waits for the
         # graph; the Rust tool reads it.
         store, _root = _get_store(repo_root)
-        extra: dict[str, str] = {}
+        extra: dict[str, str | int] = {}
         if import_kind is not None:
             extra["import_kind"] = import_kind
         if path_prefix is not None:
             extra["path_prefix"] = path_prefix
+        if offset:
+            extra["offset"] = offset
         return native_tool(
             "query_graph_tool",
             pattern=pattern,
@@ -220,6 +224,7 @@ def query_graph(
                 depth,
                 import_kind,
                 path_prefix,
+                offset,
                 _corrupt_retried=True,
             )
         return handle_tool_runtime_error(

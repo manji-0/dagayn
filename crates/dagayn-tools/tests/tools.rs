@@ -2,6 +2,7 @@
 //! where they leave the call to Python (`None`). The pytest suite
 //! (`tests/test_mcp_frontend.py`) checks the answers equal fastmcp's.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -1970,6 +1971,109 @@ fn a_cut_minimal_list_says_so_and_offers_the_standard_call() {
         "{}",
         cut["next"]
     );
+}
+
+/// A list cut at `standard` names the call for the rows after the cut, and
+/// following it lists every row once; a walk stopped at its row limit says
+/// so (G8 defect 4: 63 of 505 rows, and `next` offered only `source_of`).
+#[test]
+fn a_cut_list_pages_to_its_last_row() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("query-pages", false);
+    let callers: String = (0..600)
+        .map(|i| format!("def caller_with_a_long_descriptive_name_{i:03}():\n    return g()\n\n\n"))
+        .collect();
+    repo.write(
+        "mod.py",
+        &format!("def f():\n    return 1\n\n\ndef g():\n    return f()\n\n\n{callers}"),
+    );
+    repo.build();
+    let context = repo.context();
+    let first = json!({"pattern": "callers_of", "target": "mod.py::f", "depth": 6});
+    let mut reply = answer(&context, "query_graph_tool", first.clone());
+    assert_eq!(reply["results_complete"], false, "{reply}");
+    let summary = reply["summary"].as_str().unwrap_or_default();
+    assert!(
+        summary.contains("The walk stopped at 500 rows"),
+        "{summary}"
+    );
+    let total = reply["_truncation"]["results"]["total"].as_u64().unwrap();
+    assert_eq!(total, 501, "{reply}");
+    let mut names: Vec<String> = Vec::new();
+    let mut pages = 0;
+    loop {
+        pages += 1;
+        let rows = reply["results"].as_array().expect("results");
+        names.extend(
+            rows.iter()
+                .filter_map(|row| row["qualified_name"].as_str().map(str::to_string)),
+        );
+        let page = reply["next"]
+            .as_array()
+            .expect("next")
+            .iter()
+            .find(|call| call["args"].get("offset").is_some())
+            .cloned();
+        let Some(page) = page else { break };
+        let mut expected = first.clone();
+        expected["offset"] = json!(names.len());
+        assert_eq!(page["args"], expected, "{}", reply["next"]);
+        assert!(pages < 20, "{reply}");
+        reply = answer(&context, "query_graph_tool", page["args"].clone());
+    }
+    let distinct: HashSet<&String> = names.iter().collect();
+    assert_eq!(names.len(), 501, "pages {pages}");
+    assert_eq!(distinct.len(), 501);
+    let summary = reply["summary"].as_str().unwrap_or_default();
+    assert!(summary.contains("Showing rows 409-501 of 501"), "{summary}");
+    assert_eq!(reply["results_complete"], false, "{reply}");
+}
+
+/// `tests_for` with no direct test does not say that no test reaches the
+/// node when tests reach it through its callers; `next` lists them (G8
+/// defect 4: T5 said "no test in it reaches it" with `next: []`).
+#[test]
+fn tests_for_without_a_direct_test_names_the_callers_walk() {
+    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    let repo = Repo::new("go-tests-through-callers", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "mock/mock.go",
+        "package mock\n\nfunc diff() int {\n\treturn 1\n}\n\n\
+         func Called() int {\n\treturn diff()\n}\n\nfunc unused() int {\n\treturn 2\n}\n",
+    );
+    repo.write(
+        "mock/mock_test.go",
+        "package mock\n\nimport \"testing\"\n\nfunc TestCalled(t *testing.T) {\n\tCalled()\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "mock/mock.go::diff"}),
+    );
+    assert_eq!(reply["result_count"], 0, "{reply}");
+    let summary = reply["summary"].as_str().unwrap_or_default();
+    assert!(!summary.contains("no test in it reaches it"), "{summary}");
+    assert!(
+        summary.contains("mock/mock_test.go::TestCalled"),
+        "{summary}"
+    );
+    assert_eq!(
+        reply["next"][0]["args"],
+        json!({"pattern": "callers_of", "target": "mock/mock.go::diff", "depth": 6}),
+        "{}",
+        reply["next"]
+    );
+    let lone = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "mock/mock.go::unused"}),
+    );
+    let summary = lone["summary"].as_str().unwrap_or_default();
+    assert!(summary.contains("no test in it reaches it"), "{summary}");
+    assert_eq!(lone["next"], json!([]), "{lone}");
 }
 
 #[test]
