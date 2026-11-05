@@ -7,6 +7,10 @@ use std::path::Path;
 use dagayn_graph::{GraphEdge, GraphNode, GraphStore};
 use serde_json::{Value, json};
 
+use super::MAX_DEPTH;
+use super::rows::{VALUE_REFERENCE, get};
+use super::walk::{Found, TRANSITIVE_ROW_LIMIT};
+
 /// The zero-result reason for a node the graph has but that no edge of the
 /// kind asked for reaches (#195).
 pub(super) const NO_MATCHING_EDGES: &str = "node_has_no_matching_edges";
@@ -101,7 +105,7 @@ pub(super) fn guidance(
 /// The sentence a closed answer of `pattern` ends with: the list holds every
 /// relation the graph records (`direct` ones at depth 1), and says what the
 /// graph does not hold for the target's `language`.
-pub(super) fn closed_note(
+fn closed_note(
     pattern: &str,
     direct: bool,
     language: &str,
@@ -152,7 +156,7 @@ fn edge_caveat(pattern: &str, language: &str, import_kind: Option<&str>) -> &'st
 
 /// What the graph knows of a Go call that goes to no definition.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(super) enum GoUnbound {
+enum GoUnbound {
     /// On a value whose static type (`receiver_type`) is an interface the
     /// repository declares: the node `qualified`, at `place` (`file:line`).
     Interface {
@@ -272,10 +276,7 @@ fn go_interface(
 /// known type is a method call, so it is not one for a function. An
 /// unexported name is callable from its own package (its directory) only.
 /// Calls from `node`'s package come first.
-pub(super) fn go_unbound_calls(
-    store: &GraphStore,
-    node: &GraphNode,
-) -> Option<Vec<(GraphEdge, GoUnbound)>> {
+fn go_unbound_calls(store: &GraphStore, node: &GraphNode) -> Option<Vec<(GraphEdge, GoUnbound)>> {
     let package = Path::new(&node.file_path).parent();
     let exported = node.name.starts_with(char::is_uppercase);
     let mut edges: Vec<GraphEdge> = store
@@ -450,7 +451,7 @@ fn go_reach_clause(node: &GraphNode, unbound: &[(GraphEdge, GoUnbound)]) -> Stri
 /// for `node`'s name, and where the calls it left unbound are and what they
 /// are. `rows` are the reply's rows by qualified name, and `by_name` says
 /// that every row is a match of the name (`match: "bare_name"`).
-pub(super) fn go_callers_note(
+fn go_callers_note(
     node: &GraphNode,
     unbound: &[(GraphEdge, GoUnbound)],
     rows: &HashSet<&str>,
@@ -625,7 +626,7 @@ pub(super) fn go_callers_note(
 /// The first `next` call of a closed Go `callers_of` with unbound calls:
 /// the first function outside `rows` with a call on a value of unknown type,
 /// else the first interface a call goes through, with why.
-pub(super) fn go_unbound_next(
+fn go_unbound_next(
     node: &GraphNode,
     unbound: &[(GraphEdge, GoUnbound)],
     rows: &HashSet<&str>,
@@ -697,4 +698,169 @@ pub(super) fn no_edges_note(
         "source_of" | "file_summary" => return None,
         _ => format!("The node is in the graph, which records no {pattern} edges for it"),
     })
+}
+
+/// The summary's first sentence: how many rows `pattern` found for
+/// `target`, within how many hops and under which path, then the sentence
+/// for a node no edge reaches.
+pub(super) fn found_summary(
+    count: usize,
+    pattern: &str,
+    target: &str,
+    depth: i64,
+    path_prefix: Option<&str>,
+    empty_note: Option<&str>,
+) -> String {
+    let mut summary = format!("Found {count} result(s) for {pattern}('{target}')");
+    if depth > 1 {
+        summary.push_str(&format!(" within {depth} hops"));
+    }
+    if let Some(prefix) = path_prefix {
+        summary.push_str(&format!(" under '{prefix}'"));
+    }
+    if let Some(note) = empty_note {
+        summary.push_str(&format!(". {note}"));
+    }
+    summary
+}
+
+/// What `tests_for` says of a node no test calls but `callers` callers do,
+/// instead of "no test reaches it": the nearest test through them and its
+/// hops, if any, and the walk that lists them (eval/g8_go/RESULTS.md,
+/// defect 4).
+pub(super) fn tests_through_callers_note(nearest: Option<(&str, u64)>, callers: usize) -> String {
+    match nearest {
+        Some((test, hops)) => format!(
+            "No test calls it directly; {test} reaches it through {hops} caller \
+             hop(s). callers_of with depth {MAX_DEPTH} lists every caller, tests included"
+        ),
+        None => format!(
+            "No test calls it directly; it has {callers} caller(s), and tests can reach \
+             it through them. callers_of with depth {MAX_DEPTH} lists every caller, \
+             tests included"
+        ),
+    }
+}
+
+/// The page of rows a reply shows, where the budget cut them or `offset`
+/// skipped some.
+pub(super) struct Page {
+    pub(super) offset: usize,
+    /// Rows this page shows.
+    pub(super) kept: u64,
+    /// Rows there are, from the first.
+    pub(super) total: u64,
+    /// Whether the budget cut the rows.
+    pub(super) cut: bool,
+    /// Files the rows lie in, and how many of them `files` lists.
+    pub(super) files: usize,
+    pub(super) files_shown: usize,
+}
+
+/// The sentence for a page of rows: which rows it shows, how to get more,
+/// and how many files all of them lie in.
+pub(super) fn page_note(page: &Page, minimal: bool) -> String {
+    let Page {
+        offset,
+        kept,
+        total,
+        cut,
+        files,
+        files_shown,
+    } = *page;
+    let shown = if offset == 0 {
+        format!("Showing {kept} of {total} rows")
+    } else if kept == 0 {
+        format!("Showing no rows: offset {offset} is past the {total} rows")
+    } else {
+        format!(
+            "Showing rows {}-{} of {total}",
+            offset + 1,
+            offset as u64 + kept
+        )
+    };
+    let rest = if minimal && cut {
+        "; detail_level=\"standard\" lists more in one call"
+    } else if cut {
+        "; the offset call in next lists the rows after these"
+    } else {
+        ""
+    };
+    let more = if files > files_shown {
+        format!(" (first {files_shown} in files)")
+    } else {
+        " (files)".to_string()
+    };
+    format!("{shown}{rest}; all {total} lie in {files} files{more}")
+}
+
+/// The sentence for a walk its own row limit stopped: what is past the
+/// limit is on no page.
+pub(super) fn walk_cut_note() -> String {
+    format!(
+        "The walk stopped at {TRANSITIVE_ROW_LIMIT} rows past the first hop, so nodes past \
+         them are on no page; a smaller depth may give a closed list"
+    )
+}
+
+/// The sentence a reply ends with, if any: that rows use the target as a
+/// value, so calls through that value are missing; else, for a `closed`
+/// answer (every row shown, nothing unresolved, the walk complete), that
+/// the list is whole and what the graph leaves out for the target's
+/// language. A Go `callers_of` says instead whether every call of its name
+/// is bound, else where the unbound ones are (G8 defect 5,
+/// eval/g8_go/RESULTS.md), and names the function to read first: the
+/// `source_of` target and why.
+pub(super) fn ending(
+    store: &GraphStore,
+    pattern: &str,
+    node: Option<&GraphNode>,
+    found: &Found,
+    closed: bool,
+    import_kind: Option<&str>,
+) -> Option<(String, Option<(String, String)>)> {
+    // Counted by node, as `merge` folds the rows.
+    let value_uses = found
+        .rows
+        .iter()
+        .filter(|row| get(row, "relation") == Some(&json!(VALUE_REFERENCE)))
+        .filter_map(|row| get(row, "qualified_name"))
+        .collect::<HashSet<_>>()
+        .len();
+    if value_uses > 0 {
+        let note = format!(
+            "{value_uses} use it as a value (relation \"{VALUE_REFERENCE}\"); calls through that \
+             value are not edges, so callers may be missing: read where the value goes"
+        );
+        return Some((note, None));
+    }
+    if !closed {
+        return None;
+    }
+    let walked = found.reachability.is_some();
+    let language = node.map_or("", |node| node.language.as_str());
+    // Go direct callers: the calls of the name no definition takes.
+    let unbound = match language {
+        "go" if pattern == "callers_of" && !walked => {
+            node.and_then(|node| Some((node, go_unbound_calls(store, node)?)))
+        }
+        _ => None,
+    };
+    if let Some((node, unbound)) = unbound {
+        let rows: HashSet<&str> = found
+            .rows
+            .iter()
+            .filter_map(|row| get(row, "qualified_name").and_then(Value::as_str))
+            .collect();
+        let by_name = !found.rows.is_empty()
+            && found
+                .rows
+                .iter()
+                .all(|row| get(row, "match") == Some(&json!("bare_name")));
+        return Some((
+            go_callers_note(node, &unbound, &rows, by_name),
+            go_unbound_next(node, &unbound, &rows),
+        ));
+    }
+    closed_note(pattern, !walked, language, import_kind).map(|note| (note, None))
 }

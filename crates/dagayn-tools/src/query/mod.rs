@@ -9,14 +9,12 @@ mod resolve;
 mod rows;
 mod walk;
 
-use std::collections::HashSet;
-
 use serde_json::{Map, Value, json};
 
 use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
 use notes::{
-    NO_MATCHING_EDGES, closed_note, go_callers_note, go_unbound_calls, go_unbound_next, guidance,
-    no_edges_note,
+    NO_MATCHING_EDGES, Page, ending, found_summary, guidance, no_edges_note, page_note,
+    tests_through_callers_note, walk_cut_note,
 };
 pub(crate) use resolve::looks_like_file_target;
 use resolve::{Resolution, resolve};
@@ -24,8 +22,8 @@ pub(crate) use rows::{
     Row, cross_artifact_role, edge_dict, edge_import_kind, import_kind_matches, node_dict,
     node_row, python_dumps_len, sanitize,
 };
-use rows::{VALUE_REFERENCE, compact, get, merge, object, project_minimal, row_file};
-use walk::{TRANSITIVE_ROW_LIMIT, run_pattern};
+use rows::{compact, get, merge, object, project_minimal, row_file};
+use walk::run_pattern;
 
 /// `_BUILTIN_CALL_NAMES`: bare names `callers_of` skips.
 const BUILTIN_CALL_NAMES: &[&str] = &[
@@ -412,18 +410,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
                 .test_reach
                 .as_ref()
                 .and_then(|reach| Some((reach["nearest_test"].as_str()?, reach["hops"].as_u64()?)));
-            let count = callers.rows.len();
-            empty_note = Some(match nearest {
-                Some((test, hops)) => format!(
-                    "No test calls it directly; {test} reaches it through {hops} caller \
-                     hop(s). callers_of with depth {MAX_DEPTH} lists every caller, tests included"
-                ),
-                None => format!(
-                    "No test calls it directly; it has {count} caller(s), and tests can reach \
-                     it through them. callers_of with depth {MAX_DEPTH} lists every caller, \
-                     tests included"
-                ),
-            });
+            empty_note = Some(tests_through_callers_note(nearest, callers.rows.len()));
         }
     }
     let (confidence, zero_result_reason) = if raw_count > 0 {
@@ -445,16 +432,14 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         ("low", json!("not_found_in_current_graph"))
     };
     let guidance = guidance(pattern, target, raw_count, exact_count);
-    let mut summary = format!("Found {raw_count} result(s) for {pattern}('{target}')");
-    if depth > 1 {
-        summary.push_str(&format!(" within {depth} hops"));
-    }
-    if let Some(prefix) = path_prefix {
-        summary.push_str(&format!(" under '{prefix}'"));
-    }
-    if let Some(note) = &empty_note {
-        summary.push_str(&format!(". {note}"));
-    }
+    let summary = found_summary(
+        raw_count,
+        pattern,
+        target,
+        depth,
+        path_prefix,
+        empty_note.as_deref(),
+    );
 
     let mut payload = Ordered::default()
         .put("status", "ok")
@@ -583,11 +568,6 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             MAX_CUT_FILES
         };
         let shown = files.len().min(cap);
-        let more = if files.len() > shown {
-            format!(" (first {shown} in files)")
-        } else {
-            " (files)".to_string()
-        };
         let count = files.len();
         files.truncate(cap);
         // The file list comes before more rows: cut the rows again to fit it.
@@ -610,25 +590,15 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             .unwrap_or_else(|| json!({}));
         truncation["results"] = record;
         payload = payload.set("_truncation", truncation);
-        let shown = if offset == 0 {
-            format!("Showing {kept} of {total} rows")
-        } else if kept == 0 {
-            format!("Showing no rows: offset {offset} is past the {total} rows")
-        } else {
-            format!(
-                "Showing rows {}-{} of {total}",
-                offset + 1,
-                offset as u64 + kept
-            )
+        let page = Page {
+            offset,
+            kept,
+            total,
+            cut: cut.is_some(),
+            files: count,
+            files_shown: shown,
         };
-        let rest = if minimal && cut.is_some() {
-            "; detail_level=\"standard\" lists more in one call"
-        } else if cut.is_some() {
-            "; the offset call in next lists the rows after these"
-        } else {
-            ""
-        };
-        let summary = format!("{summary}. {shown}{rest}; all {total} lie in {count} files{more}");
+        let summary = format!("{summary}. {}", page_note(&page, minimal));
         payload = payload.replace("summary", json!(summary));
     }
     // The walk's own row limit bounds what any page can show.
@@ -638,10 +608,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         .is_some_and(|reach| reach.get("truncated") == Some(&Value::Bool(true)))
         && let Some(summary) = payload.get("summary").and_then(Value::as_str)
     {
-        let summary = format!(
-            "{summary}. The walk stopped at {TRANSITIVE_ROW_LIMIT} rows past the first hop, so \
-             nodes past them are on no page; a smaller depth may give a closed list"
-        );
+        let summary = format!("{summary}. {}", walk_cut_note());
         payload = payload.replace("summary", json!(summary));
     }
     // Say that a closed answer is the whole answer: agents re-checked lists
@@ -654,64 +621,14 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             reach.get("state") == Some(&json!("complete"))
                 && reach.get("depth_limit_reached") != Some(&Value::Bool(true))
         });
-    // A Go method or function has its own sentence: whether every call of
-    // its name is bound, else where the unbound ones are (G8 defect 5,
-    // eval/g8_go/RESULTS.md).
-    let go_direct_callers = node
-        .as_ref()
-        .filter(|node| {
-            pattern == "callers_of" && node.language == "go" && found.reachability.is_none()
-        })
-        .and_then(|node| Some((node, go_unbound_calls(store, node)?)));
     let mut unbound_caller = None;
-    // Counted by node, as `merge` folds the rows.
-    let value_uses = found
-        .rows
-        .iter()
-        .filter(|row| get(row, "relation") == Some(&json!(VALUE_REFERENCE)))
-        .filter_map(|row| get(row, "qualified_name"))
-        .collect::<HashSet<_>>()
-        .len();
-    if value_uses > 0
-        && let Some(summary) = payload.get("summary").and_then(Value::as_str)
-    {
-        let summary = format!(
-            "{summary}. {value_uses} use it as a value (relation \"{VALUE_REFERENCE}\"); calls \
-             through that value are not edges, so callers may be missing: read where the \
-             value goes"
-        );
-        payload = payload.replace("summary", json!(summary));
-    } else if closed
-        && let Some((node, unbound)) = go_direct_callers
-        && let Some(summary) = payload.get("summary").and_then(Value::as_str)
-    {
-        let rows: HashSet<&str> = found
-            .rows
-            .iter()
-            .filter_map(|row| get(row, "qualified_name").and_then(Value::as_str))
-            .collect();
-        let by_name = !found.rows.is_empty()
-            && found
-                .rows
-                .iter()
-                .all(|row| get(row, "match") == Some(&json!("bare_name")));
-        let summary = format!(
-            "{summary}. {}",
-            go_callers_note(node, &unbound, &rows, by_name)
-        );
-        payload = payload.replace("summary", json!(summary));
-        unbound_caller = go_unbound_next(node, &unbound, &rows);
-    } else if closed
-        && let Some(note) = closed_note(
-            pattern,
-            found.reachability.is_none(),
-            node.as_ref().map_or("", |node| node.language.as_str()),
-            import_kind,
-        )
+    if let Some((note, read_first)) =
+        ending(store, pattern, node.as_ref(), &found, closed, import_kind)
         && let Some(summary) = payload.get("summary").and_then(Value::as_str)
     {
         let summary = format!("{summary}. {note}");
         payload = payload.replace("summary", json!(summary));
+        unbound_caller = read_first;
     }
     let rows = payload
         .get("results")
