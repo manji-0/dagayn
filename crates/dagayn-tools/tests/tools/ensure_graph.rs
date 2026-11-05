@@ -7,7 +7,7 @@ fn ensure_graph_answers_only_when_there_is_nothing_to_prepare() {
     // dagayn: tests crates/dagayn-tools/src/ensure.rs::ensure_graph
     // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
     // dagayn: tests crates/dagayn-tools/src/review.rs::review
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("ensure", true);
     assert!(declines(&repo.context(), "ensure_graph_tool", json!({})));
     repo.build();
