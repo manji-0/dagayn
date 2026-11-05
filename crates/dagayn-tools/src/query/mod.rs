@@ -18,8 +18,9 @@ use crate::answerability::Answerability;
 use crate::go_module::GoScope;
 use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 use notes::{
-    NO_MATCHING_EDGES, OUTSIDE_MODULE_ONLY, Page, ending, found_summary, guidance, no_edges_note,
-    outside_guidance, outside_note, page_note, tests_through_callers_note, walk_cut_note,
+    NO_MATCHING_EDGES, OUTSIDE_MODULE_ONLY, Page, by_name_note, ending, found_summary, guidance,
+    no_edges_note, outside_guidance, outside_note, page_note, tests_through_callers_note,
+    walk_cut_note,
 };
 pub(crate) use resolve::looks_like_file_target;
 use resolve::{Ambiguity, Answers, Cut, Resolution, Unresolved, ambiguous, resolve};
@@ -492,10 +493,16 @@ fn answer(
         &answerability,
         exact_count,
     );
-    let (mut payload, paging) = page(payload, budget, &found.rows, query.offset, query.minimal);
+    let (mut payload, mut paging) = page(payload, budget, &found.rows, query.offset, query.minimal);
     // The walk's own row limit bounds what any page can show.
     if found.walk_cut() {
         payload = append_summary(payload, &walk_cut_note());
+    }
+    // Rows chosen by name alone are not a whole `tests_for` answer (#328).
+    if pattern == "tests_for" && by_name_only(&found.rows) {
+        payload = append_summary(payload, by_name_note());
+        payload = payload.replace("results_complete", json!(false));
+        paging.results_complete = false;
     }
     // Say that a closed answer is the whole answer: agents re-checked lists
     // the graph had already completed
@@ -548,8 +555,14 @@ impl Direct {
         for (index, (target, reply)) in self.replies.iter().enumerate() {
             let rows = reply["results"].as_array().map_or(&[][..], Vec::as_slice);
             let count = reply["result_count"].as_u64().unwrap_or(rows.len() as u64);
-            let complete = reply["results_complete"] == json!(true) && count <= self.rows as u64;
-            if !complete {
+            // A list cut by the budget or by `rows`; a `tests_for` by name
+            // alone is not complete either, but nothing is cut from it.
+            let truncated = reply
+                .get("_truncation")
+                .is_some_and(|truncation| truncation.get("results").is_some());
+            let shown = count <= self.rows as u64 && !truncated;
+            let complete = reply["results_complete"] == json!(true) && shown;
+            if !shown {
                 cut.push(Cut {
                     index,
                     rows: count,
@@ -1005,6 +1018,14 @@ fn page(
         files_shown: shown,
     };
     (append_summary(payload, &page_note(&page, minimal)), paging)
+}
+
+/// Whether every `tests_for` row is chosen by name alone: no edge links any.
+fn by_name_only(rows: &[Row]) -> bool {
+    !rows.is_empty()
+        && rows
+            .iter()
+            .all(|row| rows::get(row, "coverage_source") == Some(&json!("heuristic")))
 }
 
 /// `payload` with `sentence` added to its summary.

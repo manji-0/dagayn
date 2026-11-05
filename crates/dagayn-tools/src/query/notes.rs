@@ -821,6 +821,14 @@ pub(super) fn tests_through_callers_note(nearest: Option<(&str, u64)>, callers: 
     }
 }
 
+/// What `tests_for` says when every row is chosen by name (G10 H2, #328):
+/// nothing in the graph links them, so the list is not the whole answer.
+pub(super) fn by_name_note() -> &'static str {
+    "Every row is chosen by name (coverage_source \"heuristic\"): no call, value use, or \
+     dagayn: tests directive in the graph links one to it, so tests may be missing and \
+     results_complete is false"
+}
+
 /// The page of rows a reply shows, where the budget cut them or `offset`
 /// skipped some.
 pub(super) struct Page {

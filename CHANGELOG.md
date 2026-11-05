@@ -100,6 +100,17 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `tests_for` lists the tests that use a function as a value (#328). In
+  G10's H2, `tests_for(Recoverer)` on chi gave only `TestRecoverer`, by
+  its name, with `results_complete: true`; `TestRecovererNoColor` and
+  `TestRecovererAbortHandler` pass `Recoverer` the same way
+  (`r.Use(Recoverer)`). A test with a value reference to a function, the
+  edge the nearest-test walk already follows, is now a row with
+  `coverage_source: "value_use"` and evidence "test uses target as a
+  value"; on chi all three are rows. A reply whose every row is chosen by
+  name (`coverage_source: "heuristic"`) now has `results_complete: false`
+  and says so in its summary. In an ambiguous reply, such an answer is not
+  counted as cut.
 - `query_graph_tool`'s `candidates_truncated` is true only when the name
   matched more nodes than `candidates` lists. It was true whenever five
   were listed, so kong's `IsBool`, which names exactly five methods, said
