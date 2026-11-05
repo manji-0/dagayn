@@ -236,6 +236,6 @@ A harness beside `eval/run_search_eval.py`, run in CI on fixed fixtures:
   `pre_merge_check` MCP prompts (`dagayn/prompts.py`), the installed agent
   instructions (`dagayn/skills/instructions.py`), and the review,
   implement-feature, debug-issue, and refactor-safely skills.
-- Tests: `crates/dagayn-tools/tests/tools.rs` review cases, Python
+- Tests: `crates/dagayn-tools/tests/tools/review.rs`, Python
   `tests/test_changes.py`, `tests/test_review_flow_dispatchers.py`, and
   `tests/fixtures/parity/__mcp_snapshots__`.

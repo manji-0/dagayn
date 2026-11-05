@@ -310,6 +310,6 @@ eval also shows the mode needs no stored flows.
   the MCP tool description, `dagayn/prompts.py`,
   `dagayn/skills/instructions.py`, and the debug-issue, explore-codebase,
   implement-feature, review-pr, and build-graph skills.
-- Tests: flow cases in `crates/dagayn-tools/tests/tools.rs`,
+- Tests: `crates/dagayn-tools/tests/tools/flow.rs`,
   `tests/test_flows.py`, `tests/test_review_flow_dispatchers.py`, and the
   MCP parity snapshots.

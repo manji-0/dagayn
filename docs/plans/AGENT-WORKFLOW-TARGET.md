@@ -179,7 +179,7 @@ related node(s)" with `counts.result_count: 13`.
 
 ## Evaluation
 
-Three gates, all in `crates/dagayn-tools/tests/tools.rs`, run in CI on
+Three gates, all in `crates/dagayn-tools/tests/tools/reply_contract.rs`, run in CI on
 fixtures the tests build.
 
 - **Contract check**: `every_reply_names_calls_that_answer_and_fits_its_budget`.
@@ -298,7 +298,7 @@ fixtures the tests build.
    edges, consistently with its own `result_count`.
 6. Eval.
    - **Done:** the contract check,
-     `tests/tools.rs::every_reply_names_calls_that_answer_and_fits_its_budget`:
+     `tests/tools/reply_contract.rs::every_reply_names_calls_that_answer_and_fits_its_budget`:
      26 calls across the six tools and their levels on a fixture with a
      120-file change, each reply held to its budget and to at most three
      `next` calls, and every call it names (but a shell command) made and
@@ -381,7 +381,7 @@ fixtures the tests build.
       `imports_of` answer (nothing cut by the budget or the depth, no
       unresolved endpoints) ends its `summary` with "No (direct) caller the
       graph records is missing" and names what static parsing cannot see
-      (`tests/tools.rs::a_closed_answer_says_it_is_the_whole_answer`).
+      (`tests/tools/query_graph.rs::a_closed_answer_says_it_is_the_whole_answer`).
     - **Done:** `eval/run_agent_tokens_eval.py` measures the whole task:
       tokens, turns, dagayn calls, and replies over 8K characters for two
       dagayn builds (or one and none) on the same questions, with an

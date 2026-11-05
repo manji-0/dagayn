@@ -8,7 +8,7 @@
 no test reaches, directly or through callers up to 4 hops. On this
 repository it reported `crates/dagayn-tools/src/stability.rs` and two
 functions that call into it as untested, though
-`tests/tools.rs::unstable_dependencies_are_found_where_they_are_introduced`
+`tests/tools/architecture.rs::unstable_dependencies_are_found_where_they_are_introduced`
 runs them. Should the judgement change, and how?
 
 Status: the declaration and the call-graph fixes are shipped
@@ -100,7 +100,7 @@ On this repository: 119 fewer unresolved method calls, 45 more resolved
 value references, and 6 of 975 element-bound calls resolved (the rest
 come from calls of the standard library, left as they were). Every
 function the review had still called untested now has a caller.
-`tests/tools.rs::closures_over_returned_elements_and_method_values_reach_their_targets`
+`tests/tools/query_graph.rs::closures_over_returned_elements_and_method_values_reach_their_targets`
 holds the resolution across files.
 
 ## Evaluation
@@ -294,7 +294,7 @@ call to an associated function references its type, so
 - Floors raised to untested precision 0.43, recall 0.23, tested precision
   0.92 (the measured values less the margins the file already used).
 
-`tests/tools.rs::a_rust_test_that_uses_a_type_reaches_the_trait_methods_the_runtime_calls`
+`tests/tools/review.rs::a_rust_test_that_uses_a_type_reaches_the_trait_methods_the_runtime_calls`
 holds the trait step; `scip_overlay.rs`'s
 `a_call_keeps_its_own_target_when_a_test_crate_defines_the_same_symbol`
 holds the collision fix.
@@ -343,7 +343,7 @@ references (`initializer=_init_worker`, `signal(.., _handle_sigterm)`,
 call or takes another branch. Not a parsing error, and not one a reach
 rule can tell apart. Taking only CALLS into the class step (no
 REFERENCES) was measured and rejected: tested precision stayed 0.950 and
-4 more functions were wrongly called untested (untested precision 0.642). `tests/tools.rs::a_test_that_uses_a_class_reaches_the_methods_the_runtime_calls`
+4 more functions were wrongly called untested (untested precision 0.642). `tests/tools/review.rs::a_test_that_uses_a_class_reaches_the_methods_the_runtime_calls`
 holds the method reach.
 
 ## Code that runs without a caller
@@ -385,7 +385,7 @@ Left after these (3 functions that ran with no caller):
   validator of a model used only as a field type of another model, which
   the class step does not follow (a field annotation is a type reference).
 
-`tests/tools.rs::importing_a_module_reaches_what_its_import_runs` holds
+`tests/tools/review.rs::importing_a_module_reaches_what_its_import_runs` holds
 the import steps.
 
 ## Callers but no test path
@@ -431,7 +431,7 @@ base-class gap above; and `_ReadLockBoundStore.close`, a proxy
 `wrap_store_close_to_unbind` returns as the `_CloseableStore` protocol, so
 `store.close()` is a call through the protocol (the same gap).
 
-`tests/tools.rs::importing_a_module_reaches_its_top_level_calls_only`
+`tests/tools/review.rs::importing_a_module_reaches_its_top_level_calls_only`
 holds the import-time step.
 
 The import walk follows every IMPORTS_FROM into a module, including an
@@ -482,7 +482,7 @@ changing the population and coverage, not from the walk.
 
 - **`repos.rs` stays tested.** `list_repos` and the 7 functions under it
   are reached through
-  `tools.rs::every_reply_names_calls_that_answer_and_fits_its_budget`,
+  `tests/tools/reply_contract.rs::every_reply_names_calls_that_answer_and_fits_its_budget`,
   which calls each tool named in a reply's JSON `next`. No static reading
   rules out `"list_repos_tool"`.
 - **The other dispatchers** (`query.rs`'s `match pattern`, each tool's
@@ -526,5 +526,5 @@ Decisions:
   `eval/test_reach_rust_thresholds.yaml`,
   `tests/test_test_reach_eval.py`, and the CI step.
 - Tests: `core_tests/rust_lang.rs`, `dagayn-graph` `tests/analysis.rs`,
-  and the declarations in `crates/dagayn-tools/tests/tools.rs`.
+  and the declarations in `crates/dagayn-tools/tests/tools/`.
 - Docs: the writing-markdown-document skill's directive table.

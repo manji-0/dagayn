@@ -295,6 +295,6 @@ A harness beside `eval/run_review_eval.py`, run in CI on fixed fixtures:
   description and server instructions (`dagayn/server/mcp_surface.json`),
   `dagayn/skills/instructions.py`, `skills/architecture-analysis/SKILL.md`,
   `skills/explore-codebase/SKILL.md`.
-- Tests: `crates/dagayn-tools/tests/tools.rs` architecture cases,
+- Tests: `crates/dagayn-tools/tests/tools/architecture.rs`,
   `tests/test_architecture_analysis.py`, `tests/test_analysis_tools.py`,
   and `tests/fixtures/parity/__mcp_snapshots__`.
