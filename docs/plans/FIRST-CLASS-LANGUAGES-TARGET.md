@@ -10,7 +10,7 @@ Rust is the language where dagayn measurably helps an agent. What would it
 take for TypeScript (with JavaScript), Python, and Go to get the same level
 of support, and in what order should it be built?
 
-Status: in progress. M1, M3, G5 to G9, and T1 to T4 record their results
+Status: in progress. M1, M3, G5 to G10, and T1 to T4 record their results
 in the [work list](#work-list); M2 and G1 to G4 record theirs in
 [Go support measurements](./GO-SUPPORT-MEASUREMENTS.md). P1 and P2 have not
 started. Every work item ships only if it moves a number on a real
@@ -180,7 +180,7 @@ these calls with no import at all.
 | C7 | partial | the harness reads `go tool cover -func` ([M2](./GO-SUPPORT-MEASUREMENTS.md#m2-test-reach-against-go-coverage)): 0.954 / 0.991 / 0.985 on testify and 0.381 / 0.849 / 0.966 on compress at go 12 ([G3](./GO-SUPPORT-MEASUREMENTS.md#test-reach-and-the-no-caller-share)); no gate, because no Go corpus runs coverage in CI (#293) |
 | C8 | partial | review 7, architecture 3, flow 0, refactor 5; no flow case yet (#291) |
 | C9 | present | `init` and protocol methods (`dead_code_verify.rs:319-330`); exported names of importable packages (`go_exported_api`, G5); `Benchmark` / `Fuzz` / `Example` functions are `Test` nodes (G1) |
-| C10 | **failed** | G7, on questions a script cannot answer: tokens 1.00x, time 0.91x, neither significant ([results](../../eval/g7_go/RESULTS.md)). G8, on eight new questions on 11.0.0: tokens 1.20x (more, Holm p = 0.0003), time 0.97x, 73 against 79 of 80 exact ([results](../../eval/g8_go/RESULTS.md)). G9, under the revised bar, on go extractor 17: LONG time 0.79x (Holm p = 0.0003) at tokens 0.95x and 77 against 75 exact, but SHORT tokens 1.17x, above the 1.10 guard ([results](../../eval/g9_go/RESULTS.md)) |
+| C10 | **failed** | G7, on questions a script cannot answer: tokens 1.00x, time 0.91x, neither significant ([results](../../eval/g7_go/RESULTS.md)). G8, on eight new questions on 11.0.0: tokens 1.20x (more, Holm p = 0.0003), time 0.97x, 73 against 79 of 80 exact ([results](../../eval/g8_go/RESULTS.md)). G9, under the revised bar, on go extractor 17: LONG time 0.79x (Holm p = 0.0003) at tokens 0.95x and 77 against 75 exact, but SHORT tokens 1.17x, above the 1.10 guard ([results](../../eval/g9_go/RESULTS.md)). G10, through the CLI on twelve new questions (six on the untuned chi), on go extractor 18: LONG tokens 1.03x and time 0.98x (Holm p = 1.0), 75 against 76 exact; SHORT tokens 0.92x, within the 1.25 guard, but 39 against 40 exact ([results](../../eval/g10_go/RESULTS.md)) |
 | C11 | present | cgo and wasm bridges (`go.rs:280`, `:1316`) |
 
 ## Why Python cost agents tokens
@@ -418,6 +418,28 @@ method-call gap.
     standard library's `gzip.Writer`. Go is not first-class. The defects
     the runs show are listed in the results (#288, #289, #290). The next
     registered run is G10 (#292).
+    **G10, new questions and an untuned repository, through the CLI:
+    measured, not met** (2026-11-05,
+    [pre-registration](../../eval/g10_go/PREREG.md),
+    [results](../../eval/g10_go/RESULTS.md),
+    [decisions](#decisions-2026-11-05-after-g9)). Twelve new questions, 8
+    LONG and 4 SHORT, six of them on chi v5.5.0, a repository no fix since
+    G7 was tuned on. The candidate reached dagayn through `dagayn tool` in
+    the shell, with no MCP server. 240 runs on go extractor 18. LONG fails:
+    tokens 1.03x and time 0.98x (Holm p = 1.0 for both), with 75 against
+    76 of 80 exact. SHORT fails on accuracy alone: tokens were 0.92x,
+    within the 1.25 guard, but exact answers were 39 against 40. The one
+    miss kept a row that dagayn listed from chi's `_examples/`, a
+    directory the Go tools and the question leave out. chi's LONG
+    questions cost more (tokens 1.14x, time 1.12x, Holm p = 0.077,
+    secondary). The largest loss was test reach through a function passed
+    as a value (H2, 1.54x, Holm p = 0.0012): `tests_for` named a nearest
+    test and suggested a depth call that returned no test. compress, which
+    was tuned on, gained in both (tokens 0.84x, time 0.81x, secondary). No
+    run called `ToolSearch`, and no CLI call failed on its arguments. On
+    every question but one, at least half of the dagayn runs searched for
+    the name again after a complete reply. Go is not first-class. The
+    defects the runs show are listed in the results.
 
 ### TypeScript work
 

@@ -42,6 +42,19 @@ All notable changes to `dagayn` are documented here.
   one model request more than the baseline there, and 36 of 40 runs
   searched for the name after a complete answer. Go stays short of
   first-class.
+- G10, the pre-registered Go agent experiment on new questions and an
+  untuned repository (`eval/g10_go/PREREG.md`, #323), and its results
+  (`eval/g10_go/RESULTS.md`): the bar is not met. Twelve new questions (8
+  LONG, 4 SHORT) were drawn by a seeded rule on testify, compress, kong,
+  and chi v5.5.0, the added repository that no fix since G7 was tuned on,
+  which carries six of them. The candidate reached dagayn through the CLI
+  (`dagayn tool` in the shell, no MCP server), on go extractor 18. On
+  LONG, agents with dagayn used 1.03x the tokens and 0.98x the time of
+  agents without it (Holm p = 1.0), with 75 exact answers out of 80
+  against 76. On SHORT they used 0.92x the tokens, within the 1.25 guard,
+  but gave 39 exact answers against 40. The one miss kept a row that
+  dagayn listed from chi's `_examples/` directory. No run called
+  `ToolSearch`. Go stays short of first-class.
 
 ### Changed
 
