@@ -139,3 +139,54 @@ fn file_module_dir(store: &GraphStore, file: &str) -> Option<String> {
         .and_then(Value::as_str)
         .map(str::to_string)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Outside;
+
+    #[test]
+    fn each_place_says_why_the_go_tools_skip_it() {
+        let other = |dir: &str| Outside::OtherModule(dir.to_string());
+        let ignored = |path: &str| Outside::Ignored(path.to_string());
+        let cases = [
+            (
+                other("_examples/rest"),
+                "other_module",
+                "_examples/rest/",
+                "its own module",
+            ),
+            (other(""), "other_module", "./", "its own module"),
+            (
+                ignored("_examples"),
+                "underscore_name",
+                "_examples/",
+                "name starts with _",
+            ),
+            (
+                ignored("a/.hidden"),
+                "dot_name",
+                "a/.hidden/",
+                "name starts with .",
+            ),
+            (
+                ignored("lib/testdata"),
+                "testdata",
+                "lib/testdata/",
+                "testdata",
+            ),
+            (
+                ignored("lib/_gen.go"),
+                "underscore_name",
+                "lib/_gen.go",
+                "name starts with _",
+            ),
+        ];
+        for (outside, reason, place, why) in cases {
+            assert_eq!(
+                (outside.reason(), outside.place().as_str(), outside.why()),
+                (reason, place, why),
+                "{outside:?}"
+            );
+        }
+    }
+}
