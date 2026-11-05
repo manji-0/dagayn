@@ -43,7 +43,32 @@ All notable changes to `dagayn` are documented here.
   searched for the name after a complete answer. Go stays short of
   first-class.
 
+### Changed
+
+- `query_graph_tool` answers an ambiguous target for each candidate when
+  at most five nodes carry the name exactly, or as a respelling such as
+  `(*T).M` (#307). The reply stays
+  `status="ambiguous"` with `result_count: 0`, `results: []`, and
+  `candidates`, and adds `answers`: per candidate its `target` (the
+  qualified name), `result_count`, `results_complete`, and at most 20
+  rows, the `detail_level="minimal"` rows a direct query on that
+  qualified name gives, in its order. `next` holds the full query for
+  each answer that was cut, and is empty when none was. In G9, 12 first
+  calls with a bare or half-qualified method name (`IsBool`,
+  `(*Assertions).True`) cost one more request to resend; kong's `IsBool`
+  now gets the five answers in 3.6K characters. `source_of`, names
+  with more than five matches, and search hits that only look like the
+  name keep the list and the retries.
+- The ambiguous summary names the spelling to resend: a candidate's
+  `qualified_name`, or `path::Type.Method` (for Go also
+  `path::(*Type).Method`).
+
 ### Fixed
+
+- `query_graph_tool`'s `candidates_truncated` is true only when the name
+  matched more nodes than `candidates` lists. It was true whenever five
+  were listed, so kong's `IsBool`, which names exactly five methods, said
+  there were more.
 
 - `tests_for` names the same `test_reach.nearest_test` on every call. When
   several tests sat at the same hop count, the walk returned whichever it

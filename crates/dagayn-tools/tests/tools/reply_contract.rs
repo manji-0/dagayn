@@ -322,12 +322,31 @@ fn following_next_reaches_the_answer() {
         shown(&trace)
     );
 
-    // An ambiguous name: one retry, then an answer.
+    // An ambiguous name of few candidates: answered for each in the first
+    // reply, with nothing left to call.
     let trace = follow_next(
         &context,
         (
             "query_graph_tool",
             json!({"pattern": "callers_of", "target": "helper"}),
+        ),
+        2,
+    );
+    assert_eq!(trace.len(), 1, "{}", shown(&trace));
+    assert_eq!(trace[0].2["status"], "ambiguous", "{}", shown(&trace));
+    assert_eq!(
+        trace[0].2["answers"].as_array().map(Vec::len),
+        Some(2),
+        "{}",
+        shown(&trace)
+    );
+
+    // One whose answers do not come per candidate: one retry, then an answer.
+    let trace = follow_next(
+        &context,
+        (
+            "query_graph_tool",
+            json!({"pattern": "source_of", "target": "helper"}),
         ),
         2,
     );

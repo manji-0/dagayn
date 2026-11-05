@@ -31,7 +31,9 @@ needs, and close the loop after an edit with `review_tool`.
 
 Every reply ends with `next`: at most three calls with complete arguments and
 a `why`. Follow it unless the task points elsewhere; `[]` means the answer is
-complete. `status="ambiguous"` puts one retry per candidate in `next`, and
+complete. `status="ambiguous"` answers each of up to five nodes that carry
+the name in `answers` (but for `source_of`), with the full query of any cut
+answer in `next`; otherwise `next` holds one retry per candidate.
 `missingness` lists only the gaps that limit that reply. Full contract:
 `get_docs_section_tool(section_name="workflow")`."""
 

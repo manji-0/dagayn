@@ -297,17 +297,33 @@ fn an_ambiguous_target_names_its_retries() {
         json!({"pattern": "callers_of", "target": "helper", "depth": 2}),
     );
     assert_eq!(query["status"], "ambiguous");
-    let targets: Vec<&Value> = query["next"]
+    // Two candidates: each is answered whole, so nothing is left to retry.
+    let targets: Vec<&Value> = query["answers"]
+        .as_array()
+        .expect("answers")
+        .iter()
+        .map(|item| &item["target"])
+        .collect();
+    assert_eq!(targets.len(), 2, "{}", query["answers"]);
+    assert!(targets.contains(&&json!("app.py::helper")), "{targets:?}");
+    assert!(targets.contains(&&json!("lib.py::helper")), "{targets:?}");
+    assert_eq!(query["next"], json!([]));
+    // `source_of` is not answered per candidate: it names the retries.
+    let source = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "source_of", "target": "helper"}),
+    );
+    assert_eq!(source["status"], "ambiguous");
+    let targets: Vec<&Value> = source["next"]
         .as_array()
         .expect("next")
         .iter()
         .map(|call| &call["args"]["target"])
         .collect();
-    assert_eq!(targets.len(), 2, "{}", query["next"]);
+    assert_eq!(targets.len(), 2, "{}", source["next"]);
     assert!(targets.contains(&&json!("app.py::helper")), "{targets:?}");
-    assert!(targets.contains(&&json!("lib.py::helper")), "{targets:?}");
-    assert_eq!(query["next"][0]["args"]["depth"], 2);
-    assert_eq!(query["next"][0]["args"]["pattern"], "callers_of");
+    assert_eq!(source["next"][0]["args"]["pattern"], "source_of");
 
     let flow = answer(
         &context,

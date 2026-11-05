@@ -95,6 +95,6 @@
   "result_count": 0,
   "results": [],
   "status": "ambiguous",
-  "summary": "Multiple matches for 'Graph API'. Please use a qualified name.",
+  "summary": "Multiple matches for 'Graph API'. Resend target as one candidate's qualified_name.",
   "target": "Graph API"
 }

@@ -21,7 +21,7 @@ use notes::{
     tests_through_callers_note, walk_cut_note,
 };
 pub(crate) use resolve::looks_like_file_target;
-use resolve::{Resolution, resolve};
+use resolve::{Ambiguity, Answers, Cut, Resolution, Unresolved, ambiguous, resolve};
 pub(crate) use rows::{
     Row, cross_artifact_role, edge_dict, edge_import_kind, import_kind_matches, node_dict,
     node_row, python_dumps_len, sanitize,
@@ -288,6 +288,15 @@ const MAX_DEPTH: i64 = 6;
 const MAX_CUT_FILES: usize = 200;
 const MAX_CUT_FILES_MINIMAL: usize = 60;
 
+/// The rows each candidate of an ambiguous target is answered with at
+/// most. G9's ambiguous first calls named methods with 0 to 3 callers
+/// (kong `IsBool`) and 17 or 18 (testify `(*Assertions).True` and `.False`):
+/// twenty answers those whole, while a name with 50 callers (testify
+/// `assert/assertions.go::Contains`) shows its first twenty and names the
+/// full query in `next`. Five candidates of twenty minimal rows fit the
+/// `standard` budget; a smaller budget halves this until the reply fits.
+const CANDIDATE_ROWS: usize = 20;
+
 /// What a call asks for, once its arguments are checked.
 struct Query<'a> {
     pattern: &'a str,
@@ -317,6 +326,23 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             "offset",
         ],
     )?;
+    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
+    // Python checks the pattern and depth once the store is open, whatever
+    // the checkout.
+    let graph = open_graph(&root)?;
+    answer(&graph, &root, arguments, true)
+}
+
+/// The answer on an open graph. An ambiguous target is answered for each
+/// candidate (where `answer_candidates`) by this same call on the
+/// candidate's qualified name.
+fn answer(
+    graph: &OpenGraph,
+    root: &Path,
+    arguments: &Map<String, Value>,
+    answer_candidates: bool,
+) -> Option<Payload> {
+    let args = Args(arguments);
     let pattern = args.string("pattern")?;
     let target = args.string("target")?;
     let detail_level = match arguments.get("detail_level") {
@@ -331,27 +357,59 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     let path_prefix = args
         .optional_string("path_prefix")?
         .filter(|prefix| !prefix.is_empty());
-    let root = resolve_repo(context, args.optional_string("repo_root")?)?;
-    // Python checks the pattern and depth once the store is open, whatever
-    // the checkout.
-    let graph = open_graph(&root)?;
     if let Some(message) = argument_error(pattern, depth)
         .or_else(|| import_kind_error(pattern, import_kind))
         .or_else(|| (offset < 0).then(|| format!("offset must be 0 or more, got {offset}.")))
     {
-        return Some(error_answer(message, &graph));
+        return Some(error_answer(message, graph));
     }
     let store = &graph.store;
     let answerability = graph.answerability()?;
     if pattern == "callers_of" && !target.contains("::") && BUILTIN_CALL_NAMES.contains(&target) {
-        return Some(builtin_answer(pattern, target, &answerability, &graph));
+        return Some(builtin_answer(pattern, target, &answerability, graph));
     }
 
-    let (node, resolution) =
-        match resolve(&graph, &root, arguments, pattern, target, &answerability)? {
-            Ok(resolved) => resolved,
-            Err(answer) => return Some(answer),
-        };
+    let (node, resolution) = match resolve(graph, root, pattern, target, &answerability)? {
+        Ok(resolved) => resolved,
+        Err(Unresolved::Answer(answer)) => return Some(answer),
+        Err(Unresolved::Ambiguous(ambiguity)) => {
+            // Only nodes that carry the name are answered: answering search
+            // hits that merely look like it would be a guess (#307).
+            let answers = (answer_candidates
+                && ambiguity.exact_name
+                && pattern != "source_of"
+                && !ambiguity.truncated())
+            .then(|| candidate_answers(graph, root, arguments, &ambiguity))
+            .flatten();
+            let ambiguous = |answers: Option<&Answers>| {
+                ambiguous(
+                    arguments,
+                    pattern,
+                    target,
+                    &ambiguity,
+                    answers,
+                    &answerability,
+                    graph,
+                )
+            };
+            let Some(mut direct) = answers else {
+                return Some(ambiguous(None));
+            };
+            let budget = match detail_level {
+                "minimal" => crate::MINIMAL_BUDGET,
+                "full" => 8000,
+                _ => crate::STANDARD_BUDGET,
+            };
+            // Fewer rows per candidate until the reply fits its level's budget.
+            loop {
+                let reply = ambiguous(Some(&direct.answers(&ambiguity)));
+                if python_dumps_len(&reply.value) / 4 <= budget || direct.rows == 1 {
+                    return Some(reply);
+                }
+                direct.rows /= 2;
+            }
+        }
+    };
     let query = Query {
         pattern,
         // A name-resolved target is reported by its qualified name.
@@ -374,7 +432,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
     let node = node.as_ref();
     let mut found = run_pattern(
         store,
-        &root,
+        root,
         pattern,
         query.target,
         node,
@@ -389,7 +447,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
 
     // `query_zero_result_fields`.
     let (empty_note, tests_through_callers) =
-        zero_result_note(store, &root, &query, node, &found, exact_count)?;
+        zero_result_note(store, root, &query, node, &found, exact_count)?;
     let (confidence, zero_result_reason) = confidence(&found, empty_note.is_some());
     let mut payload = Ordered::default()
         .put("status", "ok")
@@ -448,7 +506,79 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         tests_through_callers,
     );
     payload = payload.replace("next", next);
-    Some(finish(payload, found, &answerability, &graph))
+    Some(finish(payload, found, &answerability, graph))
+}
+
+/// Each candidate's direct `detail_level="minimal"` answer, and the rows
+/// shown of each.
+struct Direct {
+    /// Per candidate: its qualified name and its direct reply.
+    replies: Vec<(String, Value)>,
+    rows: usize,
+}
+
+impl Direct {
+    /// The first `rows` rows of each direct answer, with its count and
+    /// whether these rows are all of it.
+    fn answers(&self, ambiguity: &Ambiguity) -> Answers {
+        let mut answers = Vec::new();
+        let mut cut = Vec::new();
+        for (index, (target, reply)) in self.replies.iter().enumerate() {
+            let rows = reply["results"].as_array().map_or(&[][..], Vec::as_slice);
+            let count = reply["result_count"].as_u64().unwrap_or(rows.len() as u64);
+            let complete = reply["results_complete"] == json!(true) && count <= self.rows as u64;
+            if !complete {
+                cut.push(Cut {
+                    index,
+                    rows: count,
+                    shown: rows.len().min(self.rows),
+                });
+            }
+            answers.push(json!({
+                "target": target,
+                "result_count": count,
+                "results_complete": complete,
+                "results": rows.iter().take(self.rows).cloned().collect::<Vec<_>>(),
+            }));
+        }
+        debug_assert_eq!(answers.len(), ambiguity.candidates.len());
+        Answers {
+            answers,
+            rows: self.rows,
+            cut,
+        }
+    }
+}
+
+/// The direct `detail_level="minimal"` answer for each candidate, as a call
+/// with its qualified name as `target` gives it (from the first row:
+/// `offset` is dropped, as the retries in `next` drop it); `None` where one
+/// is not a list of rows.
+fn candidate_answers(
+    graph: &OpenGraph,
+    root: &Path,
+    arguments: &Map<String, Value>,
+    ambiguity: &Ambiguity,
+) -> Option<Direct> {
+    let mut replies = Vec::new();
+    for node in &ambiguity.candidates {
+        let mut direct = arguments.clone();
+        direct.insert("target".into(), json!(node.qualified_name));
+        direct.insert("detail_level".into(), json!("minimal"));
+        direct.remove("offset");
+        let reply = answer(graph, root, &direct, false)?.value;
+        if reply["status"] != json!("ok")
+            || !reply["results"].is_array()
+            || !reply["result_count"].is_u64()
+        {
+            return None;
+        }
+        replies.push((sanitize(&node.qualified_name), reply));
+    }
+    Some(Direct {
+        replies,
+        rows: CANDIDATE_ROWS,
+    })
 }
 
 /// The answer for arguments `query_graph` does not take.
