@@ -5,7 +5,7 @@ use dagayn_graph::{
     ImpactRadius, NodeInput, NodeSignatureRow, ScipIndexInput,
 };
 use dagayn_postproc::{
-    detect_communities_json as native_detect_communities_json,
+    ManifestMode, detect_communities_json as native_detect_communities_json,
     incremental_detect_communities as native_incremental_detect_communities,
     prune_orphaned_graph_structures as native_prune_orphaned_graph_structures,
     refresh_community_stats_json as native_refresh_community_stats_json,
@@ -405,26 +405,6 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.compute_missing_signatures())
     }
 
-    fn resolve_markdown_artifact_refs(&self) -> PyResult<(i64, i64, i64, i64)> {
-        self.with_store_mut(|store| store.resolve_markdown_artifact_refs())
-    }
-
-    fn demote_unresolved_endpoint_edges(&self) -> PyResult<i64> {
-        self.with_store_mut(|store| store.demote_unresolved_endpoint_edges())
-    }
-
-    fn resolve_terraform_artifact_refs(&self) -> PyResult<(i64, i64)> {
-        self.with_store_mut(|store| store.resolve_terraform_artifact_refs())
-    }
-
-    fn resolve_native_bindings(&self) -> PyResult<i64> {
-        self.with_store_mut(|store| store.resolve_native_bindings())
-    }
-
-    fn resolve_request_boundaries(&self) -> PyResult<i64> {
-        self.with_store_mut(|store| store.resolve_request_boundaries())
-    }
-
     fn resolve_bare_call_targets(&self) -> PyResult<i64> {
         self.with_store_mut(|store| store.resolve_bare_call_targets())
     }
@@ -455,14 +435,6 @@ impl PyGraphStore {
         self.with_store_mut(|store| store.resolve_bare_inheritance_targets())
     }
 
-    fn link_foreign_impl_members(&self) -> PyResult<i64> {
-        self.with_store_mut(|store| store.link_foreign_impl_members())
-    }
-
-    fn resolve_terraform_module_references(&self) -> PyResult<i64> {
-        self.with_store_mut(|store| store.resolve_terraform_module_references())
-    }
-
     fn import_targets_by_file(&self) -> PyResult<std::collections::HashMap<String, Vec<String>>> {
         self.with_store(|store| store.import_targets_by_file())
     }
@@ -478,36 +450,41 @@ impl PyGraphStore {
         self.with_store(|store| store.symbol_visibility_by_file())
     }
 
-    fn replace_manifest_bridges_json(
-        &self,
-        extractor_id: &str,
-        nodes_json: &str,
-        edges_json: &str,
-    ) -> PyResult<i64> {
-        self.with_store_mut(|store| {
-            store.replace_manifest_bridges_json(extractor_id, nodes_json, edges_json)
-        })
-    }
-
     fn sync_fts_for_file_paths(&self, file_paths: Vec<String>) -> PyResult<i64> {
         self.with_store_mut(|store| store.sync_fts_for_file_paths(&file_paths))
     }
 
-    #[pyo3(signature = (manifest_extractor_id, manifest_nodes_json, manifest_edges_json, min_community_size = 2, changed_files = None))]
+    /// Every post-processing pass, then communities unless
+    /// `min_community_size` is `None`. `manifest_mode` is `"auto"` (two empty
+    /// arrays leave the stored bridges), `"replace"` (even empty arrays
+    /// replace them), or `"keep"` (no manifest step).
+    #[pyo3(signature = (manifest_extractor_id, manifest_nodes_json, manifest_edges_json, min_community_size = Some(2), changed_files = None, manifest_mode = "auto"))]
     fn run_post_processing_json(
         &self,
         manifest_extractor_id: &str,
         manifest_nodes_json: &str,
         manifest_edges_json: &str,
-        min_community_size: i64,
+        min_community_size: Option<i64>,
         changed_files: Option<Vec<String>>,
+        manifest_mode: &str,
     ) -> PyResult<String> {
+        let manifest_mode = match manifest_mode {
+            "auto" => ManifestMode::Auto,
+            "replace" => ManifestMode::Replace,
+            "keep" => ManifestMode::Keep,
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "manifest_mode must be auto, replace, or keep, not {other:?}"
+                )));
+            }
+        };
         self.with_store_mut(|store| {
             native_run_post_processing_json(
                 store,
                 manifest_extractor_id,
                 manifest_nodes_json,
                 manifest_edges_json,
+                manifest_mode,
                 min_community_size,
                 changed_files.as_deref(),
             )

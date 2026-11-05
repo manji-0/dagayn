@@ -10,10 +10,9 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from dagayn.contracts.state_types import PostprocessResult
 from dagayn.graph import GraphStore
 from dagayn.parser._base.types import EdgeInfo, NodeInfo
-from dagayn.postprocessing import _resolve_markdown_artifact_refs
+from dagayn.postprocessing import run_post_processing
 from tests.store_sql import store_conn
 
 
@@ -99,8 +98,7 @@ class TestResolveToDemote:
         self.store.commit()
 
         # Symbol still exists — no change
-        result = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result, [])
+        result = run_post_processing(self.store, communities=False)
         assert result.markdown_artifact_refs_resolved == 0
         assert result.markdown_artifact_refs_dropped == 0
 
@@ -108,8 +106,7 @@ class TestResolveToDemote:
         store_conn(self.store).execute("DELETE FROM nodes WHERE name='compute_foo'")
         self.store.commit()
 
-        result2 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result2, [])
+        result2 = run_post_processing(self.store, communities=False)
         assert result2.markdown_artifact_refs_dropped == 1
 
         count = (
@@ -134,8 +131,7 @@ class TestUnresolvedToResolved:
         self.store.upsert_edge(_ca_edge("new_bar"))
         self.store.commit()
 
-        result1 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result1, [])
+        result1 = run_post_processing(self.store, communities=False)
         assert result1.markdown_artifact_refs_resolved == 0
         assert result1.markdown_artifact_refs_still_unresolved == 0
         assert result1.markdown_artifact_refs_dropped == 1
@@ -164,8 +160,7 @@ class TestAmbiguousToUnique:
         self.store.upsert_edge(_ca_edge("Quux"))
         self.store.commit()
 
-        result1 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result1, [])
+        result1 = run_post_processing(self.store, communities=False)
         assert result1.markdown_artifact_refs_resolved == 0
         assert result1.markdown_artifact_refs_still_unresolved == 0
         assert result1.markdown_artifact_refs_dropped == 1
@@ -193,16 +188,14 @@ class TestUniqueToAmbiguous:
         self.store.upsert_edge(_ca_edge("Zap"))
         self.store.commit()
 
-        result1 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result1, [])
+        result1 = run_post_processing(self.store, communities=False)
         assert result1.markdown_artifact_refs_resolved == 1
 
         # Add a duplicate in another file
         self.store.upsert_node(_py_node("Zap", "/repo/b.py"))
         self.store.commit()
 
-        result2 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result2, [])
+        result2 = run_post_processing(self.store, communities=False)
         assert result2.markdown_artifact_refs_dropped == 1
 
         count = (
@@ -228,12 +221,10 @@ class TestIdempotence:
         self.store.upsert_edge(_ca_edge("steady_fn"))
         self.store.commit()
 
-        result1 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result1, [])
+        result1 = run_post_processing(self.store, communities=False)
         assert result1.markdown_artifact_refs_resolved == 1
 
-        result2 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result2, [])
+        result2 = run_post_processing(self.store, communities=False)
         assert result2.markdown_artifact_refs_resolved == 0
         assert result2.markdown_artifact_refs_dropped == 0
         assert result2.markdown_artifact_refs_re_resolved == 0
@@ -242,13 +233,11 @@ class TestIdempotence:
         self.store.upsert_edge(_ca_edge("missing_sym"))
         self.store.commit()
 
-        result1 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result1, [])
+        result1 = run_post_processing(self.store, communities=False)
         assert result1.markdown_artifact_refs_still_unresolved == 0
         assert result1.markdown_artifact_refs_dropped == 1
 
-        result2 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result2, [])
+        result2 = run_post_processing(self.store, communities=False)
         assert result2.markdown_artifact_refs_still_unresolved == 0
         assert result2.markdown_artifact_refs_resolved == 0
 
@@ -256,12 +245,10 @@ class TestIdempotence:
         self.store.upsert_edge(_directive_edge("missing_sym"))
         self.store.commit()
 
-        result1 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result1, [])
+        result1 = run_post_processing(self.store, communities=False)
         assert result1.markdown_artifact_refs_still_unresolved == 1
         assert result1.markdown_artifact_refs_dropped == 0
 
-        result2 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result2, [])
+        result2 = run_post_processing(self.store, communities=False)
         assert result2.markdown_artifact_refs_still_unresolved == 1
         assert result2.markdown_artifact_refs_resolved == 0

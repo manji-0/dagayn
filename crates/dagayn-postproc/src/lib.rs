@@ -12,5 +12,7 @@ pub use communities::{
     DetectedCommunity, detect_communities, detect_communities_json, incremental_detect_communities,
     refresh_community_stats_json,
 };
-pub use pipeline::{PostprocessResult, run_post_processing_json};
+pub use pipeline::{
+    ManifestBridges, ManifestMode, PostprocessResult, run_passes, run_post_processing_json,
+};
 pub use prune::prune_orphaned_graph_structures;

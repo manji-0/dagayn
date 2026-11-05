@@ -424,80 +424,30 @@ def _run_postprocess(
         return warnings
 
     post_result = build_result.postprocess
-    # -- Signatures + FTS (fast, always run unless "none") --
-    try:
-        store.compute_missing_signatures()
-        build_result.signatures_updated = True
-    except (sqlite3.OperationalError, RuntimeError, TypeError, KeyError) as e:
-        _warn(warnings, "Signature computation", e)
+    # -- Signatures, FTS, and every edge pass: one Rust call --
+    from dagayn.postprocessing import run_post_processing
 
     try:
-        if changed_files and not full_rebuild:
-            fts_count = int(store.sync_fts_for_file_paths(changed_files))
-        else:
-            from dagayn.search import rebuild_fts_index
-
-            fts_count = rebuild_fts_index(store)
-        build_result.fts_indexed = fts_count
-        build_result.fts_rebuilt = True
-    except (sqlite3.OperationalError, ImportError, RuntimeError, TypeError) as e:
-        _warn(warnings, "FTS index rebuild", e)
-
-    try:
-        from dagayn.postprocessing import _resolve_bare_name_edges
-
-        _resolve_bare_name_edges(store, post_result, warnings)
-    except (sqlite3.OperationalError, ImportError) as e:
-        _warn(warnings, "Bare-name edge resolution", e)
-
-    try:
-        from dagayn.postprocessing import _resolve_terraform_module_references
-
-        _resolve_terraform_module_references(store, post_result, warnings)
-    except (sqlite3.OperationalError, ImportError) as e:
-        _warn(warnings, "Terraform module reference resolution", e)
-
-    try:
-        from dagayn.postprocessing import _demote_unresolved_endpoint_edges
-
-        _demote_unresolved_endpoint_edges(store, post_result, warnings)
-    except (sqlite3.OperationalError, ImportError) as e:
-        _warn(warnings, "Unresolved endpoint demotion", e)
-
-    try:
-        from dagayn.postprocessing import _resolve_markdown_artifact_refs
-
-        _resolve_markdown_artifact_refs(store, post_result, warnings)
-    except (sqlite3.OperationalError, ImportError) as e:
-        _warn(warnings, "Markdown artifact ref resolution", e)
-
-    try:
-        from dagayn.postprocessing import _resolve_terraform_artifact_refs
-
-        _resolve_terraform_artifact_refs(store, post_result, warnings)
-    except (sqlite3.OperationalError, ImportError) as e:
-        _warn(warnings, "Terraform artifact ref resolution", e)
-
-    try:
-        from dagayn.postprocessing import _apply_manifest_bridges
-
-        _apply_manifest_bridges(store, post_result, warnings, changed_files)
-    except (sqlite3.OperationalError, ImportError) as e:
-        _warn(warnings, "Manifest bridge extraction", e)
-
-    try:
-        from dagayn.postprocessing import _resolve_native_bindings
-
-        _resolve_native_bindings(store, post_result, warnings)
-    except (sqlite3.OperationalError, ImportError, RuntimeError) as e:
-        _warn(warnings, "Native binding resolution", e)
-
-    try:
-        from dagayn.postprocessing import _resolve_request_boundaries
-
-        _resolve_request_boundaries(store, post_result, warnings)
-    except (sqlite3.OperationalError, ImportError, RuntimeError) as e:
-        _warn(warnings, "Request boundary resolution", e)
+        steps = run_post_processing(
+            store,
+            changed_files if not full_rebuild else None,
+            communities=False,
+            for_build=True,
+        )
+    except RuntimeError as e:
+        _warn(warnings, "Post-processing", e)
+    else:
+        warnings.extend(steps.warnings)
+        if steps.signatures_computed is not None:
+            build_result.signatures_updated = True
+        if steps.fts_indexed is not None:
+            build_result.fts_indexed = steps.fts_indexed
+            build_result.fts_rebuilt = True
+        counters = steps.model_dump(
+            exclude_none=True, exclude={"signatures_computed", "fts_indexed", "warnings"}
+        )
+        for key, value in counters.items():
+            setattr(post_result, key, value)
 
     if postprocess != "minimal":
         # -- Expensive: communities + summaries (only for "full") --

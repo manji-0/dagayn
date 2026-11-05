@@ -1,15 +1,15 @@
 //! Post-processing after a build or an update.
 //!
 //! Port of `dagayn.tools.build._run_postprocess` and the branch of
-//! `build_or_update_graph` that drives it for the native store (which has
-//! no `_conn`, so Python never takes the single `run_post_processing_json`
-//! pass there either). The step
-//! order matters (bare-name resolution before demotion, manifest bridges
-//! before native bindings), so it follows the Python one call for call.
+//! `build_or_update_graph` that drives it. The passes themselves, and their
+//! order, are `dagayn_postproc::run_passes`, which the Python path runs too;
+//! this module adds the level metadata, communities, summaries, and the
+//! orphan prune.
 
 use std::path::Path;
 
 use dagayn_graph::{GraphError, GraphStore};
+use dagayn_postproc::{ManifestBridges, PostprocessResult};
 use serde_json::{Map, Value, json};
 
 use crate::local_time::local_timestamp;
@@ -180,7 +180,10 @@ fn full_after_rebuild(
     Ok(outcome)
 }
 
-/// The minimal steps of `_run_postprocess`, in its order.
+/// The minimal steps: `dagayn_postproc::run_passes`, with the manifest
+/// bridges scanned from the VCS listing unless an update touched no
+/// manifest. The counters go to `outcome` without `signatures_computed`,
+/// which the build reply does not carry.
 fn minimal_steps(
     repo_root: &Path,
     store: &mut GraphStore,
@@ -188,81 +191,20 @@ fn minimal_steps(
     changed_files: Option<&[String]>,
     outcome: &mut PostprocessOutcome,
 ) {
-    outcome.step("Signature computation", || {
-        store.compute_missing_signatures()
-    });
-    if let Some(count) = outcome.step("FTS index rebuild", || match changed_files {
-        Some(files) if !files.is_empty() => store.sync_fts_for_file_paths(files),
-        _ => store.rebuild_fts_index(),
-    }) {
-        outcome.set("fts_indexed", count);
-    }
-    if let Some((calls, inheritance)) = outcome.step("Bare-name edge resolution", || {
-        Ok((
-            store.resolve_bare_call_targets()?,
-            store.resolve_bare_inheritance_targets()?,
-        ))
-    }) {
-        outcome.set("bare_call_targets_resolved", calls);
-        outcome.set("bare_inheritance_targets_resolved", inheritance);
-    }
-    if let Some(count) = outcome.step("Rust impl member linking", || {
-        store.link_foreign_impl_members()
-    }) {
-        outcome.set("foreign_impl_members_linked", count);
-    }
-    if let Some(count) = outcome.step("Terraform module reference resolution", || {
-        store.resolve_terraform_module_references()
-    }) {
-        outcome.set("terraform_module_references_resolved", count);
-    }
-    if let Some(count) = outcome.step("Unresolved endpoint demotion", || {
-        store.demote_unresolved_endpoint_edges()
-    }) {
-        outcome.set("unresolved_endpoint_edges_demoted", count);
-    }
-    if let Some((resolved, dropped, re_resolved, still)) = outcome
-        .step("Markdown artifact ref resolution", || {
-            store.resolve_markdown_artifact_refs()
-        })
-    {
-        outcome.set("markdown_artifact_refs_resolved", resolved);
-        outcome.set("markdown_artifact_refs_dropped", dropped);
-        outcome.set("markdown_artifact_refs_re_resolved", re_resolved);
-        outcome.set("markdown_artifact_refs_still_unresolved", still);
-    }
-    if let Some((resolved, still)) = outcome.step("Terraform artifact ref resolution", || {
-        store.resolve_terraform_artifact_refs()
-    }) {
-        outcome.set("terraform_artifact_refs_resolved", resolved);
-        outcome.set("terraform_artifact_refs_still_unresolved", still);
-    }
-    if should_scan_manifests(changed_files)
-        && let Some((edges, nodes)) = outcome.step("Manifest bridge extraction", || {
-            let (nodes_json, edges_json) = manifest_bridges_json(repo_root, recurse_submodules)?;
-            let edge_count = serde_json::from_str::<Vec<Value>>(&edges_json)
-                .map(|edges| edges.len() as i64)
-                .unwrap_or(0);
-            let nodes = store.replace_manifest_bridges_json(
-                dagayn_postproc::manifest_bridges::EXTRACTOR_ID,
-                &nodes_json,
-                &edges_json,
-            )?;
-            Ok((edge_count, nodes))
-        })
-    {
-        outcome.set("manifest_bridges_edges", edges);
-        outcome.set("manifest_bridges_nodes", nodes);
-    }
-    if let Some(count) = outcome.step("Native binding resolution", || {
-        store.resolve_native_bindings()
-    }) {
-        outcome.set("native_bindings_resolved", count);
-    }
-    if let Some(count) = outcome.step("Request boundary resolution", || {
-        store.resolve_request_boundaries()
-    }) {
-        outcome.set("request_boundaries_resolved", count);
+    let manifests = if should_scan_manifests(changed_files) {
+        ManifestBridges::Replace {
+            extractor_id: dagayn_postproc::manifest_bridges::EXTRACTOR_ID,
+            discover: || manifest_bridges_json(repo_root, recurse_submodules),
+        }
+    } else {
+        ManifestBridges::Keep
+    };
+    let mut result = PostprocessResult::default();
+    dagayn_postproc::run_passes(store, changed_files, manifests, &mut result);
+    outcome.warnings.append(&mut result.warnings);
+    result.signatures_computed = None;
+    if let Ok(Value::Object(counters)) = serde_json::to_value(&result) {
+        outcome.counters.extend(counters);
     }
 }
 

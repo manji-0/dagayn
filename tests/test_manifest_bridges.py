@@ -6,12 +6,12 @@ import json
 import tempfile
 from pathlib import Path
 
-from dagayn.contracts.state_types import PostprocessResult
+from dagayn import postprocessing
 from dagayn.graph import GraphStore
 from dagayn.incremental_build import full_build
 from dagayn.parser._base.types import NodeInfo
 from dagayn.parser.manifest_bridges import EXTRACTOR_ID, discover_manifest_bridges
-from dagayn.postprocessing import _apply_manifest_bridges, run_post_processing
+from dagayn.postprocessing import run_post_processing
 from tests.store_sql import store_conn
 
 FIXTURES = Path(__file__).parent / "fixtures" / "cross_artifact_manifest"
@@ -594,8 +594,7 @@ class TestApplyManifestBridges:
     def test_apply_persists_edges_and_stats(self):
         repo = FIXTURES / "py_rust"
         self.store.set_metadata("repo_root", str(repo.resolve()))
-        result = PostprocessResult()
-        _apply_manifest_bridges(self.store, result, [])
+        result = run_post_processing(self.store, communities=False, for_build=True)
         # pyproject.toml -> Cargo.toml, and Cargo.toml -> its library root.
         assert result.manifest_bridges_edges == 2
 
@@ -611,31 +610,26 @@ class TestApplyManifestBridges:
     def test_apply_is_idempotent(self):
         repo = FIXTURES / "generated_client"
         self.store.set_metadata("repo_root", str(repo.resolve()))
-        first = PostprocessResult()
-        second = PostprocessResult()
-        _apply_manifest_bridges(self.store, first, [])
-        _apply_manifest_bridges(self.store, second, [])
+        first = run_post_processing(self.store, communities=False, for_build=True)
+        second = run_post_processing(self.store, communities=False, for_build=True)
         assert first.manifest_bridges_edges == second.manifest_bridges_edges == 2
         assert len(_manifest_edges(self.store)) == 2
 
-    def test_apply_rolls_back_when_upsert_fails(self, monkeypatch):
+    def test_failed_extraction_keeps_stored_bridges(self, monkeypatch):
         repo = FIXTURES / "py_rust"
         self.store.set_metadata("repo_root", str(repo.resolve()))
-        _apply_manifest_bridges(self.store, PostprocessResult(), [])
+        run_post_processing(self.store, communities=False, for_build=True)
         assert len(_manifest_edges(self.store)) == 2
         prior = _manifest_edges(self.store)
 
         def boom(*_args, **_kwargs):
-            raise RuntimeError("simulated upsert failure")
+            raise RuntimeError("simulated discovery failure")
 
-        monkeypatch.setattr(self.store, "replace_manifest_bridges_json", boom)
-        warnings: list[str] = []
-        result = PostprocessResult()
-        _apply_manifest_bridges(self.store, result, warnings)
+        monkeypatch.setattr(postprocessing, "_discover_manifest_bridges", boom)
+        result = run_post_processing(self.store, communities=False, for_build=True)
 
-        assert len(_manifest_edges(self.store)) == 2
         assert _manifest_edges(self.store) == prior
-        assert any("Manifest bridge extraction failed" in w for w in warnings)
+        assert any("Manifest bridge extraction failed" in w for w in result.warnings)
         assert result.manifest_bridges_edges is None
 
     def test_apply_preserves_existing_file_hash_and_mtime(self):
@@ -655,7 +649,7 @@ class TestApplyManifestBridges:
         )
         self.store.commit()
 
-        _apply_manifest_bridges(self.store, PostprocessResult(), [])
+        run_post_processing(self.store, communities=False, for_build=True)
 
         row = (
             store_conn(self.store)

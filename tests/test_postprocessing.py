@@ -5,11 +5,11 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from dagayn.contracts.state_types import BuildResult, PostprocessResult
+from dagayn.contracts.state_types import BuildResult
 from dagayn.graph import GraphStore
 from dagayn.incremental_build import full_build
 from dagayn.parser import EdgeInfo, NodeInfo
-from dagayn.postprocessing import _resolve_markdown_artifact_refs, run_post_processing
+from dagayn.postprocessing import run_post_processing
 from tests.store_sql import store_conn
 
 
@@ -272,7 +272,7 @@ class TestWatchCallbackIntegration:
 
 
 class TestMarkdownArtifactResolver:
-    """Unit tests for _resolve_markdown_artifact_refs postprocess step."""
+    """The Markdown artifact ref pass, run through ``run_post_processing``."""
 
     def setup_method(self):
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -333,8 +333,7 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._unresolved_edge("BridgePattern"))
         self.store.commit()
 
-        result = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result, [])
+        result = run_post_processing(self.store, communities=False)
 
         assert result.markdown_artifact_refs_resolved == 1
         assert result.markdown_artifact_refs_dropped == 0
@@ -369,8 +368,7 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._directive_edge("BridgePattern"))
         self.store.commit()
 
-        result = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result, [])
+        result = run_post_processing(self.store, communities=False)
 
         assert result.markdown_artifact_refs_resolved == 1
         row = (
@@ -403,8 +401,7 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._unresolved_edge("Foo"))
         self.store.commit()
 
-        result = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result, [])
+        result = run_post_processing(self.store, communities=False)
 
         assert result.markdown_artifact_refs_resolved == 0
         assert result.markdown_artifact_refs_dropped == 1
@@ -421,8 +418,7 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._unresolved_edge("NonexistentSymbolXYZ"))
         self.store.commit()
 
-        result = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result, [])
+        result = run_post_processing(self.store, communities=False)
 
         assert result.markdown_artifact_refs_resolved == 0
         assert result.markdown_artifact_refs_dropped == 1
@@ -439,8 +435,7 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._directive_edge("NonexistentSymbolXYZ"))
         self.store.commit()
 
-        result = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result, [])
+        result = run_post_processing(self.store, communities=False)
 
         assert result.markdown_artifact_refs_resolved == 0
         assert result.markdown_artifact_refs_dropped == 0
@@ -467,8 +462,7 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._unresolved_edge("MySection"))
         self.store.commit()
 
-        result = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result, [])
+        result = run_post_processing(self.store, communities=False)
 
         assert result.markdown_artifact_refs_still_unresolved == 0
         assert result.markdown_artifact_refs_dropped == 1
@@ -488,12 +482,10 @@ class TestMarkdownArtifactResolver:
         self.store.upsert_edge(self._unresolved_edge("helper"))
         self.store.commit()
 
-        result1 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result1, [])
+        result1 = run_post_processing(self.store, communities=False)
         assert result1.markdown_artifact_refs_resolved == 1
 
-        result2 = PostprocessResult()
-        _resolve_markdown_artifact_refs(self.store, result2, [])
+        result2 = run_post_processing(self.store, communities=False)
         assert result2.markdown_artifact_refs_resolved == 0
         assert result2.markdown_artifact_refs_dropped == 0
 
@@ -559,12 +551,8 @@ class TestTerraformModuleReferenceResolver:
         )
         self.store.commit()
 
-        result = PostprocessResult()
-        warnings: list[str] = []
-        from dagayn.postprocessing import _resolve_terraform_module_references
-
-        _resolve_terraform_module_references(self.store, result, warnings)
-        assert warnings == []
+        result = run_post_processing(self.store, communities=False)
+        assert result.warnings == []
         assert result.terraform_module_references_resolved == 1
         row = (
             store_conn(self.store)
@@ -631,12 +619,8 @@ class TestTerraformArtifactResolver:
         self.store.upsert_node(self._function_node("hello.main"))
         self.store.commit()
 
-        result = PostprocessResult()
-        warnings: list[str] = []
-        from dagayn.postprocessing import _resolve_terraform_artifact_refs
-
-        _resolve_terraform_artifact_refs(self.store, result, warnings)
-        assert warnings == []
+        result = run_post_processing(self.store, communities=False)
+        assert result.warnings == []
         assert result.terraform_artifact_refs_resolved == 1
 
         row = (

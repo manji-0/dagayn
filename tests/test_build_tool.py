@@ -9,6 +9,7 @@ the helpers it calls.
 from __future__ import annotations
 
 import functools
+import json
 import sqlite3
 import subprocess
 import threading
@@ -210,27 +211,50 @@ def failing_signatures(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(build_tool, "_get_store", get_store)
 
 
+@pytest.fixture()
+def failing_pass_signatures(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the Rust pass sequence report a failed signature step.
+
+    The build runs every pass in one ``run_post_processing_json`` call, so a
+    Python-side patch of ``compute_missing_signatures`` no longer reaches it;
+    this rewrites that call's reply as Rust's ``record_step`` writes a failure.
+    """
+    real_get_store = build_tool._get_store
+
+    def get_store(repo_root=None, cached=True):
+        store, root = real_get_store(repo_root, cached=cached)
+        real_run = store.run_post_processing_json
+
+        def run(*args, **kwargs):
+            payload = json.loads(real_run(*args, **kwargs))
+            payload.pop("signatures_computed", None)
+            payload["warnings"] = ["Signature computation failed: disk I/O error"]
+            return json.dumps(payload)
+
+        store.run_post_processing_json = run
+        return store, root
+
+    monkeypatch.setattr(build_tool, "_get_store", get_store)
+
+
 class TestPostprocessFailuresAreWarnings:
-    def test_build_survives_a_failed_postprocess_step(self, repo, failing_signatures, caplog):
+    def test_build_survives_a_failed_postprocess_step(self, repo, failing_pass_signatures):
         result = build_or_update_graph(
             full_rebuild=True, repo_root=str(repo), postprocess="minimal"
         )
 
         assert result["status"] == "ok"
-        assert "Signature computation failed: disk I/O error" in caplog.text
         assert "signatures_updated" not in result
         # The remaining steps still ran.
         assert result["fts_indexed"] > 0
         assert _graph_metadata(repo, "postprocess_level") == "minimal"
 
-    def test_build_reports_a_failed_postprocess_step(self, repo, failing_signatures):
+    def test_build_reports_a_failed_postprocess_step(self, repo, failing_pass_signatures):
         result = build_or_update_graph(
             full_rebuild=True, repo_root=str(repo), postprocess="minimal"
         )
 
-        assert result["warnings"] == [
-            "Signature computation failed: OperationalError: disk I/O error"
-        ]
+        assert result["warnings"] == ["Signature computation failed: disk I/O error"]
 
     def test_run_postprocess_survives_failed_steps(self, repo, failing_signatures, caplog):
         build_or_update_graph(full_rebuild=True, repo_root=str(repo), postprocess="none")
