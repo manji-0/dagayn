@@ -1,0 +1,33 @@
+{
+ "_about": "G10 plumbing check on chi (eval/g10_go/PREREG.md), not part of the results.",
+ "source_commit": "3a33ba578e0dd93444e0ff386cc26e665d92e31e",
+ "change": {
+  "patch": "chi-change.patch",
+  "message": "middleware: write cW's string as it is when it has no arguments"
+ },
+ "preamble": "このリポジトリ (カレントディレクトリ。Go のモジュール github.com/go-chi/chi/v5 v5.5.0 のチェックアウト) について、次の質問に答えてください。\n- リポジトリのファイルは変更しないこと。一時ファイルが必要なら /tmp の下に作ること。\n- テストやリポジトリのコードは実行しないこと (go test や go run は使わない。読む・検索する・解析用のスクリプトを書いて実行するのはよい)。\n- 回答の最後に、次の形式の JSON コードブロックを 1 つだけ置くこと: ```json\n{\"answer\": [...]}\n```\n\n質問: ",
+ "condition_line": {
+  "graph": "- dagayn の MCP ツール (サーバ名 dagayn) が使える。まずそれで調べ、必要なら他の道具で確かめること。\n",
+  "none": "- dagayn の MCP ツールは使えない。標準の道具 (検索・ファイルの読み込み・シェル) で調べること。\n"
+ },
+ "tasks": {
+  "P1": {
+   "prompt": "`tree.go` の型 `node` のメソッドをすべて挙げてください (ポインタレシーバと値レシーバの両方、エクスポートされていないものを含む)。形式は \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない)。",
+   "kind": "symbols",
+   "truth": [
+    "tree.go::node.FindRoute",
+    "tree.go::node.InsertRoute",
+    "tree.go::node.addChild",
+    "tree.go::node.findEdge",
+    "tree.go::node.findPattern",
+    "tree.go::node.findRoute",
+    "tree.go::node.getEdge",
+    "tree.go::node.isLeaf",
+    "tree.go::node.replaceChild",
+    "tree.go::node.routes",
+    "tree.go::node.setEndpoint",
+    "tree.go::node.walk"
+   ]
+  }
+ }
+}
