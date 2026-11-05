@@ -77,6 +77,7 @@ PASS_ENV = (
     "LANG",
 )
 REPLY_BUDGET = 8000
+DAGAYN_CLI = re.compile(r"\bdagayn\s+tool\s+([A-Za-z_]+)")
 
 
 def load_tasks(path: Path = TASKS_FILE) -> dict[str, Any]:
@@ -190,6 +191,19 @@ def mcp_config(work: Path, name: str, command: str, serve_args: str = "") -> Pat
     return cfg
 
 
+def cli_bin(work: Path, name: str, command: str) -> Path:
+    """A directory whose `dagayn` runs `command`, for a setup that reaches
+    dagayn through the shell instead of MCP."""
+    argv = shlex.split(command)
+    exe = shutil.which(argv[0]) or argv[0]
+    bin_dir = work / f"bin-{name}"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    wrapper = bin_dir / "dagayn"
+    wrapper.write_text(f'#!/bin/sh\nexec {shlex.join([exe, *argv[1:]])} "$@"\n')
+    wrapper.chmod(0o755)
+    return bin_dir
+
+
 def run_one(item: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     raw: Path = ctx["raw"]
     meta_path = raw / f"{item['id']}.meta.json"
@@ -203,7 +217,8 @@ def run_one(item: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     subprocess.run(["git", "clone", "-q", str(ctx["src"]), str(repo)], check=True)
     command = ctx["setups"][item["setup"]]
     graph = command != "none"
-    meta: dict[str, Any] = {**item, "model": ctx["model"]}
+    transport = ctx["transports"][item["setup"]] if graph else "none"
+    meta: dict[str, Any] = {**item, "model": ctx["model"], "transport": transport}
     if graph:
         t0 = time.time()
         built = subprocess.run(
@@ -237,9 +252,11 @@ def run_one(item: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
         # The login is a keychain item looked up by user name.
         env.update({k: os.environ[k] for k in ("USER", "LOGNAME") if k in os.environ})
         cmd += ["--setting-sources", "project,local", "--disable-slash-commands"]
-    if graph:
+    if transport == "mcp":
         cmd += ["--mcp-config", str(ctx["mcp"][item["setup"]])]
-    line_key = ctx["lines"][item["setup"]] or ("graph" if graph else "none")
+    elif transport == "cli":
+        env["PATH"] = f"{ctx['cli_bin'][item['setup']]}:{env['PATH']}"
+    line_key = ctx["lines"][item["setup"]] or {"mcp": "graph", "cli": "cli"}.get(transport, "none")
     cmd += ["--", prompt(ctx["spec"], item["task"], line_key)]
     t0 = time.monotonic()
     with open(raw / f"{item['id']}.jsonl", "w") as out:
@@ -289,8 +306,13 @@ def score(meta: dict[str, Any], raw: Path, spec: dict[str, Any]) -> dict[str, An
         elif kind == "assistant":
             for block in event.get("message", {}).get("content", []):
                 if block.get("type") == "tool_use":
-                    names[block["id"]] = block["name"]
-                    tools.append(block["name"])
+                    name = block["name"]
+                    command = str((block.get("input") or {}).get("command", ""))
+                    if name == "Bash" and (cli := DAGAYN_CLI.search(command)):
+                        # A shell call of `dagayn tool X` counts as the MCP tool X.
+                        name = f"mcp__dagayn__{cli.group(1)}"
+                    names[block["id"]] = name
+                    tools.append(name)
         elif kind == "user":
             content = event.get("message", {}).get("content", [])
             for block in content if isinstance(content, list) else []:
@@ -378,6 +400,14 @@ def main() -> int:
     )
     ap.add_argument("--candidate-line", default="", help="condition_line key (default: graph/none)")
     ap.add_argument("--baseline-line", default="", help="condition_line key (default: graph/none)")
+    for name in ("candidate", "baseline"):
+        ap.add_argument(
+            f"--{name}-transport",
+            choices=("mcp", "cli"),
+            default="mcp",
+            help=f'how setup "{name}" reaches dagayn: an MCP server, or `dagayn tool` '
+            "in the shell (condition_line key `cli` unless --*-line is given)",
+        )
     ap.add_argument("--model", default="claude-haiku-5-5")
     ap.add_argument("--effort", default="medium")
     ap.add_argument("--reps", type=int, default=10)
@@ -436,9 +466,13 @@ def main() -> int:
                 args.tasks_file.parent / change["patch"] if change else None,
                 change.get("message", "change"),
             ),
+            "transports": {
+                "candidate": args.candidate_transport, "baseline": args.baseline_transport,
+            },
             "mcp": {
                 name: mcp_config(work, name, cmd, args.serve_args) for name, cmd in graphs.items()
             },
+            "cli_bin": {name: cli_bin(work, name, cmd) for name, cmd in graphs.items()},
         }  # fmt: skip
         items = [
             {"task": t, "setup": s, "rep": r}

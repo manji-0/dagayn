@@ -74,6 +74,50 @@ def test_the_mcp_server_gets_the_serve_arguments(tmp_path: Path) -> None:
     assert server["args"] == ["serve", "--local-embedding"]
 
 
+def test_a_cli_setup_runs_its_dagayn_command_from_path(tmp_path: Path) -> None:
+    bin_dir = harness.cli_bin(tmp_path, "candidate", "/bin/echo dagayn-was-called")
+
+    out = subprocess.run(
+        ["dagayn", "tool", "query_graph_tool"],
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert out == "dagayn-was-called tool query_graph_tool\n"
+
+
+def test_a_shell_call_of_dagayn_tool_counts_as_a_dagayn_call(tmp_path: Path) -> None:
+    def tool_use(i: str, name: str, command: str = "") -> dict:
+        return {"type": "tool_use", "id": i, "name": name, "input": {"command": command}}
+
+    def tool_result(i: str, text: str) -> dict:
+        return {"type": "tool_result", "tool_use_id": i, "content": text}
+
+    events = [
+        {"type": "assistant", "message": {"content": [
+            tool_use("a", "Bash", "dagayn tool query_graph_tool --arg pattern=callers_of"),
+            tool_use("b", "Bash", "grep -rn IsBool ."),
+        ]}},
+        {"type": "user", "message": {"content": [
+            tool_result("a", '{"status":"ok"}'), tool_result("b", "model.go:1"),
+        ]}},
+        {"type": "result", "result": '```json\n{"answer": ["x"]}\n```', "modelUsage": {}},
+    ]  # fmt: skip
+    (tmp_path / "001-T-candidate.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in events), encoding="utf-8"
+    )
+    spec = {"tasks": {"T": {"kind": "set", "truth": ["x"]}}}
+    meta = {"id": "001-T-candidate", "setup": "candidate", "task": "T"}
+
+    row = harness.score(meta, tmp_path, spec)
+
+    assert row["dagayn_calls"] == 1
+    assert row["dagayn_tools"] == "query_graph_tool"
+    assert row["dagayn_reply_max"] == len('{"status":"ok"}')
+    assert row["tool_calls"] == 2
+
+
 def test_a_symbol_answer_is_read_in_every_spelling_of_the_same_symbol() -> None:
     answer = [
         "`tests/test_a.py::TestX::test_y[case-1]`",
