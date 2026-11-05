@@ -803,44 +803,77 @@ pub(super) fn found_summary(
     summary
 }
 
-/// What `tests_for` says of a node no test calls but `callers` callers do,
-/// instead of "no test reaches it": the nearest test through them and its
-/// hops, if any, and the walk that lists them (eval/g8_go/RESULTS.md,
-/// defect 4).
-pub(super) fn tests_through_callers_note(nearest: Option<(&str, u64)>, callers: usize) -> String {
+/// What `tests_for` says of a node no test calls but whose callers run
+/// under tests, instead of "no test reaches it": the tests through them,
+/// from the walk `test_reach` counts with (eval/g8_go/RESULTS.md, defect 4;
+/// G10 H2, #326). A depth `callers_of` is no way to list them: it does not
+/// walk past a value use, which this walk counts as a call.
+pub(super) fn tests_through_callers_note(reaching: &Reaching, target: &str) -> String {
+    let at_least = if reaching.truncated { "at least " } else { "" };
+    format!(
+        "No test calls it directly; {at_least}{} test(s) reach it through its callers \
+         (test_reach.through_callers): {}",
+        reaching.tests.len(),
+        named_through_callers(reaching, target)
+    )
+}
+
+/// What `tests_for` says of a node no test calls and no test reaches
+/// through its `callers` callers: the nearest code in a test file that
+/// does (a helper, which the walk does not go through), if any.
+pub(super) fn no_tests_through_callers_note(
+    nearest: Option<(&str, u64)>,
+    callers: usize,
+) -> String {
     match nearest {
-        Some((test, hops)) => format!(
-            "No test calls it directly; {test} reaches it through {hops} caller \
-             hop(s). callers_of with depth {MAX_DEPTH} lists every caller, tests included"
+        Some((helper, hops)) => format!(
+            "No test calls it directly; {helper}, in a test file, reaches it through \
+             {hops} caller hop(s), and the tests that call it are not walked"
         ),
         None => format!(
-            "No test calls it directly; it has {callers} caller(s), and tests can reach \
-             it through them. callers_of with depth {MAX_DEPTH} lists every caller, \
-             tests included"
+            "No test calls it directly, and none reaches it through its {callers} \
+             caller(s) as the graph records them; calls dispatched at run time are not edges"
         ),
     }
+}
+
+/// What a walk says of a `depth` above the maximum it walks.
+pub(super) fn depth_capped_note(requested: i64) -> String {
+    format!(
+        "depth {requested} is above the maximum, {MAX_DEPTH}, so the walk went {MAX_DEPTH} hops"
+    )
 }
 
 /// Tests through callers the summary names; `test_reach.through_callers`
 /// lists more.
 const THROUGH_CALLERS_NAMED: usize = 3;
 
-/// What `tests_for` with rows says of the tests that are not rows but reach
-/// the target through its callers (G10 H1, #327): the rows are the tests
-/// linked to the target itself; these run it through a caller.
-pub(super) fn through_callers_note(reaching: &Reaching, target: &str) -> String {
+/// The first tests through callers by name, each with its hops and the
+/// node it reaches the target through, and the first value use on its
+/// path; then how many more, where the walk stopped early, and, if a named
+/// path passes a value use, that the walk counted it as a call.
+fn named_through_callers(reaching: &Reaching, target: &str) -> String {
     let count = reaching.tests.len();
-    let limit = reaching.limit;
-    let at_least = if reaching.truncated { "at least " } else { "" };
+    let mut value_use = false;
     let named: Vec<String> = reaching
         .tests
         .iter()
         .take(THROUGH_CALLERS_NAMED)
         .map(|test| {
-            if test.via == target {
-                format!("{} ({} hop(s), uses it)", test.test, test.hops)
-            } else {
-                format!("{} ({} hop(s), through {})", test.test, test.hops, test.via)
+            let hops = test.hops;
+            let name = &test.test;
+            let used = test.value_use.as_ref();
+            value_use |= used.is_some();
+            match used {
+                _ if test.via == target => format!("{name} ({hops} hop(s), uses it)"),
+                Some((user, value)) if user == name => {
+                    format!("{name} ({hops} hop(s), uses {value} as a value)")
+                }
+                Some((user, value)) => format!(
+                    "{name} ({hops} hop(s), through {}; {user} uses {value} as a value)",
+                    test.via
+                ),
+                None => format!("{name} ({hops} hop(s), through {})", test.via),
             }
         })
         .collect();
@@ -858,11 +891,27 @@ pub(super) fn through_callers_note(reaching: &Reaching, target: &str) -> String 
     } else {
         String::new()
     };
+    let counted = if value_use {
+        ". The walk counts a value use as a call, though a stored value may never be \
+         called: read where it goes"
+    } else {
+        ""
+    };
+    format!("{}{rest}{stopped}{counted}", named.join(", "))
+}
+
+/// What `tests_for` with rows says of the tests that are not rows but reach
+/// the target through its callers (G10 H1, #327): the rows are the tests
+/// linked to the target itself; these run it through a caller.
+pub(super) fn through_callers_note(reaching: &Reaching, target: &str) -> String {
+    let count = reaching.tests.len();
+    let limit = reaching.limit;
+    let at_least = if reaching.truncated { "at least " } else { "" };
     format!(
         "The rows are the tests linked to it directly; {at_least}{count} more test(s) reach \
          it through its callers within {limit} hop(s) and are not rows (test_reach.through_callers): \
-         {}{rest}{stopped}",
-        named.join(", ")
+         {}",
+        named_through_callers(reaching, target)
     )
 }
 
@@ -961,10 +1010,23 @@ pub(super) fn ending(
         .collect::<HashSet<_>>()
         .len();
     if value_uses > 0 {
-        let note = format!(
-            "{value_uses} use it as a value (relation \"{VALUE_REFERENCE}\"); calls through that \
-             value are not edges, so callers may be missing: read where the value goes"
-        );
+        // Past the first hop, a value use is of a caller (#326).
+        let deeper = found.rows.iter().any(|row| {
+            get(row, "relation") == Some(&json!(VALUE_REFERENCE))
+                && get(row, "depth").and_then(Value::as_i64) > Some(1)
+        });
+        let note = if deeper {
+            format!(
+                "{value_uses} use it or a caller as a value (relation \"{VALUE_REFERENCE}\"); the \
+                 walk does not go past them, and calls through that value are not edges, so \
+                 callers may be missing: read where the value goes"
+            )
+        } else {
+            format!(
+                "{value_uses} use it as a value (relation \"{VALUE_REFERENCE}\"); calls through that \
+                 value are not edges, so callers may be missing: read where the value goes"
+            )
+        };
         return Some((note, None));
     }
     if !closed {

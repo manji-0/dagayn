@@ -894,11 +894,12 @@ fn a_cut_list_pages_to_its_last_row() {
 
 /// `tests_for` with no direct test does not say that no test reaches the
 /// node when tests reach it through its callers; `next` lists them (G8
-/// defect 4: T5 said "no test in it reaches it" with `next: []`).
+/// defect 4: T5 said "no test in it reaches it" with `next: []`), through
+/// the caller they call (#326), not a depth `callers_of`.
 #[test]
 fn tests_for_without_a_direct_test_names_the_callers_walk() {
     // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
-    let repo = Repo::new("go-tests-through-callers", false);
+    let repo = Repo::new("go-zero-row-next-through-caller", false);
     repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
     repo.write(
         "mock/mock.go",
@@ -925,9 +926,18 @@ fn tests_for_without_a_direct_test_names_the_callers_walk() {
     );
     assert_eq!(
         reply["next"][0]["args"],
-        json!({"pattern": "callers_of", "target": "mock/mock.go::diff", "depth": 6}),
+        json!({"pattern": "tests_for", "target": "mock/mock.go::Called"}),
         "{}",
         reply["next"]
+    );
+    let listed = answer(
+        &context,
+        "query_graph_tool",
+        reply["next"][0]["args"].clone(),
+    );
+    assert_eq!(
+        listed["results"][0]["qualified_name"], "mock/mock_test.go::TestCalled",
+        "{listed}"
     );
     let lone = answer(
         &context,

@@ -162,15 +162,11 @@ impl Found {
         });
     }
 
-    /// `tests_for` with rows: the tests that reach the target through its
-    /// callers and are not rows, in `test_reach.through_callers` (#327).
-    /// They are left out where there are no rows, which the zero-result
-    /// note covers.
+    /// `tests_for`: the tests that reach the target through its callers and
+    /// are not rows, in `test_reach.through_callers`, with rows (#327) or
+    /// without (#326).
     pub(super) fn through_callers(&mut self) -> Option<&Reaching> {
         let reaching = self.reaching.as_mut()?;
-        if self.rows.is_empty() {
-            return None;
-        }
         let rows: HashSet<&str> = self
             .rows
             .iter()
@@ -187,7 +183,14 @@ impl Found {
             .tests
             .iter()
             .take(THROUGH_CALLERS_LISTED)
-            .map(|test| json!({"qualified_name": test.test, "hops": test.hops, "via": test.via}))
+            .map(|test| {
+                let mut listed =
+                    json!({"qualified_name": test.test, "hops": test.hops, "via": test.via});
+                if let Some((user, value)) = &test.value_use {
+                    listed["value_use"] = json!({"user": user, "value": value});
+                }
+                listed
+            })
             .collect();
         if let Some(reach) = self.test_reach.as_mut() {
             reach["through_callers"] = json!({
@@ -397,7 +400,9 @@ fn documentation_row(edge: &GraphEdge, endpoint: &str, inverse_label: Option<&st
 }
 
 /// `_expand_transitive` for `callers_of` (`importers = false`) and
-/// `importers_of`.
+/// `importers_of`. With `value_uses` (a Go `callers_of`), each hop also
+/// lists the places that use a node of the hop before as a value, as the
+/// first hop does, without walking past them.
 fn expand_transitive(
     store: &GraphStore,
     found: &mut Found,
@@ -405,6 +410,7 @@ fn expand_transitive(
     depth: i64,
     importers: bool,
     import_kind: Option<&str>,
+    value_uses: bool,
 ) -> Option<()> {
     for row in &mut found.rows {
         row.push(("depth", json!(1)));
@@ -446,17 +452,29 @@ fn expand_transitive(
     while !frontier.is_empty() && hop <= depth && !truncated {
         let (_, incoming) = store.get_edges_by_endpoints(&frontier).ok()?;
         let mut layer: Vec<GraphEdge> = Vec::new();
-        for via in &frontier {
-            for edge in incoming.get(via).into_iter().flatten() {
-                let key = next_key(edge);
-                if edge.kind != kind
-                    || (importers && !import_kind_matches(edge, import_kind))
-                    || seen.contains(&key)
-                {
-                    continue;
+        // Calls first, so a node that both calls and uses one as a value is
+        // walked past.
+        for value_pass in [false, true] {
+            if value_pass && !value_uses {
+                continue;
+            }
+            for via in &frontier {
+                for edge in incoming.get(via).into_iter().flatten() {
+                    let key = next_key(edge);
+                    let follows = if value_pass {
+                        edge.kind == "REFERENCES" && is_value_reference(edge)
+                    } else {
+                        edge.kind == kind
+                    };
+                    if !follows
+                        || (importers && !import_kind_matches(edge, import_kind))
+                        || seen.contains(&key)
+                    {
+                        continue;
+                    }
+                    seen.insert(key);
+                    layer.push(edge.clone());
                 }
-                seen.insert(key);
-                layer.push(edge.clone());
             }
         }
         if added + layer.len() > TRANSITIVE_ROW_LIMIT {
@@ -472,20 +490,34 @@ fn expand_transitive(
             .iter()
             .map(|edge| (next_key(edge), edge.target_qualified.clone()))
             .collect();
+        // A place that uses a caller as a value is listed, as at the first
+        // hop, and not walked past (#326).
+        let references: HashSet<String> = layer
+            .iter()
+            .filter(|edge| edge.kind != kind)
+            .map(next_key)
+            .collect();
         for row in &mut rows {
-            row.push(("depth", json!(hop)));
             let key = get(row, "qualified_name")
                 .and_then(Value::as_str)
                 .filter(|q| !q.is_empty())
                 .or_else(|| get(row, "file").and_then(Value::as_str))
                 .unwrap_or("")
                 .to_string();
+            if references.contains(&key) {
+                row.push(("relation", json!(VALUE_REFERENCE)));
+            }
+            row.push(("depth", json!(hop)));
             row.push(("via", json!(vias.get(&key).cloned().unwrap_or_default())));
         }
         found.rows.extend(rows);
         found.edges.extend(layer.iter().map(edge_dict));
         added += layer.len();
-        frontier = layer.iter().map(next_key).collect();
+        frontier = layer
+            .iter()
+            .filter(|edge| edge.kind == kind)
+            .map(next_key)
+            .collect();
         hop += 1;
     }
     found.reachability = Some(json!({
@@ -496,6 +528,12 @@ fn expand_transitive(
         "depth_limit_reached": !frontier.is_empty() && !truncated,
     }));
     Some(())
+}
+
+/// Whether a REFERENCES edge is a use of its target as a value (`r.Use(f)`,
+/// `d.step = f`), not a mention.
+fn is_value_reference(edge: &GraphEdge) -> bool {
+    edge.extra.get("value_reference") == Some(&Value::Bool(true))
 }
 
 /// Run `pattern` for `node` (or `target` where the pattern works without one).
@@ -544,10 +582,7 @@ pub(super) fn run_pattern(
             if node.is_some_and(|node| node.language == "go") {
                 let references: Vec<GraphEdge> = incoming
                     .into_iter()
-                    .filter(|e| {
-                        e.kind == "REFERENCES"
-                            && e.extra.get("value_reference") == Some(&Value::Bool(true))
-                    })
+                    .filter(|e| e.kind == "REFERENCES" && is_value_reference(e))
                     .collect();
                 let mut rows = found.edge_rows(store, &references, true)?;
                 for row in &mut rows {
@@ -557,7 +592,8 @@ pub(super) fn run_pattern(
                 found.edges.extend(references.iter().map(edge_dict));
             }
             if depth > 1 {
-                expand_transitive(store, &mut found, qualified, depth, false, None)?;
+                let go = node.is_some_and(|node| node.language == "go");
+                expand_transitive(store, &mut found, qualified, depth, false, None, go)?;
             }
         }
         "callees_of" => {
@@ -605,7 +641,15 @@ pub(super) fn run_pattern(
                 }
             }
             if depth > 1 {
-                expand_transitive(store, &mut found, qualified, depth, true, import_kind)?;
+                expand_transitive(
+                    store,
+                    &mut found,
+                    qualified,
+                    depth,
+                    true,
+                    import_kind,
+                    false,
+                )?;
             }
         }
         "docs_for" | "implementations_of" => {

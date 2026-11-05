@@ -21,8 +21,9 @@ fn names<'a>(rows: &'a Value, key: &str) -> Vec<&'a str> {
 /// two more (and a benchmark) call it through `ThrottleBacklog`, and a test
 /// under `_examples/` (which `go test ./...` skips) calls `ThrottleBacklog`
 /// too. `Recoverer` is passed as a value by three tests (`r.Use(Recoverer)`),
-/// one of them named after it. `Parse` has a test named after it that never
-/// calls it.
+/// one of them named after it, and calls `printPrettyStack`, which calls
+/// `prettyStack.decorate` (G10 H2's chain, where it is `parse`). `Parse` has
+/// a test named after it that never calls it.
 fn middleware(label: &str) -> Repo {
     // One label per test: two repos made in the same microsecond share a name.
     let repo = Repo::new(label, false);
@@ -48,7 +49,10 @@ fn middleware(label: &str) -> Repo {
     repo.write(
         "middleware/recoverer.go",
         "package middleware\n\n\
-         // Recoverer recovers.\nfunc Recoverer(next func()) func() {\n\treturn func() {\n\t\tdefer func() { _ = recover() }()\n\t\tnext()\n\t}\n}\n\n\
+         // Recoverer recovers.\nfunc Recoverer(next func()) func() {\n\treturn func() {\n\t\tdefer func() {\n\t\t\tif recover() != nil {\n\t\t\t\tprintPrettyStack(nil)\n\t\t\t}\n\t\t}()\n\t\tnext()\n\t}\n}\n\n\
+         type prettyStack struct{}\n\n\
+         func (s prettyStack) decorate(debugStack []byte) int {\n\treturn len(debugStack)\n}\n\n\
+         func printPrettyStack(debugStack []byte) {\n\tvar s prettyStack\n\ts.decorate(debugStack)\n}\n\n\
          // Parse parses.\nfunc Parse(s string) int {\n\treturn len(s)\n}\n",
     );
     repo.write(
@@ -235,4 +239,222 @@ fn ambiguous_tests_for_by_name_alone_is_not_cut() {
     }
     let summary = reply["summary"].as_str().unwrap_or_default();
     assert!(!summary.contains("cut"), "{summary}");
+}
+
+/// G10 H2 (#326): with no direct test, the reply lists the tests that reach
+/// the target through its callers, says which hop is a value use, and
+/// `next` is a call that returns them, not a depth `callers_of`.
+#[test]
+fn tests_for_without_direct_tests_lists_the_tests_through_callers() {
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::tests_reaching
+    let repo = middleware("go-zero-row-tests-through-callers");
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "middleware/recoverer.go::prettyStack.decorate"}),
+    );
+    assert_eq!(reply["result_count"], 0, "{reply}");
+    assert_eq!(
+        reply["test_reach"]["nearest_test"], "middleware/recoverer_test.go::TestRecoverer",
+        "{reply}"
+    );
+    let through = &reply["test_reach"]["through_callers"];
+    assert_eq!(through["count"], 3, "{reply}");
+    assert_eq!(
+        names(&through["tests"], "qualified_name"),
+        [
+            "middleware/recoverer_test.go::TestRecoverer",
+            "middleware/recoverer_test.go::TestRecovererAbortHandler",
+            "middleware/recoverer_test.go::TestRecovererNoColor",
+        ],
+        "{reply}"
+    );
+    for test in through["tests"].as_array().expect("tests") {
+        assert_eq!(test["hops"], 3, "{reply}");
+        assert_eq!(test["via"], "middleware/recoverer.go::Recoverer", "{reply}");
+        assert_eq!(
+            test["value_use"],
+            json!({"user": test["qualified_name"], "value": "middleware/recoverer.go::Recoverer"}),
+            "{reply}"
+        );
+    }
+    let summary = reply["summary"].as_str().unwrap_or_default();
+    assert!(!summary.contains("callers_of with depth"), "{summary}");
+    assert!(
+        summary.contains("3 test(s) reach it through its callers"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("uses middleware/recoverer.go::Recoverer as a value"),
+        "{summary}"
+    );
+    let next = &reply["next"][0];
+    assert_eq!(
+        next["args"],
+        json!({"pattern": "tests_for", "target": "middleware/recoverer.go::Recoverer"}),
+        "{}",
+        reply["next"]
+    );
+    // The call in `next` returns them.
+    let listed = answer(&context, "query_graph_tool", next["args"].clone());
+    assert_eq!(
+        names(&listed["results"], "qualified_name"),
+        names(&through["tests"], "qualified_name"),
+        "{listed}"
+    );
+}
+
+/// G10 H2 (#326): a depth `callers_of` lists, at every hop, the places that
+/// use a caller as a value, as its first hop does, and does not say that
+/// no caller is missing while it does not walk past them.
+#[test]
+fn callers_of_with_depth_lists_value_uses_past_the_first_hop() {
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
+    let repo = middleware("go-depth-value-uses");
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({
+            "pattern": "callers_of",
+            "target": "middleware/recoverer.go::prettyStack.decorate",
+            "depth": 6,
+        }),
+    );
+    let mut rows: Vec<(String, Value, Value, Value)> = reply["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .map(|row| {
+            (
+                row["qualified_name"].as_str().unwrap_or("").to_string(),
+                row["depth"].clone(),
+                row["relation"].clone(),
+                row["via"].clone(),
+            )
+        })
+        .collect();
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+    let value_use = |test: &str| {
+        (
+            format!("middleware/recoverer_test.go::{test}"),
+            json!(3),
+            json!("references"),
+            json!("middleware/recoverer.go::Recoverer"),
+        )
+    };
+    assert_eq!(
+        rows,
+        [
+            (
+                "middleware/recoverer.go::Recoverer".to_string(),
+                json!(2),
+                Value::Null,
+                json!("middleware/recoverer.go::printPrettyStack"),
+            ),
+            (
+                "middleware/recoverer.go::printPrettyStack".to_string(),
+                json!(1),
+                Value::Null,
+                Value::Null,
+            ),
+            value_use("TestRecoverer"),
+            value_use("TestRecovererAbortHandler"),
+            value_use("TestRecovererNoColor"),
+        ],
+        "{reply}"
+    );
+    let summary = reply["summary"].as_str().unwrap_or_default();
+    assert!(!summary.contains("is missing"), "{summary}");
+    assert!(
+        summary.contains("3 use it or a caller as a value"),
+        "{summary}"
+    );
+    assert!(summary.contains("does not go past"), "{summary}");
+}
+
+/// G10 C13 (#326): among tests at the same hop, a `Test` function is the
+/// nearest before an `Example` or a `Benchmark`; equals still tie by name.
+#[test]
+fn tests_for_prefers_a_test_function_to_an_example_or_benchmark() {
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::nearest_test
+    let repo = Repo::new("go-nearest-test-over-example", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "index.go",
+        "package demo\n\n// Load is what the tests reach.\nfunc Load() int {\n\treturn 1\n}\n\n\
+         // Seek calls Load.\nfunc Seek() int {\n\treturn Load()\n}\n",
+    );
+    repo.write(
+        "index_test.go",
+        "package demo\n\nimport \"testing\"\n\n\
+         func ExampleSeek() {\n\tSeek()\n}\n\n\
+         func BenchmarkSeek(b *testing.B) {\n\tSeek()\n}\n\n\
+         func TestZeta(t *testing.T) {\n\tSeek()\n}\n\n\
+         func TestSeeking(t *testing.T) {\n\tSeek()\n}\n",
+    );
+    repo.build();
+    let reply = answer(
+        &repo.context(),
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "index.go::Load"}),
+    );
+    let reach = &reply["test_reach"];
+    assert_eq!(
+        reach["nearest_test"], "index_test.go::TestSeeking",
+        "{reply}"
+    );
+    assert_eq!(reach["hops"], 1, "{reply}");
+    // Every one is listed, the test functions first.
+    let listed: Vec<&str> = reach["through_callers"]["tests"]
+        .as_array()
+        .expect("tests")
+        .iter()
+        .filter_map(|test| test["qualified_name"].as_str())
+        .collect();
+    assert_eq!(
+        listed,
+        [
+            "index_test.go::TestSeeking",
+            "index_test.go::TestZeta",
+            "index_test.go::BenchmarkSeek",
+            "index_test.go::ExampleSeek",
+        ],
+        "{reply}"
+    );
+}
+
+/// G10 H2 run 004 (#326): a `depth` above the maximum is walked at the
+/// maximum, and the reply says so.
+#[test]
+fn callers_of_says_when_depth_is_capped() {
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
+    let repo = middleware("go-depth-capped");
+    let context = repo.context();
+    let walk = |depth: i64| {
+        answer(
+            &context,
+            "query_graph_tool",
+            json!({
+                "pattern": "callers_of",
+                "target": "middleware/throttle.go::ThrottleWithOpts",
+                "depth": depth,
+            }),
+        )
+    };
+    let reply = walk(10);
+    assert_eq!(reply["depth"], 6, "{reply}");
+    assert_eq!(reply["depth_requested"], 10, "{reply}");
+    let summary = reply["summary"].as_str().unwrap_or_default();
+    assert!(
+        summary.contains("depth 10 is above the maximum, 6"),
+        "{summary}"
+    );
+    // At the maximum, nothing is said.
+    let six = walk(6);
+    assert!(six.get("depth_requested").is_none(), "{six}");
+    let summary = six["summary"].as_str().unwrap_or_default();
+    assert!(!summary.contains("maximum"), "{summary}");
 }
