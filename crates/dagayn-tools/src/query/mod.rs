@@ -11,7 +11,6 @@ mod walk;
 
 use std::collections::HashSet;
 
-use dagayn_graph::GraphNode;
 use serde_json::{Map, Value, json};
 
 use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
@@ -20,10 +19,7 @@ use notes::{
     no_edges_note,
 };
 pub(crate) use resolve::looks_like_file_target;
-use resolve::{
-    NAME_SEARCH_LIMIT, Resolution, ambiguous, file_is_indexed, file_path_candidates,
-    is_external_package_target, joined, not_found,
-};
+use resolve::{Resolution, resolve};
 pub(crate) use rows::{
     Row, cross_artifact_role, edge_dict, edge_import_kind, import_kind_matches, node_dict,
     node_row, python_dumps_len, sanitize,
@@ -361,93 +357,11 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         );
     }
 
-    // `resolve_query_target`.
-    let exact = |qualified: &str| -> Option<Option<GraphNode>> {
-        match store.get_node(qualified).ok()? {
-            Some(node) => Some(Some(node)),
-            None => store.get_node(&joined(&root, qualified)?).ok(),
-        }
-    };
-    let exact_node = exact(target)?;
-    let mut respelled = match exact_node {
-        Some(_) => Vec::new(),
-        None => crate::target::respelled(store, target, exact)?,
-    };
-    if respelled.len() > 1 {
-        let mut candidates = crate::next::tests_last(respelled.iter());
-        candidates.truncate(5);
-        return Some(ambiguous(
-            arguments,
-            pattern,
-            target,
-            &candidates,
-            &answerability,
-            &graph,
-        ));
-    }
-    let (node, resolution) = match (exact_node, respelled.pop()) {
-        (Some(node), _) => (Some(node), Resolution::Exact),
-        (None, Some(node)) => (Some(node), Resolution::ExactName),
-        (None, None) => {
-            let named_exists = || -> Option<bool> {
-                Some(
-                    store
-                        .search_nodes(target, NAME_SEARCH_LIMIT)
-                        .ok()?
-                        .iter()
-                        .any(|hit| hit.name == target),
-                )
-            };
-            if pattern == "callers_of"
-                && !named_exists()?
-                && is_external_package_target(store, target)?
-            {
-                (None, Resolution::ExternalPackage)
-            } else if pattern == "importers_of"
-                && !named_exists()?
-                && !store.files_in_directory(target).ok()?.is_empty()
-            {
-                // A directory (a Go package): `run_pattern` reads its files.
-                (None, Resolution::Exact)
-            } else if pattern == "file_summary" && looks_like_file_target(target) {
-                let candidates = file_path_candidates(&root, target)?;
-                if !file_is_indexed(store, &candidates)? {
-                    return Some(not_found(pattern, target, true, &answerability, &graph));
-                }
-                (None, Resolution::Exact)
-            } else if !looks_like_file_target(target) {
-                let hits = store.search_nodes(target, NAME_SEARCH_LIMIT).ok()?;
-                let named: Vec<&GraphNode> = hits.iter().filter(|hit| hit.name == target).collect();
-                let candidates: Vec<&GraphNode> = if named.is_empty() {
-                    crate::next::tests_last(hits.iter().take(5))
-                } else {
-                    let mut named = crate::next::tests_last(named.iter().copied());
-                    named.truncate(5);
-                    named
-                };
-                if named.len() == 1 {
-                    (Some(named[0].clone()), Resolution::ExactName)
-                } else if candidates.len() == 1 {
-                    (Some(candidates[0].clone()), Resolution::Fuzzy)
-                } else if candidates.len() > 1 {
-                    return Some(ambiguous(
-                        arguments,
-                        pattern,
-                        target,
-                        &candidates,
-                        &answerability,
-                        &graph,
-                    ));
-                } else if pattern == "file_summary" {
-                    (None, Resolution::Exact)
-                } else {
-                    return Some(not_found(pattern, target, false, &answerability, &graph));
-                }
-            } else {
-                return Some(not_found(pattern, target, false, &answerability, &graph));
-            }
-        }
-    };
+    let (node, resolution) =
+        match resolve(&graph, &root, arguments, pattern, target, &answerability)? {
+            Ok(resolved) => resolved,
+            Err(answer) => return Some(answer),
+        };
     // A name-resolved target is reported by its qualified name.
     let original_target = target;
     let target: &str = match (&node, resolution) {
