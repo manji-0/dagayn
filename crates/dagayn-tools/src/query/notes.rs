@@ -19,6 +19,33 @@ pub(super) const NO_MATCHING_EDGES: &str = "node_has_no_matching_edges";
 /// tools building its module do not look (#325).
 pub(super) const OUTSIDE_MODULE_ONLY: &str = "outside_module_only";
 
+/// `guidance` for a Go answer whose every row is in `outside_module`: the
+/// node has relationships, none in the directories its module builds.
+pub(super) fn outside_guidance(pattern: &str, target: &str, exact_count: i64) -> Value {
+    json!([{
+        "claim": format!(
+            "'{target}' has no {pattern} relationship in the directories the Go tools build for \
+             its module; outside_module lists the ones elsewhere."
+        ),
+        "evidence": [{
+            "type": "computed",
+            "pattern": pattern,
+            "target": target,
+            "result_count": 0,
+            "exact_match_count": exact_count,
+        }],
+        "confidence": "medium",
+        "missingness": [{
+            "reason_code": OUTSIDE_MODULE_ONLY,
+            "severity": "low",
+            "claim_effect": "rows in _ or . directories, testdata, or another module are not the module's as go list ./... sees it",
+        }],
+        "action": "read outside_module -- the relationships outside the module's built directories",
+        "reason_codes": ["zero_result", OUTSIDE_MODULE_ONLY],
+        "counts": {"result_count": 0},
+    }])
+}
+
 /// The sentence for the rows `outside_module` lists: `count` of them by
 /// node, `listed` shown, in `places` (place, why, rows), as
 /// `13 callers are in directories the Go tools do not build for this

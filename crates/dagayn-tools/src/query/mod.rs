@@ -19,7 +19,7 @@ use crate::go_module::GoScope;
 use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 use notes::{
     NO_MATCHING_EDGES, OUTSIDE_MODULE_ONLY, Page, ending, found_summary, guidance, no_edges_note,
-    outside_note, page_note, tests_through_callers_note, walk_cut_note,
+    outside_guidance, outside_note, page_note, tests_through_callers_note, walk_cut_note,
 };
 pub(crate) use resolve::looks_like_file_target;
 use resolve::{Ambiguity, Answers, Cut, Resolution, Unresolved, ambiguous, resolve};
@@ -556,12 +556,18 @@ impl Direct {
                     shown: rows.len().min(self.rows),
                 });
             }
-            answers.push(json!({
+            let mut answer = json!({
                 "target": target,
                 "result_count": count,
                 "results_complete": complete,
                 "results": rows.iter().take(self.rows).cloned().collect::<Vec<_>>(),
-            }));
+            });
+            // A Go candidate's rows where its module's tools do not look
+            // are counted, not listed (#325).
+            if let Some(outside) = reply.get("outside_module_count") {
+                answer["outside_module_count"] = outside.clone();
+            }
+            answers.push(answer);
         }
         debug_assert_eq!(answers.len(), ambiguity.candidates.len());
         Answers {
@@ -762,7 +768,7 @@ fn put_rows(
             .put("edges", json!(edges))
             .put(
                 "guidance",
-                guidance(pattern, target, raw_count, exact_count),
+                rows_guidance(query, found, raw_count, exact_count),
             );
         return (put_outside(payload, query, found, usize::MAX), 8000);
     }
@@ -797,11 +803,23 @@ fn put_rows(
     }
     // One count per reply: the rows, after `merge` folded the edges of one
     // node into one row.
-    payload = payload.put("guidance", guidance(pattern, target, rows_len, exact_count));
+    payload = payload.put(
+        "guidance",
+        rows_guidance(query, found, rows_len, exact_count),
+    );
     (
         put_outside(payload, query, found, OUTSIDE_LISTED),
         crate::STANDARD_BUDGET,
     )
+}
+
+/// `guidance` for `count` rows: for a Go answer whose every row is in
+/// `outside_module`, that the rows are there.
+fn rows_guidance(query: &Query, found: &Found, count: usize, exact_count: i64) -> Value {
+    if count == 0 && !found.outside.is_empty() {
+        return outside_guidance(query.pattern, query.target, exact_count);
+    }
+    guidance(query.pattern, query.target, count, exact_count)
 }
 
 /// Rows `outside_module` lists at most, at `minimal` and at `standard`

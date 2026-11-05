@@ -590,7 +590,8 @@ of `callers_of` (at every `depth`), `callees_of`, `importers_of`, and
 row per node (`qualified_name`, or `file` for an importer, then `lines`,
 `depth` past hop 1, and `reason`: `other_module`, `underscore_name`,
 `dot_name`, or `testdata`), at most 10 at `minimal` and 20 at `standard`,
-with `outside_module_count` for all of them. They are not counted in
+with `outside_module_count` for all of them (an ambiguous target's
+per-candidate `answers` carry the count). They are not counted in
 `result_count`, and `next` never reads them: `next` reads the answer. The
 summary says how many there are and where, as
 `13 callers are in directories the Go tools do not build for this module,

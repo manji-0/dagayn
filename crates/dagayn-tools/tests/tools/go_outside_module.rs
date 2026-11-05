@@ -200,6 +200,38 @@ fn go_tests_outside_the_module_are_not_its_tests() {
         "{summary}"
     );
     assert!(!summary.contains("no test in it reaches it"), "{summary}");
+    let full = query(json!({
+        "pattern": "tests_for", "target": "lib/lib.go::Helper", "detail_level": "full",
+    }));
+    assert_eq!(
+        full["guidance"][0]["reason_codes"],
+        json!(["zero_result", "outside_module_only"]),
+        "{full}"
+    );
+}
+
+#[test]
+fn ambiguous_go_candidates_count_their_rows_outside_the_module() {
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
+    let repo = module();
+    repo.write(
+        "other/other.go",
+        "package other\n\nfunc Do() int {\n\treturn 3\n}\n",
+    );
+    repo.build();
+    let reply = answer(
+        &repo.context(),
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "Do"}),
+    );
+    assert_eq!(reply["status"], "ambiguous", "{reply}");
+    let answers = reply["answers"].as_array().expect("answers");
+    let lib = answers
+        .iter()
+        .find(|answer| answer["target"] == "lib/lib.go::Do")
+        .unwrap_or_else(|| panic!("{reply}"));
+    assert_eq!(lib["result_count"], 2, "{reply}");
+    assert_eq!(lib["outside_module_count"], 6, "{reply}");
 }
 
 #[test]
