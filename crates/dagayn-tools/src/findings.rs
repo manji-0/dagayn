@@ -515,6 +515,70 @@ pub(crate) fn nearest_test(
     qn: &str,
     limit: usize,
 ) -> Option<Option<(usize, String)>> {
+    let (tests, _) = walk_tests(store, root, qn, 0, limit)?;
+    Some(tests.into_iter().next().map(|test| (test.hops, test.test)))
+}
+
+/// A test the [`nearest_test`] walk meets: its hops, the node it calls (or
+/// uses as a value, or tests directly) on the way to the target, and
+/// whether it is a test function (`Test`) rather than other code in a test
+/// file (a helper, which the walk does not go through).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReachingTest {
+    pub(crate) hops: usize,
+    pub(crate) test: String,
+    pub(crate) via: String,
+    pub(crate) is_test: bool,
+}
+
+/// Nodes past which [`tests_reaching`] stops collecting: a hub's callers
+/// within the hop limit can be most of the graph.
+pub(crate) const REACH_NODE_LIMIT: usize = 500;
+
+/// Every test the [`nearest_test`] walk meets within `limit` hops, each at
+/// its fewest hops, nearest first and then by qualified name: the tests
+/// that run `qn` through its callers, where `tests_for` lists only the
+/// direct ones (#327). If none is that near, the nearest within `search`.
+/// The flag says the walk met [`REACH_NODE_LIMIT`] nodes and stopped
+/// collecting at the hop it was on.
+pub(crate) fn tests_reaching(
+    store: &GraphStore,
+    root: &Path,
+    qn: &str,
+    limit: usize,
+    search: usize,
+) -> Option<(Vec<ReachingTest>, bool)> {
+    walk_tests(store, root, qn, limit, search.max(limit))
+}
+
+/// The walk behind [`nearest_test`] and [`tests_reaching`]: every test
+/// within `collect` hops, else the nearest within `search`.
+fn walk_tests(
+    store: &GraphStore,
+    root: &Path,
+    qn: &str,
+    mut collect: usize,
+    search: usize,
+) -> Option<(Vec<ReachingTest>, bool)> {
+    let limit = search;
+    let mut truncated = false;
+    // Each test at its fewest hops, and of those the first via by name.
+    let mut met: HashMap<String, ReachingTest> = HashMap::new();
+    let meet =
+        |met: &mut HashMap<String, ReachingTest>, hops: usize, test: &GraphNode, via: &str| {
+            let entry = met
+                .entry(test.qualified_name.clone())
+                .or_insert_with(|| ReachingTest {
+                    hops,
+                    test: test.qualified_name.clone(),
+                    via: via.to_string(),
+                    is_test: test.kind == "Test",
+                });
+            if (hops, via) < (entry.hops, entry.via.as_str()) {
+                entry.hops = hops;
+                entry.via = via.to_string();
+            }
+        };
     let relative = |file_path: &str| {
         Path::new(file_path)
             .strip_prefix(root)
@@ -542,17 +606,16 @@ pub(crate) fn nearest_test(
     // Tests at the same hop tie; the first by qualified name wins, so the
     // answer does not follow the order the walk met them in.
     for depth in 0..=limit {
-        let mut direct = Vec::new();
         for current in &frontier {
-            direct.extend(
-                direct_tests(store, current)?
-                    .into_iter()
-                    .filter(|test| built(&test.file_path))
-                    .map(|test| test.qualified_name),
-            );
+            for test in direct_tests(store, current)? {
+                if built(&test.file_path) {
+                    meet(&mut met, depth, &test, current);
+                }
+            }
         }
-        if let Some(test) = direct.into_iter().min() {
-            return Some(Some((depth, test)));
+        // Past `collect` hops, only the nearest test is wanted.
+        if depth >= collect && !met.is_empty() {
+            break;
         }
         if depth == limit {
             break;
@@ -576,7 +639,6 @@ pub(crate) fn nearest_test(
         targets.extend(classes.iter().cloned());
         let (_, incoming) = store.get_edges_by_endpoints(&targets).ok()?;
         let mut next = Vec::new();
-        let mut caller_tests = Vec::new();
         for (target, edges) in &incoming {
             let of_class = classes.contains(target);
             let module = imported.contains(target);
@@ -594,7 +656,7 @@ pub(crate) fn nearest_test(
                         continue;
                     }
                     if is_test_node(&caller, &relative(&caller.file_path)) {
-                        caller_tests.push(caller.qualified_name);
+                        meet(&mut met, depth + 1, &caller, target);
                         continue;
                     }
                     // A class built at a module's top level (`SPEC =
@@ -610,15 +672,22 @@ pub(crate) fn nearest_test(
                 }
             }
         }
-        if let Some(test) = caller_tests.into_iter().min() {
-            return Some(Some((depth + 1, test)));
+        if depth + 1 > collect && !met.is_empty() {
+            break;
         }
         if next.is_empty() {
             break;
         }
+        // A hub: collect the next hop's direct tests, then stop.
+        if depth + 1 < collect && seen.len() > REACH_NODE_LIMIT {
+            collect = depth + 1;
+            truncated = true;
+        }
         frontier = next;
     }
-    Some(None)
+    let mut tests: Vec<ReachingTest> = met.into_values().collect();
+    tests.sort_by(|a, b| (a.hops, &a.test).cmp(&(b.hops, &b.test)));
+    Some((tests, truncated))
 }
 
 /// A call at a module's top level that runs on import (`TABLE =

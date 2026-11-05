@@ -100,6 +100,22 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `tests_for` with rows says which tests reach the target through its
+  callers (#327). In G10's H1, `tests_for(ThrottleWithOpts)` on chi gave
+  its 2 direct tests with `results_complete: true` and said nothing of
+  the 4 that run it through `ThrottleBacklog`. A reply with rows now adds
+  `test_reach.through_callers` (`count`, `hop_limit`, `truncated`, and the
+  first 10 tests with `hops` and `via`, the caller they reach it through)
+  and a summary sentence: "The rows are the tests linked to it directly;
+  5 more test(s) reach it through its callers within 4 hop(s) and are not
+  rows ...", naming the nearest three. `next` starts with `tests_for` on
+  the callers they go through. `results_complete` still describes the
+  rows. The tests come from the walk behind `test_reach.nearest_test`,
+  collected within the language's hop limit (6 for Rust, which has none)
+  and stopped at 500 nodes (`truncated`). Only test functions are listed,
+  not helpers in test files. Replies without rows, and the nearest test,
+  are unchanged. An ambiguous reply's answer counts them in
+  `tests_through_callers_count`.
 - `tests_for` lists the tests that use a function as a value (#328). In
   G10's H2, `tests_for(Recoverer)` on chi gave only `TestRecoverer`, by
   its name, with `results_complete: true`; `TestRecovererNoColor` and

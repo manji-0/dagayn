@@ -1,5 +1,6 @@
-//! What a `tests_for` reply with rows says it covers: the tests that use
-//! the target as a value (#328, G10 H2), and rows chosen by name alone.
+//! What a `tests_for` reply with rows says it covers: the tests that run the
+//! target through its callers (#327, G10 H1), the tests that use it as a
+//! value (#328, G10 H2), and rows chosen by name alone.
 
 use serde_json::{Value, json};
 
@@ -67,6 +68,80 @@ fn middleware(label: &str) -> Repo {
     );
     repo.build();
     repo
+}
+
+/// G10 H1 (#327): with direct tests, the reply still says which tests reach
+/// the target through its callers, names the nearest, and `next` lists them.
+#[test]
+fn tests_for_with_direct_tests_counts_the_tests_through_callers() {
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::tests_reaching
+    let repo = middleware("go-tests-through-callers");
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "tests_for", "target": "middleware/throttle.go::ThrottleWithOpts"}),
+    );
+    assert_eq!(
+        names(&reply["results"], "qualified_name"),
+        [
+            "middleware/throttle_test.go::TestThrottleCustomStatusCode",
+            "middleware/throttle_test.go::TestThrottleRetryAfter",
+        ],
+        "{reply}"
+    );
+    // The rows are every direct test, so the list is complete for what it
+    // covers; the summary says what that is and what lies past it.
+    assert_eq!(reply["results_complete"], true, "{reply}");
+    let through = &reply["test_reach"]["through_callers"];
+    assert_eq!(through["count"], 3, "{reply}");
+    assert_eq!(
+        names(&through["tests"], "qualified_name"),
+        [
+            "middleware/throttle_test.go::BenchmarkThrottle",
+            "middleware/throttle_test.go::TestThrottleBacklog",
+            "middleware/throttle_test.go::TestThrottleMaximum",
+        ],
+        "{reply}"
+    );
+    for test in through["tests"].as_array().expect("tests") {
+        assert_eq!(test["hops"], 1, "{reply}");
+        assert_eq!(
+            test["via"], "middleware/throttle.go::ThrottleBacklog",
+            "{reply}"
+        );
+    }
+    let summary = reply["summary"].as_str().unwrap_or_default();
+    assert!(summary.contains("3 more test(s)"), "{summary}");
+    assert!(
+        summary.contains("middleware/throttle_test.go::BenchmarkThrottle"),
+        "{summary}"
+    );
+    assert!(!summary.contains("_examples"), "{summary}");
+    assert_eq!(
+        reply["next"][0]["args"],
+        json!({"pattern": "tests_for", "target": "middleware/throttle.go::ThrottleBacklog"}),
+        "{}",
+        reply["next"]
+    );
+    // The call in `next` lists them.
+    let listed = answer(
+        &context,
+        "query_graph_tool",
+        reply["next"][0]["args"].clone(),
+    );
+    assert_eq!(
+        names(&listed["results"], "qualified_name"),
+        [
+            "middleware/throttle_test.go::BenchmarkThrottle",
+            "middleware/throttle_test.go::TestThrottleBacklog",
+            "middleware/throttle_test.go::TestThrottleMaximum",
+        ],
+        "{listed}"
+    );
+    // A row is not counted again among the tests through callers.
+    assert!(!summary.contains("TestThrottleRetryAfter ("), "{summary}");
 }
 
 /// G10 H2 (#328): a test that passes the target as a value is a row, with
