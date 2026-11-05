@@ -7,7 +7,33 @@ Draft, 2026-11-05. File counts, line numbers, and churn are measured at
 `origin/main` 26c59a38. The `refactor_tool` and `architecture_analysis_tool`
 results come from the main checkout's graph, which reports
 `graph_built_by_older_extractor`, so their line numbers can be a few lines
-off. Nothing in this plan is implemented.
+off. All seven [steps](#steps) are done; see [status](#status).
+
+## Status
+
+<!-- derived-from #steps -->
+
+Done, 2026-11-05. Each step is one PR, merged after the
+[verification](#verification) gates passed locally. Every step left the
+parity export and the MCP snapshots byte-identical.
+
+| Step | PR | Where it differs from the plan text below |
+|---|---|---|
+| 1. Normalize `extractor_versions` | #310 | — |
+| 2. `CHANGELOG.md merge=union` | #309 | — |
+| 3. One post-processing sequence | #311 | `run_passes` in `dagayn-postproc/src/pipeline.rs` is the list. Bare-name call and inheritance resolution are two steps on every path, so a failed call step no longer skips inheritance. On the Python build path a failed pass's warning has Rust's wording (no exception type name) and is no longer logged. |
+| 4. Split `tools.rs` | #313 | 80 tests on `main`, not 84. 14 modules: the eight tools plus `common`, `stats`, `docs`, `postprocess`, `reply_contract`, `request_boundary`. The five `request_boundary` directives now name `GraphStore.resolve_request_boundaries`. |
+| 5. Split `postprocess/tests.rs` | #312 | Nine modules, one per pass source file. |
+| 6. Split `query.rs` | #314 | `query_graph` is 147 lines. 160,326 replies compared before and after; the 3 that differed were `nearest_test` ties that already changed from run to run on `main` (#315). |
+| 7. `returned.rs` | #316 | `returned/go.rs` holds only the Go items. The helpers every language uses (`PendingCall`, `pending_calls`, `origin_call`, `mark_external`, `update_call`) and the Rust-only `resolve_field_receivers` stay in `returned/mod.rs`. The table has 22 rows, checked against the old `match` on 14,590,464 inputs. |
+
+Not decided by these steps:
+
+- `dagayn watch` reports a different `postprocess` reply shape from the
+  two build paths (`signatures_computed`, and `manifest_bridges_*: 0` when
+  nothing was scanned). Making them the same is a reply change, not a
+  refactor.
+- The [open questions](#open-questions) below.
 
 ## Question
 
