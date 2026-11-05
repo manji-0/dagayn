@@ -45,6 +45,12 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `tests_for` names the same `test_reach.nearest_test` on every call. When
+  several tests sat at the same hop count, the walk returned whichever it
+  met first, and its order followed a hash map: one compress function got
+  four different answers in 12 runs (#315). The first test by qualified
+  name now wins. A tie that was stable before can name a different test
+  once, because the old pick followed file order, not name order.
 - A Go `callers_of` summary no longer says callers may be missing when
   the graph knows they are not, and says what each call of the name that
   goes to no definition is. In G9, 36 of 40 SHORT-question runs grepped

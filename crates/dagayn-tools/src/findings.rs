@@ -528,11 +528,19 @@ pub(crate) fn nearest_test(
     let mut imported: HashSet<String> = HashSet::new();
     let mut implicit: HashSet<String> = HashSet::new();
     let mut sources: HashMap<String, Option<Vec<String>>> = HashMap::new();
+    // Tests at the same hop tie; the first by qualified name wins, so the
+    // answer does not follow the order the walk met them in.
     for depth in 0..=limit {
+        let mut direct = Vec::new();
         for current in &frontier {
-            if let Some(test) = direct_tests(store, current)?.into_iter().next() {
-                return Some(Some((depth, test.qualified_name)));
-            }
+            direct.extend(
+                direct_tests(store, current)?
+                    .into_iter()
+                    .map(|test| test.qualified_name),
+            );
+        }
+        if let Some(test) = direct.into_iter().min() {
+            return Some(Some((depth, test)));
         }
         if depth == limit {
             break;
@@ -556,6 +564,7 @@ pub(crate) fn nearest_test(
         targets.extend(classes.iter().cloned());
         let (_, incoming) = store.get_edges_by_endpoints(&targets).ok()?;
         let mut next = Vec::new();
+        let mut caller_tests = Vec::new();
         for (target, edges) in &incoming {
             let of_class = classes.contains(target);
             let module = imported.contains(target);
@@ -570,7 +579,8 @@ pub(crate) fn nearest_test(
                 }
                 if let Some(caller) = store.get_node(&edge.source_qualified).ok()? {
                     if is_test_node(&caller, &relative(&caller.file_path)) {
-                        return Some(Some((depth + 1, caller.qualified_name)));
+                        caller_tests.push(caller.qualified_name);
+                        continue;
                     }
                     // A class built at a module's top level (`SPEC =
                     // GrammarSpec(..)`), or a module imported for one.
@@ -584,6 +594,9 @@ pub(crate) fn nearest_test(
                     next.push(caller.qualified_name);
                 }
             }
+        }
+        if let Some(test) = caller_tests.into_iter().min() {
+            return Some(Some((depth + 1, test)));
         }
         if next.is_empty() {
             break;
