@@ -724,3 +724,34 @@ Taken by the owner after G8.
   third Go repository with history). The LONG and SHORT kinds are fixed
   from G7's and G8's baseline turn counts before the draw
   ([pre-registration](../../eval/g9_go/PREREG.md)).
+
+## Decisions (2026-11-05, after G9)
+
+<!-- derived-from ../../eval/g9_go/RESULTS.md#short-one-more-request-than-the-baseline -->
+<!-- derived-from #decisions-2026-11-04-after-g8 -->
+
+Taken by the owner after G9, before G10's questions are drawn (#292).
+
+- **The SHORT guard changes from 1.10 to 1.25. This is a change of the bar
+  by the owner, made after G9 missed it.** From G10 on, pooled over the
+  SHORT questions, the token ratio (dagayn / none) is at most 1.25 and the
+  exact answers are not fewer than the baseline's. The LONG bar (0.85x
+  tokens or time at Holm p < 0.05) does not change. G9 stays "not met"
+  under the bar it registered.
+- **Why.** Every dagayn run pays two requests before it learns anything:
+  the `ToolSearch` that loads the schemas and the dagayn call, a median of
+  45k tokens in G9 (#308). The medians of G9's four SHORT questions sum
+  to 632k tokens with dagayn and 555k without (1.14x; the registered
+  pooled ratio was 1.17x). With 45k taken off each question's dagayn
+  median the sum is 452k, 0.81x: the fixed cost alone adds about 0.32x. A 1.10
+  guard therefore fails a SHORT question even when dagayn's answer saves
+  work. 1.25 passes G9's measured state with a margin of 0.08 and still
+  fails if the fixed cost grows or the confirming grep after a complete
+  answer gets worse.
+- **Changes since G9 that G10 will measure.** #304 (a complete Go
+  `callers_of` no longer says callers may be missing), #315/#318 (a
+  stable `nearest_test`), and #307/#319 (a name that matches up to five
+  nodes is answered per candidate). An exploratory pilot of #319 on K3,
+  T10, and T11 (5 runs per arm, not registered) answered 5 of the 6
+  first calls that would have been a retry; K3 stayed at 1.30x because
+  every run grepped the name after the answer.
