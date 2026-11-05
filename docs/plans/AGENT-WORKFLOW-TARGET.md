@@ -73,7 +73,10 @@ Consequences of that sentence:
   review risk score.
 - **Ambiguity names its retry.** `status="ambiguous"` returns the
   candidates (non-test first) and a `next` with one call per candidate,
-  `target` set to its `qualified_name`.
+  `target` set to its `qualified_name`. Where the name matches at most
+  five nodes, `query_graph_tool` (but `source_of`) answers each in
+  `answers` instead, and `next` holds only the full calls for the
+  answers it cut ([decisions](#decisions-2026-11-05)).
 - **Counts agree.** A response states one number for one thing:
   `summary`, `result_count`, and any `counts` match.
 - **One source of truth for the workflow.** The phases live in one
@@ -177,6 +180,27 @@ related node(s)" with `counts.result_count: 13`.
   to `verbose`; `_repo` keeps only `repo_root`. This replaces the
   decision above to keep `guidance` in the default reply.
 
+## Decisions (2026-11-05)
+
+- A `query_graph_tool` target that matches at most five nodes is answered
+  for each of them (#307), which replaces the 2026-10-07 decision that an
+  ambiguous target runs nothing. In G9, 12 first calls named a method
+  without its type or path and needed one more request (about 24.5K
+  tokens) to resend it; the per-candidate answers of those calls are 3.6K
+  to 5.5K characters. The reply keeps `status="ambiguous"`,
+  `result_count: 0`, `results: []`, and `candidates`, and adds `answers`:
+  per candidate its `target`, `result_count`, `results_complete`, and at
+  most 20 `detail_level="minimal"` rows, each the start of the direct
+  query's rows. No answer is given as the answer for the name.
+- Twenty rows answer G9's methods whole (0 to 3 callers for kong
+  `IsBool`, 17 and 18 for testify `(*Assertions).True` and `.False`); a
+  name with more (testify `assert/assertions.go::Contains`, 50 callers)
+  shows twenty and is cut. A reply over its level's budget halves the
+  rows until it fits. `next` holds the full call for each cut answer.
+- `source_of` is not answered per candidate: a row is a whole span, so
+  the row cap does not bound it. More than five matches keep the list
+  and the retries.
+
 ## Evaluation
 
 Three gates, all in `crates/dagayn-tools/tests/tools/reply_contract.rs`, run in CI on
@@ -193,8 +217,9 @@ fixtures the tests build.
 - **Follow-the-next traces**: `following_next_reaches_the_answer`. From
   the first call of a task, following `next[0]` (but a shell command)
   must reach the answer within six calls: a symptom ("debug why main
-  fails") reaches `callers_of app.py::main`; an ambiguous name answers
-  on its first retry; a review of an untested addition reaches the
+  fails") reaches `callers_of app.py::main`; an ambiguous name of two
+  candidates is answered for each in the first reply, with an empty
+  `next`, and an ambiguous `source_of` answers on its first retry; a review of an untested addition reaches the
   `untested_change` finding. Call counts and sizes are not gated beyond
   the six-call limit and the contract check's budgets.
 - **Discrimination**: `a_fresh_graph_raises_no_caveats`. On a graph that

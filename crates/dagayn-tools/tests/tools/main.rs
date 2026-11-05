@@ -2,6 +2,7 @@
 //! where they leave the call to Python (`None`). The pytest suite
 //! (`tests/test_mcp_frontend.py`) checks the answers equal fastmcp's.
 
+mod ambiguous;
 mod architecture;
 mod common;
 mod docs;

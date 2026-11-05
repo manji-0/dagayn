@@ -828,7 +828,13 @@ relationship results: `status="not_found"`, `result_count=0`, `results=[]`,
 A bare target name resolves to its node when exactly one node carries that exact
 name (`resolution="exact_name"`, with `original_target`), even when fuzzy search
 ranks look-alike names higher; several exact-name matches return
-`status="ambiguous"` with only those as `candidates`. Successful responses carry
+`status="ambiguous"` with only those as `candidates`. When the name matches at
+most five nodes, an ambiguous reply (but for `source_of`) also has `answers`:
+for each candidate, its `target`, `result_count`, `results_complete`, and at
+most 20 `detail_level="minimal"` rows of the direct query on that qualified
+name; `next` then holds the full query for each answer that was cut.
+`candidates_truncated` is true only when the name matched more nodes than
+`candidates` lists. Successful responses carry
 `results_complete`, which is false only when the output budget trimmed the
 result list itself; at `detail_level="full"`, `truncated` also turns true when
 only `edges` were trimmed. `standard` and `full` list the same related nodes,
