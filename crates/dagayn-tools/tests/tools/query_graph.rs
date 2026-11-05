@@ -1944,3 +1944,45 @@ fn rust_tests_for_a_method_skips_test_doubles_of_its_name() {
         .collect();
     assert_eq!(rows, ["crates/app/tests/cli.rs::args_build"], "{reply}");
 }
+
+/// Tests at the same hop tie, and `tests_for` names the first by qualified
+/// name on every call rather than whichever the walk met first.
+#[test]
+fn tests_for_breaks_a_nearest_test_tie_by_name() {
+    // dagayn: tests crates/dagayn-tools/src/findings.rs::nearest_test
+    let repo = Repo::new("nearest-test-tie", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    let names = ["Zeta", "Eta", "Kappa", "Alpha", "Omicron", "Beta"];
+    let mut lib = String::from(
+        "package demo\n\n// Leaf is what the tests reach.\nfunc Leaf() int {\n\treturn 1\n}\n\n\
+         // Mid is called by one helper per test.\nfunc Mid() int {\n\treturn 2\n}\n",
+    );
+    let mut tests = String::from("package demo\n\nimport \"testing\"\n");
+    for name in names {
+        lib.push_str(&format!(
+            "\n// Via{name} calls Mid.\nfunc Via{name}() int {{\n\treturn Mid()\n}}\n"
+        ));
+        tests.push_str(&format!(
+            "\nfunc Test{name}(t *testing.T) {{\n\tif Leaf()+Via{name}() != 3 {{\n\t\tt.Fatal(\"{name}\")\n\t}}\n}}\n"
+        ));
+    }
+    repo.write("demo.go", &lib);
+    repo.write("demo_test.go", &tests);
+    repo.build();
+    let context = repo.context();
+    for (target, hops) in [("demo.go::Leaf", 0), ("demo.go::Mid", 1)] {
+        for _ in 0..16 {
+            let reply = answer(
+                &context,
+                "query_graph_tool",
+                json!({"pattern": "tests_for", "target": target}),
+            );
+            let reach = &reply["test_reach"];
+            assert_eq!(
+                reach["nearest_test"], "demo_test.go::TestAlpha",
+                "{target}: {reply}"
+            );
+            assert_eq!(reach["hops"], hops, "{target}: {reply}");
+        }
+    }
+}
