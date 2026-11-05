@@ -270,7 +270,10 @@ def handle(args: argparse.Namespace) -> None:
         print(f"dagayn tool: {exc}", file=sys.stderr)
         sys.exit(2)
 
+    # One line, no spaces: an agent reads every byte as tokens; pipe to `jq`
+    # to read it.
+    compact = json.dumps(result, separators=(",", ":"), default=str)
     if args.format == "summary" and isinstance(result, dict):
-        print(result.get("summary", json.dumps(result, indent=2, default=str)))
+        print(result.get("summary", compact))
     else:
-        print(json.dumps(result, indent=2, default=str))
+        print(compact)

@@ -83,7 +83,8 @@ def test_handle_runs_tool_and_injects_repo_root(monkeypatch, capsys):
     tool.handle(args)
 
     assert calls == [{"repo_root": "/tmp/repo", "top_n": 3}]
-    assert json.loads(capsys.readouterr().out)["summary"] == "done"
+    # One line without indentation: agents pay for every byte.
+    assert capsys.readouterr().out == '{"status":"ok","summary":"done","top_n":3}\n'
 
 
 def test_handle_starts_persisted_local_embedding_for_semantic_tool(monkeypatch, capsys):

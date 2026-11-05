@@ -281,7 +281,8 @@ dagayn eval --report --no-semantic-report
 ```
 
 `dagayn tool <mcp-tool-name>` invokes the same underlying implementation as an
-MCP tool and prints JSON. This gives agents and scripts a CLI path to run a
+MCP tool and prints its JSON on one line, without indentation (pipe it to
+`jq` to read it). This gives agents and scripts a CLI path to run a
 single tool directly, including when a running MCP server was started with a
 narrow `--tools` allow-list:
 
