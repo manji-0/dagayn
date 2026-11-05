@@ -1,0 +1,700 @@
+//! The sentences a `query_graph` reply says about what the graph holds,
+//! the Go `callers_of` sentences among them.
+
+use std::collections::HashSet;
+use std::path::Path;
+
+use dagayn_graph::{GraphEdge, GraphNode, GraphStore};
+use serde_json::{Value, json};
+
+/// The zero-result reason for a node the graph has but that no edge of the
+/// kind asked for reaches (#195).
+pub(super) const NO_MATCHING_EDGES: &str = "node_has_no_matching_edges";
+
+/// `query_graph_guidance` for a result set, sealed as `GuidanceItem` dumps it.
+pub(super) fn guidance(
+    pattern: &str,
+    target: &str,
+    result_count: usize,
+    exact_count: i64,
+) -> Value {
+    if result_count == 0 && exact_count > 0 && !matches!(pattern, "source_of" | "file_summary") {
+        return json!([{
+            "claim": format!("'{target}' is in the graph; no {pattern} relationship reaches it there."),
+            "evidence": [{
+                "type": "computed",
+                "pattern": pattern,
+                "target": target,
+                "result_count": 0,
+                "exact_match_count": exact_count,
+            }],
+            "confidence": "medium",
+            "missingness": [{
+                "reason_code": NO_MATCHING_EDGES,
+                "severity": "low",
+                "claim_effect": "the node is indexed; relationships made at run time (dispatch, values passed around) are not edges",
+            }],
+            "action": format!("query_graph_tool pattern=\"source_of\" target=\"{target}\" -- read how it is used"),
+            "reason_codes": ["zero_result"],
+            "counts": {"result_count": 0},
+        }]);
+    }
+    if result_count == 0 {
+        return json!([{
+            "claim": format!("No graph relationships matched '{pattern}' for '{target}'."),
+            "evidence": [{"type": "computed", "pattern": pattern, "target": target, "result_count": 0}],
+            "confidence": "low",
+            "missingness": [{
+                "reason_code": "not_found_in_current_graph",
+                "severity": "medium",
+                "claim_effect": "absence is graph-limited, not proof the relationship does not exist",
+            }],
+            "action": "semantic_search_nodes_tool -- verify the target and refresh the graph",
+            "reason_codes": ["zero_result"],
+            "counts": {"result_count": 0},
+        }]);
+    }
+    if pattern == "source_of" {
+        return json!([{
+            "claim": format!("Live source span for '{target}'."),
+            "evidence": [{
+                "type": "computed",
+                "pattern": pattern,
+                "target": target,
+                "result_count": result_count,
+                "exact_match_count": exact_count,
+            }],
+            "confidence": "medium",
+            "missingness": [{
+                "reason_code": "live_source_span",
+                "severity": "low",
+                "claim_effect": "text is a worktree slice of the graph span; surrounding helpers and imports are omitted",
+            }],
+            "action": "query_graph_tool pattern=\"callers_of\" -- inspect callers after reading the span",
+            "reason_codes": ["live_source_fetch"],
+            "counts": {"result_count": result_count},
+        }]);
+    }
+    json!([{
+        "claim": format!(
+            "Graph query '{pattern}' returned {result_count} related node(s) for '{target}'."
+        ),
+        "evidence": [{
+            "type": "computed",
+            "pattern": pattern,
+            "target": target,
+            "result_count": result_count,
+            "exact_match_count": exact_count,
+        }],
+        "confidence": "medium",
+        "missingness": [{
+            "reason_code": "relationship_query_not_runtime_proof",
+            "severity": "low",
+            "claim_effect": "graph edges are static extraction, not runtime traces",
+        }],
+        "action": format!("query_graph_tool pattern=\"{pattern}\" -- drill into a relationship"),
+        "reason_codes": ["graph_relationship_query"],
+        "counts": {"result_count": result_count},
+    }])
+}
+
+/// The sentence a closed answer of `pattern` ends with: the list holds every
+/// relation the graph records (`direct` ones at depth 1), and says what the
+/// graph does not hold for the target's `language`.
+pub(super) fn closed_note(
+    pattern: &str,
+    direct: bool,
+    language: &str,
+    import_kind: Option<&str>,
+) -> Option<String> {
+    let relation = match pattern {
+        "callers_of" => "caller",
+        "callees_of" => "callee",
+        "importers_of" => "importer",
+        "imports_of" => "import",
+        _ => return None,
+    };
+    let caveat = edge_caveat(pattern, language, import_kind);
+    let direct = if direct { "direct " } else { "" };
+    Some(format!(
+        "No {direct}{relation} the graph records is missing; {caveat}"
+    ))
+}
+
+/// What a static graph leaves out of `pattern`'s edges for `language`.
+fn edge_caveat(pattern: &str, language: &str, import_kind: Option<&str>) -> &'static str {
+    let calls = matches!(pattern, "callers_of" | "callees_of");
+    match (language, calls, import_kind) {
+        (_, false, Some("directive")) => "only Markdown dependency directives were followed",
+        (_, false, Some("link")) => "only Markdown links were followed",
+        (_, false, Some("lazy_export")) => "only imports a lazy-export table names were followed",
+        (_, false, Some("path")) => "only Rust paths in code without a `use` were followed",
+        (_, false, Some(_)) => "only import statements were followed",
+        ("markdown", false, None) => "Markdown links and dependency directives both count",
+        ("python", false, _) => {
+            "imports built at run time are edges only when a lazy-export table names \
+             them (import_kind lazy_export)"
+        }
+        ("python", true, _) => "calls made through strings, getattr, or registration are not edges",
+        ("rust", true, _) => {
+            "a method call is an edge only where the code gives its receiver's type (a typed \
+             parameter or binding, a struct field, a declared return type); calls on closure \
+             parameters, loop variables, or untyped locals are not"
+        }
+        ("rust", false, _) => {
+            "a `use` or a path in code (import_kind path) counts; a path written only inside \
+             a macro's arguments does not"
+        }
+        (_, false, _) => "modules loaded at run time are not edges",
+        (_, true, _) => "calls dispatched at run time are not edges",
+    }
+}
+
+/// What the graph knows of a Go call that goes to no definition.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) enum GoUnbound {
+    /// On a value whose static type (`receiver_type`) is an interface the
+    /// repository declares: the node `qualified`, at `place` (`file:line`).
+    Interface {
+        name: String,
+        qualified: String,
+        place: String,
+    },
+    /// On a value of a standard-library or dependency type
+    /// (`external_symbol`): `owner` is that type (`bytes.Buffer`).
+    Library { owner: String, stdlib: bool },
+    /// On a value whose type the graph does not know, or of a type
+    /// (`typed`) whose method of the name it does not find; `from` names
+    /// the function that returned the value (`receiver_from`).
+    Unknown {
+        from: Option<String>,
+        typed: Option<String>,
+    },
+}
+
+impl GoUnbound {
+    fn of(store: &GraphStore, edge: &GraphEdge, name: &str) -> Self {
+        let text = |key: &str| edge.extra.get(key).and_then(Value::as_str);
+        if let Some(owner) = text("external_symbol")
+            .and_then(|symbol| symbol.strip_suffix(name))
+            .and_then(|owner| owner.strip_suffix('.'))
+        {
+            return GoUnbound::Library {
+                owner: owner.to_string(),
+                stdlib: edge.extra.get("stdlib") == Some(&Value::Bool(true)),
+            };
+        }
+        if let Some(interface) = text("receiver_type").and_then(|type_name| {
+            go_interface(store, type_name, &edge.file_path, text("receiver_package"))
+        }) {
+            return GoUnbound::Interface {
+                place: format!("{}:{}", interface.file_path, interface.line_start),
+                name: interface.name,
+                qualified: interface.qualified_name,
+            };
+        }
+        let from = edge
+            .extra
+            .get("receiver_from")
+            .and_then(|from| from.get("call"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let typed = text("receiver_type").map(str::to_string);
+        GoUnbound::Unknown { from, typed }
+    }
+
+    /// The call, as a summary names it: `through interface encoder
+    /// (zstd/encoder.go:32)`.
+    fn describe(&self) -> String {
+        match self {
+            GoUnbound::Interface { name, place, .. } => {
+                format!("through interface {name} ({place})")
+            }
+            GoUnbound::Library {
+                owner,
+                stdlib: true,
+            } => format!("on the standard-library type {owner}"),
+            GoUnbound::Library { owner, .. } => format!("on the dependency type {owner}"),
+            GoUnbound::Unknown {
+                typed: Some(typed), ..
+            } => format!(
+                "on a value of type {typed}, whose method of the name the graph does not find"
+            ),
+            GoUnbound::Unknown {
+                from: Some(from), ..
+            } => format!("on what {from}() returned, of a type the graph does not know"),
+            GoUnbound::Unknown { .. } => {
+                "on a value whose type the graph does not know".to_string()
+            }
+        }
+    }
+}
+
+/// The one Go interface named `type_name` in the package a call in
+/// `call_file` names it from: the caller's own package, or the package of
+/// the import path `package` (`receiver_package`).
+fn go_interface(
+    store: &GraphStore,
+    type_name: &str,
+    call_file: &str,
+    package: Option<&str>,
+) -> Option<GraphNode> {
+    let caller_dir = Path::new(call_file).parent().and_then(Path::to_str);
+    let mut found = store
+        .get_nodes_by_name(type_name)
+        .ok()?
+        .into_iter()
+        .filter(|node| node.kind == "Class" && node.language == "go")
+        .filter(|node| node.extra.get("type_role") == Some(&json!("interface")))
+        .filter(|node| match package {
+            // The import paths a Go file's package is known by are its File
+            // node's `namespaces`.
+            Some(path) => store
+                .get_node(&node.file_path)
+                .ok()
+                .flatten()
+                .and_then(|file| file.extra.get("namespaces").cloned())
+                .and_then(|namespaces| namespaces.as_array().cloned())
+                .is_some_and(|namespaces| namespaces.contains(&json!(path))),
+            None => Path::new(&node.file_path).parent().and_then(Path::to_str) == caller_dir,
+        });
+    let only = found.next()?;
+    found.next().is_none().then_some(only)
+}
+
+/// The Go calls named like `node` that go to no definition in the
+/// repository, with what the graph knows of each: made through an interface
+/// the repository declares, on a standard-library or dependency type
+/// (`w.Write(p)` on `w io.Writer`), or on a value whose type the graph does
+/// not know, so any may call `node` at run time. A call on what a function
+/// of another module returned (`zw := gzip.NewWriter(w); zw.Reset(w)`) is
+/// that module's and is not one of them (#286), and a call on a value of a
+/// known type is a method call, so it is not one for a function. An
+/// unexported name is callable from its own package (its directory) only.
+/// Calls from `node`'s package come first.
+pub(super) fn go_unbound_calls(
+    store: &GraphStore,
+    node: &GraphNode,
+) -> Option<Vec<(GraphEdge, GoUnbound)>> {
+    let package = Path::new(&node.file_path).parent();
+    let exported = node.name.starts_with(char::is_uppercase);
+    let mut edges: Vec<GraphEdge> = store
+        .get_edges_by_target(&node.name)
+        .ok()?
+        .into_iter()
+        .filter(|edge| edge.kind == "CALLS")
+        .filter(|edge| edge.extra.get("external") != Some(&Value::Bool(true)))
+        .filter(|edge| exported || Path::new(&edge.file_path).parent() == package)
+        .collect();
+    if exported && node.parent_name.is_some() {
+        edges.extend(store.search_external_calls_by_method(&node.name).ok()?);
+    }
+    edges.retain(|edge| edge.file_path.ends_with(".go"));
+    edges.sort_by_key(|edge| Path::new(&edge.file_path).parent() != package);
+    Some(
+        edges
+            .into_iter()
+            .map(|edge| {
+                let kind = GoUnbound::of(store, &edge, &node.name);
+                (edge, kind)
+            })
+            .filter(|(_, kind)| {
+                node.parent_name.is_some() || matches!(kind, GoUnbound::Unknown { .. })
+            })
+            .collect(),
+    )
+}
+
+/// Up to this many unbound calls, a Go `callers_of` gives each one's line.
+const GO_LISTED_UNBOUND_CALLS: usize = 6;
+
+/// `edges`' lines, sorted and once each, as `133, :182 and :199`.
+fn go_call_lines(edges: &[&GraphEdge]) -> String {
+    let mut lines: Vec<i64> = edges.iter().map(|edge| edge.line).collect();
+    lines.sort_unstable();
+    lines.dedup();
+    let mut lines: Vec<String> = lines.iter().map(i64::to_string).collect();
+    match lines.pop() {
+        Some(last) if !lines.is_empty() => format!("{} and :{last}", lines.join(", :")),
+        last => last.unwrap_or_default(),
+    }
+}
+
+/// `items` as `a`, `a and b`, or `a, b and c`.
+fn and_list(mut items: Vec<String>) -> String {
+    match items.pop() {
+        Some(last) if !items.is_empty() => format!("{} and {last}", items.join(", ")),
+        last => last.unwrap_or_default(),
+    }
+}
+
+/// `items`, at most `cap` of them, the rest counted: `a, b, c and 2 more`.
+fn capped_list(items: &[String], cap: usize) -> String {
+    let mut shown: Vec<String> = items.iter().take(cap).cloned().collect();
+    if items.len() > cap {
+        shown.push(format!("{} more", items.len() - cap));
+    }
+    and_list(shown)
+}
+
+/// `node`'s unbound calls counted by what the graph knows of them:
+/// interfaces first, then library types, then values of unknown type.
+/// One kind alone reads `all through interface encoder
+/// (zstd/encoder.go:32)`; several read `13 through interface Resetter
+/// (flate/inflate.go:73), 41 on standard-library or dependency types
+/// (bytes.Buffer, bufio.Reader and 6 more) and 16 on values whose type the
+/// graph does not know`.
+fn go_unbound_counts(unbound: &[(GraphEdge, GoUnbound)]) -> String {
+    let mut interfaces: Vec<(&GoUnbound, usize)> = Vec::new();
+    let mut owners: Vec<(&str, usize)> = Vec::new();
+    let mut libraries = Vec::new();
+    let mut unknown = Vec::new();
+    for (_, kind) in unbound {
+        match kind {
+            GoUnbound::Interface { .. } => {
+                match interfaces.iter_mut().find(|(seen, _)| *seen == kind) {
+                    Some((_, count)) => *count += 1,
+                    None => interfaces.push((kind, 1)),
+                }
+            }
+            GoUnbound::Library { owner, .. } => {
+                libraries.push(kind);
+                match owners.iter_mut().find(|(seen, _)| seen == owner) {
+                    Some((_, count)) => *count += 1,
+                    None => owners.push((owner, 1)),
+                }
+            }
+            GoUnbound::Unknown { .. } => unknown.push(kind),
+        }
+    }
+    // One kind of call, described once.
+    let first = &unbound[0].1;
+    if unbound.iter().all(|(_, kind)| kind == first) {
+        let all = if unbound.len() == 1 { "" } else { "all " };
+        return format!("{all}{}", first.describe());
+    }
+    interfaces.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+    owners.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+    // Up to four interfaces by name and place; past four, three and the
+    // rest by name.
+    let named = if interfaces.len() <= 4 { 4 } else { 3 };
+    let mut parts: Vec<String> = interfaces
+        .iter()
+        .take(named)
+        .map(|(kind, count)| format!("{count} {}", kind.describe()))
+        .collect();
+    let other_interfaces = &interfaces[interfaces.len().min(named)..];
+    if !other_interfaces.is_empty() {
+        let count: usize = other_interfaces.iter().map(|(_, count)| count).sum();
+        let names: Vec<String> = other_interfaces
+            .iter()
+            .filter_map(|(kind, _)| match kind {
+                GoUnbound::Interface { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        parts.push(format!(
+            "{count} through interfaces {}",
+            capped_list(&names, 3)
+        ));
+    }
+    if let [(_, count)] = owners.as_slice() {
+        parts.push(format!("{count} {}", libraries[0].describe()));
+    } else if !owners.is_empty() {
+        let names: Vec<String> = owners.iter().map(|(owner, _)| owner.to_string()).collect();
+        parts.push(format!(
+            "{} on standard-library or dependency types ({})",
+            libraries.len(),
+            capped_list(&names, 3)
+        ));
+    }
+    match unknown.as_slice() {
+        [] => {}
+        [only] => parts.push(format!("1 {}", only.describe())),
+        many => parts.push(format!(
+            "{} on values whose type the graph does not know",
+            many.len()
+        )),
+    }
+    and_list(parts)
+}
+
+/// How a call through an interface, or on a library type, can reach
+/// `node`: through the method its value's type has, which is `node` only
+/// where that type is `node`'s or embeds it. Empty when no unbound call is
+/// either.
+fn go_reach_clause(node: &GraphNode, unbound: &[(GraphEdge, GoUnbound)]) -> String {
+    let Some(owner) = node.parent_name.as_deref() else {
+        return String::new();
+    };
+    let through = unbound
+        .iter()
+        .any(|(_, kind)| matches!(kind, GoUnbound::Interface { .. }));
+    let library = unbound
+        .iter()
+        .any(|(_, kind)| matches!(kind, GoUnbound::Library { .. }));
+    let which = match (through, library) {
+        (true, false) => "a call through an interface",
+        (false, true) => "a call on a library type, if that type is an interface,",
+        (true, true) => "a call through an interface, or on a library type that is one,",
+        (false, false) => return String::new(),
+    };
+    format!(
+        "; {which} reaches {owner}.{name} only where the value's dynamic type is {owner} or \
+         embeds it",
+        name = node.name
+    )
+}
+
+/// The sentence a closed Go `callers_of` ends with: what the graph checked
+/// for `node`'s name, and where the calls it left unbound are and what they
+/// are. `rows` are the reply's rows by qualified name, and `by_name` says
+/// that every row is a match of the name (`match: "bare_name"`).
+pub(super) fn go_callers_note(
+    node: &GraphNode,
+    unbound: &[(GraphEdge, GoUnbound)],
+    rows: &HashSet<&str>,
+    by_name: bool,
+) -> String {
+    let name = &node.name;
+    let scope = if name.starts_with(char::is_uppercase) {
+        "the repository".to_string()
+    } else {
+        let package = Path::new(&node.file_path)
+            .parent()
+            .and_then(Path::to_str)
+            .filter(|dir| !dir.is_empty())
+            .unwrap_or(".");
+        format!("package {package}")
+    };
+    if unbound.is_empty() {
+        // A Go method call is bound only on a receiver of a type the code
+        // gives it (a parameter, a binding, a field, what a function
+        // returns); a plain call by its package.
+        let how = if node.parent_name.is_some() {
+            ", a method call by its receiver's static type"
+        } else {
+            ""
+        };
+        return format!(
+            "No direct caller the graph records is missing; every call named {name} in \
+             {scope}, _test.go files included, is bound to a definition{how}"
+        );
+    }
+    let reach = go_reach_clause(node, unbound);
+    let unknown: Vec<&GraphEdge> = unbound
+        .iter()
+        .filter(|(_, kind)| matches!(kind, GoUnbound::Unknown { .. }))
+        .map(|(edge, _)| edge)
+        .collect();
+    let mut sources: Vec<&str> = Vec::new();
+    for (edge, _) in unbound {
+        if !sources.contains(&edge.source_qualified.as_str()) {
+            sources.push(&edge.source_qualified);
+        }
+    }
+    // Every unbound call is in a function the reply lists: the list holds
+    // every caller there is, and what is left open is whether those rows
+    // call it.
+    if sources.iter().all(|source| rows.contains(source)) {
+        let rows_are = if by_name {
+            "the rows are matched by name (match \"bare_name\"), not bound by type: "
+        } else {
+            ""
+        };
+        let count = match unbound.len() {
+            1 => format!("their 1 call of {name} that goes to no definition is"),
+            all => format!("their {all} calls of {name} that go to no definition are"),
+        };
+        let read = match unknown.len() {
+            0 => String::new(),
+            1 => format!(
+                "; read the line on a value of unknown type to decide whether that row calls {name}"
+            ),
+            _ => format!(
+                "; read the lines on values of unknown type to decide whether those rows call {name}"
+            ),
+        };
+        return format!(
+            "Every call named {name} in {scope}, _test.go files included, is bound to a \
+             definition or lies in a function listed here, so no caller is missing from the \
+             list; {rows_are}{count} {}{reach}{read}",
+            go_unbound_counts(unbound)
+        );
+    }
+    // `go_unbound_calls` holds every call of the name in scope that no
+    // definition takes, so a short list of its lines is all there is to
+    // read; a long one is counted instead.
+    if unbound.len() <= GO_LISTED_UNBOUND_CALLS {
+        // By kind, then by the function the calls are in.
+        let mut groups: Vec<(&GoUnbound, &str, Vec<&GraphEdge>)> = Vec::new();
+        for (edge, kind) in unbound {
+            match groups
+                .iter_mut()
+                .find(|(seen, source, _)| *seen == kind && *source == edge.source_qualified)
+            {
+                Some((_, _, edges)) => edges.push(edge),
+                None => groups.push((kind, &edge.source_qualified, vec![edge])),
+            }
+        }
+        let mut kinds: Vec<&GoUnbound> = Vec::new();
+        for (kind, _, _) in &groups {
+            if !kinds.contains(kind) {
+                kinds.push(kind);
+            }
+        }
+        let places = kinds
+            .iter()
+            .map(|kind| {
+                let at = groups
+                    .iter()
+                    .filter(|(seen, _, _)| seen == kind)
+                    .map(|(_, source, edges)| {
+                        let function = source.split_once("::").map_or(*source, |(_, name)| name);
+                        let itself = if *source == node.qualified_name {
+                            " itself"
+                        } else {
+                            ""
+                        };
+                        format!(
+                            "{}:{} in {function}{itself}",
+                            edges[0].file_path,
+                            go_call_lines(edges)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                format!("at {at}, {}", kind.describe())
+            })
+            .collect::<Vec<_>>()
+            .join("; and ");
+        let (left, verb) = match unbound.len() {
+            1 => ("the 1 that goes".to_string(), "is"),
+            count => (format!("the {count} that go"), "are"),
+        };
+        let read = match (unknown.len(), unknown.len() == unbound.len()) {
+            (0, _) => String::new(),
+            (1, true) => format!(": read that line to decide whether it calls {name}"),
+            (_, true) => format!(": read those lines to decide whether they call {name}"),
+            (1, false) => format!(
+                "; read the line on a value of unknown type to decide whether it calls {name}"
+            ),
+            (_, false) => format!(
+                "; read the lines on values of unknown type to decide whether they call {name}"
+            ),
+        };
+        return format!(
+            "Every other call named {name} in {scope}, _test.go files included, is bound to a \
+             definition; {left} to no definition {verb} {places}{reach}{read}"
+        );
+    }
+    // The functions the reply does not list, those with calls on values of
+    // unknown type first.
+    let mut to_read: Vec<&str> = sources
+        .iter()
+        .copied()
+        .filter(|source| !rows.contains(source))
+        .collect();
+    to_read.sort_by_key(|source| !unknown.iter().any(|edge| edge.source_qualified == *source));
+    let shown = to_read
+        .iter()
+        .take(3)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+    let more = match to_read.len().saturating_sub(3) {
+        0 => String::new(),
+        rest => format!(" and {rest} more"),
+    };
+    let calls = match unbound.len() {
+        1 => "1 call named".to_string(),
+        count => format!("{count} calls named"),
+    };
+    let verb = if unbound.len() == 1 { "goes" } else { "go" };
+    let read = if to_read.is_empty() {
+        String::new()
+    } else {
+        format!(", so callers may be missing: read {shown}{more}")
+    };
+    format!(
+        "{calls} {name} {verb} to no definition in the repository, {}{reach}{read}",
+        go_unbound_counts(unbound)
+    )
+}
+
+/// The first `next` call of a closed Go `callers_of` with unbound calls:
+/// the first function outside `rows` with a call on a value of unknown type,
+/// else the first interface a call goes through, with why.
+pub(super) fn go_unbound_next(
+    node: &GraphNode,
+    unbound: &[(GraphEdge, GoUnbound)],
+    rows: &HashSet<&str>,
+) -> Option<(String, String)> {
+    let unknown = unbound
+        .iter()
+        .filter(|(_, kind)| matches!(kind, GoUnbound::Unknown { .. }))
+        .find(|(edge, _)| !rows.contains(edge.source_qualified.as_str()));
+    if let Some((first, _)) = unknown {
+        let why = if unbound.len() <= GO_LISTED_UNBOUND_CALLS {
+            let edges: Vec<&GraphEdge> = unbound
+                .iter()
+                .filter(|(edge, kind)| {
+                    edge.source_qualified == first.source_qualified
+                        && matches!(kind, GoUnbound::Unknown { .. })
+                })
+                .map(|(edge, _)| edge)
+                .collect();
+            format!(
+                "the calls named {} at {}:{} go to no definition and may call it",
+                node.name,
+                first.file_path,
+                go_call_lines(&edges)
+            )
+        } else {
+            "a call there is bound to no definition and may call it".to_string()
+        };
+        return Some((first.source_qualified.clone(), why));
+    }
+    let owner = node.parent_name.as_deref()?;
+    unbound.iter().find_map(|(_, kind)| match kind {
+        GoUnbound::Interface {
+            name, qualified, ..
+        } => Some((
+            qualified.clone(),
+            format!(
+                "whether {owner}, or a type that embeds it, implements {name} decides whether \
+                 the calls through {name} reach it"
+            ),
+        )),
+        _ => None,
+    })
+}
+
+/// The summary sentence for a node the graph has but that no edge of
+/// `pattern`'s kind reaches (#195): the node is there, the edges are not.
+pub(super) fn no_edges_note(
+    pattern: &str,
+    language: &str,
+    import_kind: Option<&str>,
+) -> Option<String> {
+    let caveat = edge_caveat(pattern, language, import_kind);
+    Some(match pattern {
+        "callers_of" => format!(
+            "The node is in the graph and nothing in it calls it; {caveat}. A use as a \
+             value (a callback, a stored method) is not a call edge, so \
+             callers may be missing: read where the name is used"
+        ),
+        "callees_of" => {
+            format!("The node is in the graph and calls nothing it records; {caveat}")
+        }
+        "importers_of" => {
+            format!("The node is in the graph and nothing in it imports it; {caveat}")
+        }
+        "imports_of" => {
+            format!("The node is in the graph and imports nothing it records; {caveat}")
+        }
+        "tests_for" => "The node is in the graph and no test in it reaches it".to_string(),
+        "source_of" | "file_summary" => return None,
+        _ => format!("The node is in the graph, which records no {pattern} edges for it"),
+    })
+}
