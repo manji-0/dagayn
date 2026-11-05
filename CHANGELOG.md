@@ -45,6 +45,10 @@ All notable changes to `dagayn` are documented here.
 
 ### Changed
 
+- `dagayn tool` prints its JSON on one line without indentation, so an
+  agent that calls dagayn through the shell reads fewer tokens. Pipe it to
+  `jq` to read it. `--format summary` is unchanged.
+
 - `query_graph_tool` answers an ambiguous target for each candidate when
   at most five nodes carry the name exactly, or as a respelling such as
   `(*T).M` (#307). The reply stays
