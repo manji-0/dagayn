@@ -6,7 +6,7 @@ use crate::common::{Repo, answer, declines};
 #[test]
 fn postprocess_reruns_the_steps_asked_for() {
     // dagayn: tests crates/dagayn-tools/src/postprocess.rs::run_postprocess
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("postprocess", true);
     repo.build();
     let context = repo.context();

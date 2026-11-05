@@ -9,7 +9,7 @@ use crate::common::{Repo, answer};
 
 #[test]
 fn query_graph_counts_one_row_per_node_everywhere() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("query-counts", false);
     repo.write(
         "twice.py",
@@ -44,7 +44,7 @@ fn query_graph_counts_one_row_per_node_everywhere() {
 
 #[test]
 fn a_closed_answer_says_it_is_the_whole_answer() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("query-closed", false);
     repo.write(
         "chain.py",
@@ -168,7 +168,7 @@ fn a_closed_answer_says_it_is_the_whole_answer() {
 
 #[test]
 fn imports_of_follows_a_chain_forward_and_says_which_edges_are_directives() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("imports-forward", false);
     repo.write("docs/base.md", "# Base\n\nText.\n");
     repo.write(
@@ -282,7 +282,7 @@ fn imports_of_follows_a_chain_forward_and_says_which_edges_are_directives() {
 
 #[test]
 fn an_ambiguous_target_names_its_retries() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
     let repo = Repo::new("ambiguous", false);
     repo.write("lib.py", "def helper():\n    pass\n");
@@ -339,7 +339,7 @@ fn resolved(context: &Context, target: &str) -> String {
 
 #[test]
 fn a_go_method_resolves_in_go_spelling() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
     // #275: a G8 agent wrote `(*File).OpenRaw`; `Writer.Copy` and
     // `readTestFile` mention File and OpenRaw, so a name search finds them too.
@@ -401,7 +401,7 @@ fn a_go_method_resolves_in_go_spelling() {
 
 #[test]
 fn a_member_named_by_type_is_ambiguous_only_among_its_namesakes() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("member-targets", false);
     repo.write("go.mod", "module example.com/c\n\ngo 1.21\n");
     for package in ["flate", "gzip"] {
@@ -456,7 +456,7 @@ fn a_member_named_by_type_is_ambiguous_only_among_its_namesakes() {
 
 #[test]
 fn query_graph_answers_callers_and_callees_of_exact_targets() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
     let repo = Repo::new("query", false);
     repo.build();
@@ -600,7 +600,7 @@ fn query_graph_answers_callers_and_callees_of_exact_targets() {
 
 #[test]
 fn call_rows_say_which_edges_a_scip_index_settled() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("query-scip", false);
     repo.write(
         "app.py",
@@ -669,7 +669,7 @@ fn call_rows_say_which_edges_a_scip_index_settled() {
 
 #[test]
 fn query_graph_answers_trimmed_unread_and_dotted_targets() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("query-gaps", false);
     let many: String = (0..400)
         .map(|i| format!("def function_with_a_long_name_{i:03}():\n    pass\n\n\n"))
@@ -743,7 +743,7 @@ fn query_graph_answers_trimmed_unread_and_dotted_targets() {
 /// a node the graph lacks.
 #[test]
 fn a_node_with_no_edges_is_not_reported_missing() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("no-edges", false);
     repo.build();
     let context = repo.context();
@@ -785,7 +785,7 @@ fn a_node_with_no_edges_is_not_reported_missing() {
 
 #[test]
 fn a_cut_minimal_list_says_so_and_offers_the_standard_call() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("query-cut", false);
     repo.write("core.py", "def f():\n    return 1\n");
     for index in 0..150 {
@@ -825,7 +825,7 @@ fn a_cut_minimal_list_says_so_and_offers_the_standard_call() {
 /// so (G8 defect 4: 63 of 505 rows, and `next` offered only `source_of`).
 #[test]
 fn a_cut_list_pages_to_its_last_row() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("query-pages", false);
     let callers: String = (0..600)
         .map(|i| format!("def caller_with_a_long_descriptive_name_{i:03}():\n    return g()\n\n\n"))
@@ -881,7 +881,7 @@ fn a_cut_list_pages_to_its_last_row() {
 /// defect 4: T5 said "no test in it reaches it" with `next: []`).
 #[test]
 fn tests_for_without_a_direct_test_names_the_callers_walk() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("go-tests-through-callers", false);
     repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
     repo.write(
@@ -1088,7 +1088,7 @@ fn typescript_untyped_parameters_are_typed_by_the_members_they_use() {
 /// not a Rust struct.
 #[test]
 fn bare_names_do_not_reach_another_language() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("bare-family", false);
     repo.write(
         "rust/src/run.rs",
@@ -1187,7 +1187,7 @@ fn closures_over_returned_elements_and_method_values_reach_their_targets() {
 
 #[test]
 fn go_packages_are_imported_through_their_files() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("go-package-imports", false);
     repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
     repo.write(
@@ -1249,7 +1249,7 @@ fn go_packages_are_imported_through_their_files() {
 /// answer, and the test that runs that place reaches the method.
 #[test]
 fn go_callers_of_a_method_used_as_a_value_name_where_it_is_stored() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("go-method-values", false);
     repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
     repo.write(
@@ -1332,7 +1332,7 @@ fn go_callers_of_a_method_used_as_a_value_name_where_it_is_stored() {
 /// stores it, bound through the import path to that package's function.
 #[test]
 fn go_callers_of_a_function_used_as_a_value_name_where_it_is_stored() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("go-function-values", false);
     repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
     for package in ["gzkp", "zstdkp"] {
@@ -1405,7 +1405,7 @@ fn go_callers_of_a_function_used_as_a_value_name_where_it_is_stored() {
 /// interface, keeps the caveat and names where it is.
 #[test]
 fn go_callers_of_says_whether_a_call_of_its_name_is_left_unbound() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("go-unbound-calls", false);
     repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
     repo.write(
@@ -1481,7 +1481,7 @@ fn go_callers_of_says_whether_a_call_of_its_name_is_left_unbound() {
 /// counts them by kind and names callers to read.
 #[test]
 fn go_callers_of_lists_the_lines_of_a_few_unbound_calls() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("go-unbound-call-lines", false);
     repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
     repo.write(
@@ -1551,7 +1551,7 @@ fn go_callers_of_lists_the_lines_of_a_few_unbound_calls() {
 /// `next` sends the agent to read more callers or to re-read a row.
 #[test]
 fn go_callers_of_says_no_caller_is_missing_when_unbound_calls_are_in_its_rows() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("go-unbound-calls-in-rows", false);
     repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
     repo.write(
@@ -1609,7 +1609,7 @@ fn go_callers_of_says_no_caller_is_missing_when_unbound_calls_are_in_its_rows() 
 /// found by the import path its package is known by.
 #[test]
 fn go_callers_of_names_an_interface_of_another_package() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("go-unbound-calls-other-package", false);
     repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
     repo.write(
@@ -1645,7 +1645,7 @@ fn go_callers_of_names_an_interface_of_another_package() {
 /// reach: an exported `Write` is not claimed to have every call bound.
 #[test]
 fn go_callers_of_counts_calls_through_a_standard_library_interface() {
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     let repo = Repo::new("go-std-interface-calls", false);
     repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
     repo.write(

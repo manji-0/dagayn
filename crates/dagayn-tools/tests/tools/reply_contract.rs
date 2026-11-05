@@ -55,7 +55,7 @@ fn unassigned_communities_are_not_stale() {
 fn every_reply_names_calls_that_answer_and_fits_its_budget() {
     // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
     // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
     // dagayn: tests crates/dagayn-tools/src/review.rs::review
     // dagayn: tests crates/dagayn-tools/src/arch_tool.rs::architecture
@@ -284,7 +284,7 @@ fn follow_next(
 #[test]
 fn following_next_reaches_the_answer() {
     // dagayn: tests crates/dagayn-tools/src/context.rs::get_minimal_context
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     // dagayn: tests crates/dagayn-tools/src/review.rs::review
     let repo = Repo::new("traces", true);
     repo.write(".gitignore", ".dagayn/\n");
@@ -364,7 +364,7 @@ fn following_next_reaches_the_answer() {
 #[test]
 fn a_fresh_graph_raises_no_caveats() {
     // dagayn: tests crates/dagayn-tools/src/search.rs::semantic_search
-    // dagayn: tests crates/dagayn-tools/src/query.rs::query_graph
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
     // dagayn: tests crates/dagayn-tools/src/flow.rs::flow
     // dagayn: tests crates/dagayn-tools/src/review.rs::review
     // dagayn: tests crates/dagayn-tools/src/arch_tool.rs::architecture
