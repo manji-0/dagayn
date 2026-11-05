@@ -427,4 +427,31 @@ mod tests {
         );
         let _ = std::fs::remove_file(&path);
     }
+
+    #[test]
+    fn a_failed_pass_is_a_warning_and_the_later_passes_still_run() {
+        let path = temp_db("failed-pass");
+        let mut store = GraphStore::open(path.to_string_lossy().to_string()).unwrap();
+        let mut result = PostprocessResult::default();
+
+        run_passes(
+            &mut store,
+            None,
+            ManifestBridges::Replace {
+                extractor_id: "manifest_bridges",
+                discover: || Err(GraphError::Clock),
+            },
+            &mut result,
+        );
+
+        assert_eq!(
+            result.warnings,
+            vec!["Manifest bridge extraction failed: system clock error".to_string()]
+        );
+        assert_eq!(result.manifest_bridges_edges, None);
+        assert_eq!(result.manifest_bridges_nodes, None);
+        assert!(result.native_bindings_resolved.is_some());
+        assert!(result.request_boundaries_resolved.is_some());
+        let _ = std::fs::remove_file(&path);
+    }
 }
