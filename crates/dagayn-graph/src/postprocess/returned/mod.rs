@@ -724,276 +724,353 @@ const UNWRAPPED_WRAPPERS: &[&str] = &[
     "Optional",
 ];
 
+/// Which type names a row of [`BUILTIN_TYPE_PACKAGES`] matches.
+enum BuiltinNames {
+    /// Every name.
+    Any,
+    /// One of these names.
+    In(&'static [&'static str]),
+    /// A name with this prefix.
+    Prefix(&'static str),
+}
+
+impl BuiltinNames {
+    fn matches(&self, name: &str) -> bool {
+        match self {
+            Self::Any => true,
+            Self::In(names) => names.contains(&name),
+            Self::Prefix(prefix) => name.starts_with(prefix),
+        }
+    }
+}
+
+/// Files of any extension.
+const ANY_FILE: &[&str] = &[];
+const KOTLIN_FILES: &[&str] = &[".kt", ".kts"];
+const SCALA_FILES: &[&str] = &[".scala", ".sc"];
+
+/// Built-in types by `(family, file extensions, names, package)`: a type of
+/// `family` that `names` matches, in a file ending in one of the extensions
+/// (any file when there are none), belongs to `package`, or to no package
+/// when it is `None`. The first matching row wins, so the Kotlin and Scala
+/// rows, each ending in one for any other name, come before the Java rows:
+/// a Kotlin or Scala file never gets a Java package.
+const BUILTIN_TYPE_PACKAGES: &[(&str, &[&str], BuiltinNames, Option<&str>)] = &[
+    (
+        "python",
+        ANY_FILE,
+        BuiltinNames::In(PYTHON_BUILTIN_TYPES),
+        Some("builtins"),
+    ),
+    (
+        "rust",
+        ANY_FILE,
+        BuiltinNames::In(RUST_STD_TYPES),
+        Some("std"),
+    ),
+    (
+        "javascript",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "Array",
+            "Map",
+            "Set",
+            "WeakMap",
+            "WeakSet",
+            "Promise",
+            "String",
+            "Number",
+            "Boolean",
+            "Date",
+            "RegExp",
+            "Error",
+            "URL",
+            "URLSearchParams",
+            "Uint8Array",
+            "ArrayBuffer",
+            "Buffer",
+            "ReadonlyArray",
+            "Record",
+            "string",
+            "number",
+            "boolean",
+            "bigint",
+            "symbol",
+        ]),
+        Some("globalThis"),
+    ),
+    (
+        "jvm",
+        KOTLIN_FILES,
+        BuiltinNames::In(&[
+            "String",
+            "Int",
+            "Long",
+            "Double",
+            "Float",
+            "Boolean",
+            "Char",
+            "Byte",
+            "Short",
+            "List",
+            "MutableList",
+            "Map",
+            "MutableMap",
+            "Set",
+            "MutableSet",
+            "Array",
+            "Sequence",
+            "Pair",
+            "Triple",
+            "Collection",
+            "Iterable",
+            "Regex",
+            "Result",
+        ]),
+        Some("kotlin"),
+    ),
+    ("jvm", KOTLIN_FILES, BuiltinNames::Any, None),
+    (
+        "jvm",
+        SCALA_FILES,
+        BuiltinNames::In(&[
+            "String", "Int", "Long", "Double", "Boolean", "List", "Seq", "Vector", "Map", "Set",
+            "Option", "Either", "Future", "Array", "Iterator",
+        ]),
+        Some("scala"),
+    ),
+    ("jvm", SCALA_FILES, BuiltinNames::Any, None),
+    (
+        "jvm",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "String",
+            "Integer",
+            "Long",
+            "Double",
+            "Float",
+            "Boolean",
+            "Character",
+            "Byte",
+            "Short",
+            "StringBuilder",
+            "StringBuffer",
+            "Thread",
+            "Class",
+            "Iterable",
+            "Number",
+            "Enum",
+            "Record",
+            "CharSequence",
+            "Runnable",
+            "Exception",
+            "RuntimeException",
+        ]),
+        Some("java.lang"),
+    ),
+    (
+        "jvm",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "List",
+            "ArrayList",
+            "LinkedList",
+            "Map",
+            "HashMap",
+            "LinkedHashMap",
+            "TreeMap",
+            "Set",
+            "HashSet",
+            "LinkedHashSet",
+            "TreeSet",
+            "Optional",
+            "Collection",
+            "Iterator",
+            "Deque",
+            "ArrayDeque",
+            "Queue",
+            "Stream",
+        ]),
+        Some("java.util"),
+    ),
+    (
+        "csharp",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "List",
+            "Dictionary",
+            "HashSet",
+            "IEnumerable",
+            "IList",
+            "IDictionary",
+            "ICollection",
+            "Queue",
+            "Stack",
+            "SortedDictionary",
+            "LinkedList",
+        ]),
+        Some("System.Collections.Generic"),
+    ),
+    (
+        "csharp",
+        ANY_FILE,
+        BuiltinNames::In(&["Task", "ValueTask"]),
+        Some("System.Threading.Tasks"),
+    ),
+    (
+        "csharp",
+        ANY_FILE,
+        BuiltinNames::In(&["StringBuilder"]),
+        Some("System.Text"),
+    ),
+    (
+        "csharp",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "string",
+            "String",
+            "int",
+            "long",
+            "double",
+            "bool",
+            "object",
+            "DateTime",
+            "TimeSpan",
+            "Guid",
+            "Uri",
+            "Exception",
+            "Array",
+            "Span",
+        ]),
+        Some("System"),
+    ),
+    (
+        "go",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "string", "error", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16",
+            "uint32", "uint64", "byte", "rune", "float32", "float64", "bool", "[]", "map",
+        ]),
+        Some("builtin"),
+    ),
+    (
+        "swift",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "String",
+            "Int",
+            "Double",
+            "Float",
+            "Bool",
+            "Array",
+            "Dictionary",
+            "Set",
+            "Character",
+            "Substring",
+            "Result",
+            "Optional",
+        ]),
+        Some("Swift"),
+    ),
+    (
+        "swift",
+        ANY_FILE,
+        BuiltinNames::In(&["Date", "URL", "Data", "UUID", "FileManager", "JSONDecoder"]),
+        Some("Foundation"),
+    ),
+    (
+        "dart",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "String", "int", "double", "num", "bool", "List", "Map", "Set", "Iterable", "Future",
+            "Stream", "DateTime", "Duration", "Uri", "RegExp",
+        ]),
+        Some("dart:core"),
+    ),
+    (
+        "c",
+        ANY_FILE,
+        BuiltinNames::Prefix("NS"),
+        Some("Foundation"),
+    ),
+    ("c", ANY_FILE, BuiltinNames::Prefix("UI"), Some("UIKit")),
+    (
+        "php",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "DateTime",
+            "DateTimeImmutable",
+            "DateInterval",
+            "Exception",
+            "ArrayObject",
+            "ArrayIterator",
+            "PDO",
+            "PDOStatement",
+            "SplStack",
+            "SplQueue",
+            "Closure",
+            "Generator",
+            "SplObjectStorage",
+        ]),
+        Some("php"),
+    ),
+    (
+        "julia",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "String", "Int", "Int64", "Float64", "Vector", "Matrix", "Array", "Dict", "Set",
+            "Tuple", "Symbol",
+        ]),
+        Some("Base"),
+    ),
+    (
+        "gdscript",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "Node",
+            "Node2D",
+            "Node3D",
+            "Control",
+            "Vector2",
+            "Vector3",
+            "Vector2i",
+            "Color",
+            "Array",
+            "Dictionary",
+            "String",
+            "Resource",
+            "PackedScene",
+            "Timer",
+            "Tween",
+            "Label",
+            "Button",
+            "Sprite2D",
+            "Area2D",
+            "CharacterBody2D",
+            "Camera2D",
+            "AnimationPlayer",
+            "Texture2D",
+            "Rect2",
+            "Transform2D",
+            "Object",
+            "RefCounted",
+        ]),
+        Some("godot"),
+    ),
+];
+
 /// The package a built-in type of `family` belongs to (`dict` of Python,
 /// `String` of Java, `Map` of JavaScript), for a type written without a
 /// path; `file` tells Java, Kotlin, and Scala apart.
 fn builtin_type_package(family: &str, file: &str, name: &str) -> Option<&'static str> {
-    let is = |names: &[&str]| names.contains(&name);
-    let package = match family {
-        "python" if is(PYTHON_BUILTIN_TYPES) => "builtins",
-        "rust" if is(RUST_STD_TYPES) => "std",
-        "javascript"
-            if is(&[
-                "Array",
-                "Map",
-                "Set",
-                "WeakMap",
-                "WeakSet",
-                "Promise",
-                "String",
-                "Number",
-                "Boolean",
-                "Date",
-                "RegExp",
-                "Error",
-                "URL",
-                "URLSearchParams",
-                "Uint8Array",
-                "ArrayBuffer",
-                "Buffer",
-                "ReadonlyArray",
-                "Record",
-                "string",
-                "number",
-                "boolean",
-                "bigint",
-                "symbol",
-            ]) =>
-        {
-            "globalThis"
-        }
-        "jvm"
-            if (file.ends_with(".kt") || file.ends_with(".kts"))
-                && is(&[
-                    "String",
-                    "Int",
-                    "Long",
-                    "Double",
-                    "Float",
-                    "Boolean",
-                    "Char",
-                    "Byte",
-                    "Short",
-                    "List",
-                    "MutableList",
-                    "Map",
-                    "MutableMap",
-                    "Set",
-                    "MutableSet",
-                    "Array",
-                    "Sequence",
-                    "Pair",
-                    "Triple",
-                    "Collection",
-                    "Iterable",
-                    "Regex",
-                    "Result",
-                ]) =>
-        {
-            "kotlin"
-        }
-        "jvm" if file.ends_with(".kt") || file.ends_with(".kts") => return None,
-        "jvm"
-            if (file.ends_with(".scala") || file.ends_with(".sc"))
-                && is(&[
-                    "String", "Int", "Long", "Double", "Boolean", "List", "Seq", "Vector", "Map",
-                    "Set", "Option", "Either", "Future", "Array", "Iterator",
-                ]) =>
-        {
-            "scala"
-        }
-        "jvm" if file.ends_with(".scala") || file.ends_with(".sc") => return None,
-        "jvm"
-            if is(&[
-                "String",
-                "Integer",
-                "Long",
-                "Double",
-                "Float",
-                "Boolean",
-                "Character",
-                "Byte",
-                "Short",
-                "StringBuilder",
-                "StringBuffer",
-                "Thread",
-                "Class",
-                "Iterable",
-                "Number",
-                "Enum",
-                "Record",
-                "CharSequence",
-                "Runnable",
-                "Exception",
-                "RuntimeException",
-            ]) =>
-        {
-            "java.lang"
-        }
-        "jvm"
-            if is(&[
-                "List",
-                "ArrayList",
-                "LinkedList",
-                "Map",
-                "HashMap",
-                "LinkedHashMap",
-                "TreeMap",
-                "Set",
-                "HashSet",
-                "LinkedHashSet",
-                "TreeSet",
-                "Optional",
-                "Collection",
-                "Iterator",
-                "Deque",
-                "ArrayDeque",
-                "Queue",
-                "Stream",
-            ]) =>
-        {
-            "java.util"
-        }
-        "csharp"
-            if is(&[
-                "List",
-                "Dictionary",
-                "HashSet",
-                "IEnumerable",
-                "IList",
-                "IDictionary",
-                "ICollection",
-                "Queue",
-                "Stack",
-                "SortedDictionary",
-                "LinkedList",
-            ]) =>
-        {
-            "System.Collections.Generic"
-        }
-        "csharp" if is(&["Task", "ValueTask"]) => "System.Threading.Tasks",
-        "csharp" if is(&["StringBuilder"]) => "System.Text",
-        "csharp"
-            if is(&[
-                "string",
-                "String",
-                "int",
-                "long",
-                "double",
-                "bool",
-                "object",
-                "DateTime",
-                "TimeSpan",
-                "Guid",
-                "Uri",
-                "Exception",
-                "Array",
-                "Span",
-            ]) =>
-        {
-            "System"
-        }
-        "go" if is(&[
-            "string", "error", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16",
-            "uint32", "uint64", "byte", "rune", "float32", "float64", "bool", "[]", "map",
-        ]) =>
-        {
-            "builtin"
-        }
-        "swift"
-            if is(&[
-                "String",
-                "Int",
-                "Double",
-                "Float",
-                "Bool",
-                "Array",
-                "Dictionary",
-                "Set",
-                "Character",
-                "Substring",
-                "Result",
-                "Optional",
-            ]) =>
-        {
-            "Swift"
-        }
-        "swift" if is(&["Date", "URL", "Data", "UUID", "FileManager", "JSONDecoder"]) => {
-            "Foundation"
-        }
-        "dart"
-            if is(&[
-                "String", "int", "double", "num", "bool", "List", "Map", "Set", "Iterable",
-                "Future", "Stream", "DateTime", "Duration", "Uri", "RegExp",
-            ]) =>
-        {
-            "dart:core"
-        }
-        "c" if name.starts_with("NS") => "Foundation",
-        "c" if name.starts_with("UI") => "UIKit",
-        "php"
-            if is(&[
-                "DateTime",
-                "DateTimeImmutable",
-                "DateInterval",
-                "Exception",
-                "ArrayObject",
-                "ArrayIterator",
-                "PDO",
-                "PDOStatement",
-                "SplStack",
-                "SplQueue",
-                "Closure",
-                "Generator",
-                "SplObjectStorage",
-            ]) =>
-        {
-            "php"
-        }
-        "julia"
-            if is(&[
-                "String", "Int", "Int64", "Float64", "Vector", "Matrix", "Array", "Dict", "Set",
-                "Tuple", "Symbol",
-            ]) =>
-        {
-            "Base"
-        }
-        "gdscript"
-            if is(&[
-                "Node",
-                "Node2D",
-                "Node3D",
-                "Control",
-                "Vector2",
-                "Vector3",
-                "Vector2i",
-                "Color",
-                "Array",
-                "Dictionary",
-                "String",
-                "Resource",
-                "PackedScene",
-                "Timer",
-                "Tween",
-                "Label",
-                "Button",
-                "Sprite2D",
-                "Area2D",
-                "CharacterBody2D",
-                "Camera2D",
-                "AnimationPlayer",
-                "Texture2D",
-                "Rect2",
-                "Transform2D",
-                "Object",
-                "RefCounted",
-            ]) =>
-        {
-            "godot"
-        }
-        _ => return None,
-    };
-    Some(package)
+    BUILTIN_TYPE_PACKAGES
+        .iter()
+        .find(|(row_family, extensions, names, _)| {
+            *row_family == family
+                && (extensions.is_empty() || extensions.iter().any(|ext| file.ends_with(ext)))
+                && names.matches(name)
+        })
+        .and_then(|(_, _, _, package)| *package)
 }
 
 /// What `type_path` names in `file` (a function of `family` declared
