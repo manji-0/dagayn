@@ -62,6 +62,11 @@ pub(super) fn parse_go_with_parser(
             nodes[0].extra["cgo_libraries"] = json!(libraries);
         }
         set_declared_namespaces(&mut nodes, namespace.into_iter().collect());
+        // The directory of the module's `go.mod` (`""` at the root): the
+        // tools ask which rows lie in the target's module (#325).
+        if let Some((_, module_dir)) = &module {
+            nodes[0].extra["go_module_dir"] = json!(module_dir);
+        }
         let mut edges = go_resolve_call_targets(&nodes, edges, &file_path);
         if test_file {
             add_tested_by_edges(&nodes, &mut edges);

@@ -506,7 +506,9 @@ fn reached_by_test(inputs: &Inputs, node: &GraphNode) -> Option<bool> {
 /// module-level instance's implicit methods, a module's
 /// `__getattr__`, and a call at a module's top level (`import_time`) run
 /// once the module is imported, so there the module is called by the files
-/// that import it.
+/// that import it. For Go, a test or caller where the Go tools building
+/// the function's module do not look (`_examples/`, `testdata/`, another
+/// module's directory) is not walked: `go test ./...` never runs it (#325).
 pub(crate) fn nearest_test(
     store: &GraphStore,
     root: &Path,
@@ -528,6 +530,15 @@ pub(crate) fn nearest_test(
     let mut imported: HashSet<String> = HashSet::new();
     let mut implicit: HashSet<String> = HashSet::new();
     let mut sources: HashMap<String, Option<Vec<String>>> = HashMap::new();
+    let target = store.get_node(qn).ok()?;
+    let mut scope = target
+        .as_ref()
+        .and_then(|node| crate::go_module::GoScope::of(store, node));
+    let mut built = |file: &str| {
+        scope
+            .as_mut()
+            .is_none_or(|scope| scope.outside(file).is_none())
+    };
     // Tests at the same hop tie; the first by qualified name wins, so the
     // answer does not follow the order the walk met them in.
     for depth in 0..=limit {
@@ -536,6 +547,7 @@ pub(crate) fn nearest_test(
             direct.extend(
                 direct_tests(store, current)?
                     .into_iter()
+                    .filter(|test| built(&test.file_path))
                     .map(|test| test.qualified_name),
             );
         }
@@ -578,6 +590,9 @@ pub(crate) fn nearest_test(
                     continue;
                 }
                 if let Some(caller) = store.get_node(&edge.source_qualified).ok()? {
+                    if !built(&caller.file_path) {
+                        continue;
+                    }
                     if is_test_node(&caller, &relative(&caller.file_path)) {
                         caller_tests.push(caller.qualified_name);
                         continue;

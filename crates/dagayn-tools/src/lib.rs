@@ -26,6 +26,7 @@ mod ensure;
 mod entry_points;
 mod findings;
 mod flow;
+mod go_module;
 mod next;
 pub mod pending;
 mod postprocess;

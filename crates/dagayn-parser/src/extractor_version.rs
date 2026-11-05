@@ -323,8 +323,11 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 18: post-processing marks a method call on what a function of
         // another module returned (`zw := gzip.NewWriter(w); zw.Reset(w)`)
         // external to that module (`compress/gzip.NewWriter().Reset`).
+        // 19: the File node records the directory of its module's `go.mod`
+        // (`go_module_dir`, `""` at the root), so the tools can tell rows in
+        // the target's module from rows in a nested one (#325).
         extractor: "go",
-        version: 18,
+        version: 19,
         languages: &["go"],
     },
     ExtractorVersion {

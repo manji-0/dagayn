@@ -562,10 +562,24 @@ fn go_files_declare_their_package_import_path_as_namespace() {
     assert_eq!(namespaces("zstd/old.go"), None);
     // The nearest go.mod decides the module.
     assert_eq!(namespaces("tools/cmd/a.go"), one("example.com/tools/cmd"));
+    // The File node records the directory of that go.mod (#325).
+    let module_dir = |file: &str| {
+        let source = std::fs::read(root.join(file)).unwrap();
+        let mut parser = RustOwnedParser::new();
+        let (nodes, _) = parser.parse_file_in_repo(Some(&root), file, &source);
+        nodes[0].extra.get("go_module_dir").cloned()
+    };
+    assert_eq!(module_dir("zstd/enc.go"), Some(serde_json::json!("")));
+    assert_eq!(module_dir("zstd/gen.go"), Some(serde_json::json!("")));
+    assert_eq!(
+        module_dir("tools/cmd/a.go"),
+        Some(serde_json::json!("tools"))
+    );
     let _ = std::fs::remove_dir_all(root);
     // Without a repository root, the directory stands in for the module path.
     let (nodes, _) = parse_go("zstd/enc.go", b"package zstd\n\nfunc encode() {}\n");
     assert_eq!(nodes[0].extra.get("namespaces").cloned(), one("zstd"));
+    assert_eq!(nodes[0].extra.get("go_module_dir"), None);
 }
 
 #[test]

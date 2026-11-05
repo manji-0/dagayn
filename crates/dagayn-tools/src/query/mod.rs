@@ -15,10 +15,11 @@ use dagayn_graph::{GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
 use crate::answerability::Answerability;
+use crate::go_module::GoScope;
 use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 use notes::{
-    NO_MATCHING_EDGES, Page, ending, found_summary, guidance, no_edges_note, page_note,
-    tests_through_callers_note, walk_cut_note,
+    NO_MATCHING_EDGES, OUTSIDE_MODULE_ONLY, Page, ending, found_summary, guidance, no_edges_note,
+    outside_guidance, outside_note, page_note, tests_through_callers_note, walk_cut_note,
 };
 pub(crate) use resolve::looks_like_file_target;
 use resolve::{Ambiguity, Answers, Cut, Resolution, Unresolved, ambiguous, resolve};
@@ -444,10 +445,23 @@ fn answer(
     if let Some(prefix) = path_prefix {
         found.keep_under(pattern, prefix);
     }
+    // Go rows where the Go tools building the target's module do not look
+    // are listed apart from the answer (#325).
+    let mut scope = go_scope(store, pattern, query.target, node);
+    if let Some(scope) = scope.as_mut() {
+        found.split_outside(pattern, scope);
+    }
 
     // `query_zero_result_fields`.
-    let (empty_note, tests_through_callers) =
-        zero_result_note(store, root, &query, node, &found, exact_count)?;
+    let (empty_note, tests_through_callers) = zero_result_note(
+        store,
+        root,
+        &query,
+        node,
+        &found,
+        exact_count,
+        scope.as_mut(),
+    )?;
     let (confidence, zero_result_reason) = confidence(&found, empty_note.is_some());
     let mut payload = Ordered::default()
         .put("status", "ok")
@@ -488,7 +502,15 @@ fn answer(
     // (docs/plans/AGENT-WORKFLOW-TARGET.md#order-of-work, step 10).
     let closed = paging.results_complete && found.closed();
     let mut unbound_caller = None;
-    if let Some((note, read_first)) = ending(store, pattern, node, &found, closed, import_kind) {
+    if let Some((note, read_first)) = ending(
+        store,
+        pattern,
+        node,
+        &found,
+        closed,
+        import_kind,
+        scope.as_mut(),
+    ) {
         payload = append_summary(payload, &note);
         unbound_caller = read_first;
     }
@@ -534,12 +556,18 @@ impl Direct {
                     shown: rows.len().min(self.rows),
                 });
             }
-            answers.push(json!({
+            let mut answer = json!({
                 "target": target,
                 "result_count": count,
                 "results_complete": complete,
                 "results": rows.iter().take(self.rows).cloned().collect::<Vec<_>>(),
-            }));
+            });
+            // A Go candidate's rows where its module's tools do not look
+            // are counted, not listed (#325).
+            if let Some(outside) = reply.get("outside_module_count") {
+                answer["outside_module_count"] = outside.clone();
+            }
+            answers.push(answer);
         }
         debug_assert_eq!(answers.len(), ambiguity.candidates.len());
         Answers {
@@ -652,14 +680,23 @@ fn zero_result_note(
     node: Option<&GraphNode>,
     found: &Found,
     exact_count: i64,
+    scope: Option<&mut GoScope>,
 ) -> Option<(Option<String>, bool)> {
     let empty_note = node
-        .filter(|_| found.rows.is_empty() && found.unresolved.is_empty() && exact_count > 0)
+        .filter(|_| {
+            found.rows.is_empty()
+                && found.outside.is_empty()
+                && found.unresolved.is_empty()
+                && exact_count > 0
+        })
         .and_then(|node| no_edges_note(query.pattern, &node.language, query.import_kind));
     // A node no test calls can still run under the tests that call its
     // callers: say so, and name the walk that lists them.
     if query.pattern == "tests_for" && empty_note.is_some() {
-        let callers = run_pattern(store, root, "callers_of", query.target, node, 1, None)?;
+        let mut callers = run_pattern(store, root, "callers_of", query.target, node, 1, None)?;
+        if let Some(scope) = scope {
+            callers.split_outside("callers_of", scope);
+        }
         if !callers.rows.is_empty() {
             let nearest = found
                 .test_reach
@@ -687,6 +724,8 @@ fn confidence(found: &Found, no_edges: bool) -> (&'static str, Value) {
         (if high { "high" } else { "medium" }, Value::Null)
     } else if !found.unresolved.is_empty() {
         ("medium", json!("unresolved_endpoints_only"))
+    } else if !found.outside.is_empty() {
+        ("low", json!(OUTSIDE_MODULE_ONLY))
     } else if no_edges {
         ("low", json!(NO_MATCHING_EDGES))
     } else {
@@ -729,9 +768,9 @@ fn put_rows(
             .put("edges", json!(edges))
             .put(
                 "guidance",
-                guidance(pattern, target, raw_count, exact_count),
+                rows_guidance(query, found, raw_count, exact_count),
             );
-        return (payload, 8000);
+        return (put_outside(payload, query, found, usize::MAX), 8000);
     }
     let mut rows: Vec<Row> = found
         .rows
@@ -759,12 +798,115 @@ fn put_rows(
         .put("answerability", answerability.compact())
         .put("results", json!(rows));
     if query.minimal {
+        let payload = put_outside(payload, query, found, OUTSIDE_LISTED_MINIMAL);
         return (payload, crate::MINIMAL_BUDGET);
     }
     // One count per reply: the rows, after `merge` folded the edges of one
     // node into one row.
-    payload = payload.put("guidance", guidance(pattern, target, rows_len, exact_count));
-    (payload, crate::STANDARD_BUDGET)
+    payload = payload.put(
+        "guidance",
+        rows_guidance(query, found, rows_len, exact_count),
+    );
+    (
+        put_outside(payload, query, found, OUTSIDE_LISTED),
+        crate::STANDARD_BUDGET,
+    )
+}
+
+/// `guidance` for `count` rows: for a Go answer whose every row is in
+/// `outside_module`, that the rows are there.
+fn rows_guidance(query: &Query, found: &Found, count: usize, exact_count: i64) -> Value {
+    if count == 0 && !found.outside.is_empty() {
+        return outside_guidance(query.pattern, query.target, exact_count);
+    }
+    guidance(query.pattern, query.target, count, exact_count)
+}
+
+/// Rows `outside_module` lists at most, at `minimal` and at `standard`
+/// (`full` lists every one).
+const OUTSIDE_LISTED: usize = 20;
+const OUTSIDE_LISTED_MINIMAL: usize = 10;
+
+/// The Go rows where the Go tools building the target's module do not look
+/// (#325): `outside_module_count` of them, the first `cap` in
+/// `outside_module`, one compact row per node, and the summary sentence
+/// that says where they are and why. Not counted in `result_count`, and
+/// not read in `next`: those are the answer, and these are kept only so
+/// that nothing the graph found is dropped unsaid.
+fn put_outside(payload: Ordered, query: &Query, found: &Found, cap: usize) -> Ordered {
+    if found.outside.is_empty() {
+        return payload;
+    }
+    let mut keys: Vec<String> = Vec::new();
+    let mut rows: Vec<Map<String, Value>> = Vec::new();
+    let mut places: Vec<(String, &'static str, usize)> = Vec::new();
+    for (row, outside) in &found.outside {
+        let name = row_name(row);
+        let line = rows::get(row, "line")
+            .filter(|line| !line.is_null())
+            .cloned();
+        if let Some(index) = keys.iter().position(|key| *key == name.1) {
+            if let Some(line) = line
+                && let Some(Value::Array(lines)) = rows[index].get_mut("lines")
+                && !lines.contains(&line)
+            {
+                lines.push(line);
+            }
+            continue;
+        }
+        keys.push(name.1.clone());
+        let mut out = Map::new();
+        out.insert(name.0.into(), json!(name.1));
+        if let Some(line) = line {
+            out.insert("lines".into(), json!([line]));
+        }
+        if let Some(depth) = rows::get(row, "depth") {
+            out.insert("depth".into(), depth.clone());
+        }
+        out.insert("reason".into(), json!(outside.reason()));
+        rows.push(out);
+        let place = outside.place();
+        match places.iter_mut().find(|(seen, _, _)| *seen == place) {
+            Some((_, _, count)) => *count += 1,
+            None => places.push((place, outside.why(), 1)),
+        }
+    }
+    places.sort();
+    let count = rows.len();
+    rows.truncate(cap);
+    let note = outside_note(query.pattern, count, rows.len(), &places);
+    append_summary(payload, &note)
+        .put("outside_module_count", count)
+        .put("outside_module", json!(rows))
+}
+
+/// What names a row in `outside_module`: its qualified name, or the file
+/// of an import row.
+fn row_name(row: &Row) -> (&'static str, String) {
+    match rows::get(row, "qualified_name").and_then(Value::as_str) {
+        Some(name) if !name.is_empty() => ("qualified_name", name.to_string()),
+        _ => ("file", row_file(row).unwrap_or_default().to_string()),
+    }
+}
+
+/// The scope a Go target's rows are split by: the module of the target's
+/// file, or for `importers_of` on a directory (a Go package), of its first
+/// Go file.
+fn go_scope<'a>(
+    store: &'a GraphStore,
+    pattern: &str,
+    target: &str,
+    node: Option<&GraphNode>,
+) -> Option<GoScope<'a>> {
+    match node {
+        Some(node) => GoScope::of(store, node),
+        None if pattern == "importers_of" => {
+            let files = store.files_in_directory(target).ok()?;
+            let file = files.iter().find(|file| file.ends_with(".go"))?;
+            GoScope::of_file(store, file)
+        }
+        None => None,
+    }
 }
 
 /// What the budget and `offset` left of the rows.
