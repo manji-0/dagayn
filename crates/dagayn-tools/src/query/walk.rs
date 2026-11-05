@@ -78,7 +78,21 @@ pub(super) struct Found {
     /// Go rows where the Go tools building the target's module do not look
     /// (#325), taken out of `rows`, and why.
     pub(super) outside: Vec<(Row, Outside)>,
+    /// `tests_for`: every test the nearest-test walk met within the hop
+    /// limit, before [`Found::through_callers`] keeps those not in `rows`.
+    pub(super) reaching: Option<Reaching>,
 }
+
+/// The tests `tests_for`'s walk met, the hops it collected them within,
+/// and whether it stopped early at a hub.
+pub(super) struct Reaching {
+    pub(super) tests: Vec<crate::findings::ReachingTest>,
+    pub(super) limit: usize,
+    pub(super) truncated: bool,
+}
+
+/// Tests through callers `test_reach` lists by name; the rest are counted.
+const THROUGH_CALLERS_LISTED: usize = 10;
 
 impl Found {
     /// Whether the walk stopped at its own row limit, so rows past it are
@@ -146,6 +160,44 @@ impl Found {
             let file = end.split_once("::").map_or(end, |(file, _)| file);
             scope.outside(file).is_none()
         });
+    }
+
+    /// `tests_for` with rows: the tests that reach the target through its
+    /// callers and are not rows, in `test_reach.through_callers` (#327).
+    /// They are left out where there are no rows, which the zero-result
+    /// note covers.
+    pub(super) fn through_callers(&mut self) -> Option<&Reaching> {
+        let reaching = self.reaching.as_mut()?;
+        if self.rows.is_empty() {
+            return None;
+        }
+        let rows: HashSet<&str> = self
+            .rows
+            .iter()
+            .chain(self.outside.iter().map(|(row, _)| row))
+            .filter_map(|row| get(row, "qualified_name").and_then(Value::as_str))
+            .collect();
+        reaching
+            .tests
+            .retain(|test| test.hops > 0 && test.is_test && !rows.contains(test.test.as_str()));
+        if reaching.tests.is_empty() {
+            return None;
+        }
+        let listed: Vec<Value> = reaching
+            .tests
+            .iter()
+            .take(THROUGH_CALLERS_LISTED)
+            .map(|test| json!({"qualified_name": test.test, "hops": test.hops, "via": test.via}))
+            .collect();
+        if let Some(reach) = self.test_reach.as_mut() {
+            reach["through_callers"] = json!({
+                "count": reaching.tests.len(),
+                "hop_limit": reaching.limit,
+                "truncated": reaching.truncated,
+                "tests": listed,
+            });
+        }
+        Some(reaching)
     }
 
     fn unresolve(&mut self, names: Vec<String>) {
@@ -626,25 +678,39 @@ pub(super) fn run_pattern(
             found.rows =
                 crate::coverage::infer_tests_for_node(store, &mut state, node, 25, "medium")?;
             // The nearest test as `untested_change` counts it, a little past
-            // the limit it trusts, so a test just beyond it shows.
+            // the limit it trusts, so a test just beyond it shows; and every
+            // test within the limit (callers_of's deepest walk for Rust,
+            // which has none), for the ones that are not rows.
             let limit = crate::findings::caller_test_depth(&node.language);
             let search = limit.map_or(usize::MAX, |limit| limit + 4);
-            found.test_reach = Some(
-                match crate::findings::nearest_test(store, root, &node.qualified_name, search)? {
-                    Some((hops, test)) => json!({
-                        "nearest_test": test,
-                        "hops": hops,
-                        "counts_as_tested": limit.is_none_or(|limit| hops <= limit),
-                        "hop_limit": limit,
-                    }),
-                    None => json!({
-                        "nearest_test": null,
-                        "hops": null,
-                        "counts_as_tested": false,
-                        "hop_limit": limit,
-                    }),
-                },
-            );
+            let collect = limit.unwrap_or(super::MAX_DEPTH as usize);
+            let (tests, truncated) = crate::findings::tests_reaching(
+                store,
+                root,
+                &node.qualified_name,
+                collect,
+                search,
+            )?;
+            let nearest = tests.first().map(|test| (test.hops, test.test.clone()));
+            found.reaching = Some(Reaching {
+                tests,
+                limit: collect,
+                truncated,
+            });
+            found.test_reach = Some(match nearest {
+                Some((hops, test)) => json!({
+                    "nearest_test": test,
+                    "hops": hops,
+                    "counts_as_tested": limit.is_none_or(|limit| hops <= limit),
+                    "hop_limit": limit,
+                }),
+                None => json!({
+                    "nearest_test": null,
+                    "hops": null,
+                    "counts_as_tested": false,
+                    "hop_limit": limit,
+                }),
+            });
             found.edges = edges_of(true)?
                 .iter()
                 .filter(|e| e.kind == "TESTED_BY")

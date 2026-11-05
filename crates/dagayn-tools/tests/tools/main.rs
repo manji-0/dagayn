@@ -18,3 +18,4 @@ mod request_boundary;
 mod review;
 mod search;
 mod stats;
+mod tests_for_completeness;

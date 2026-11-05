@@ -35,6 +35,9 @@ const NON_TEST_HELPER_NAMES: &[&str] = &[
     "teardown_module",
 ];
 const MODULE_MARKER_SKIP: &[&str] = &["src", "lib", "pkg", "internal", "tests", "test"];
+/// A test that uses the target as a value ranks under a TESTED_BY edge and
+/// over every name match.
+const VALUE_USE_SCORE: i64 = 90;
 
 /// `is_test_file_path`.
 pub(crate) fn is_test_file_path(file_path: &str) -> bool {
@@ -541,6 +544,33 @@ pub(crate) fn infer_tests_for_node(
             if let Some(test) = nodes.get(qn) {
                 let row = coverage_row(test, "high", vec!["dagayn: tests directive"], "authored");
                 results.insert(test.qualified_name.clone(), (100, row));
+            }
+        }
+    }
+    // Tests that use a function as a value (`r.Use(Recoverer)`): what they
+    // pass it to calls it, as the nearest-test walk counts it (#328). A
+    // class named in a test (`pytest.raises(Error)`) is a type use, not one.
+    if target.kind == "Function" {
+        let users: Vec<String> = incoming
+            .values()
+            .flatten()
+            .filter(|edge| {
+                edge.kind == "REFERENCES" && edge.extra.get("relationship_role").is_none()
+            })
+            .map(|edge| edge.source_qualified.clone())
+            .collect();
+        if !users.is_empty() {
+            let nodes = store.get_nodes_by_qualified_names(&users).ok()?;
+            for qn in &users {
+                let Some(test) = nodes.get(qn) else {
+                    continue;
+                };
+                if !is_test_like(test)? || results.contains_key(qn) {
+                    continue;
+                }
+                let evidence = vec!["test uses target as a value"];
+                let row = coverage_row(test, "medium", evidence, "value_use");
+                results.insert(test.qualified_name.clone(), (VALUE_USE_SCORE, row));
             }
         }
     }

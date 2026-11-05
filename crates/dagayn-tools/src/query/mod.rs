@@ -18,8 +18,9 @@ use crate::answerability::Answerability;
 use crate::go_module::GoScope;
 use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 use notes::{
-    NO_MATCHING_EDGES, OUTSIDE_MODULE_ONLY, Page, ending, found_summary, guidance, no_edges_note,
-    outside_guidance, outside_note, page_note, tests_through_callers_note, walk_cut_note,
+    NO_MATCHING_EDGES, OUTSIDE_MODULE_ONLY, Page, by_name_note, ending, found_summary, guidance,
+    no_edges_note, outside_guidance, outside_note, page_note, tests_through_callers_note,
+    through_callers_note, walk_cut_note,
 };
 pub(crate) use resolve::looks_like_file_target;
 use resolve::{Ambiguity, Answers, Cut, Resolution, Unresolved, ambiguous, resolve};
@@ -492,10 +493,29 @@ fn answer(
         &answerability,
         exact_count,
     );
-    let (mut payload, paging) = page(payload, budget, &found.rows, query.offset, query.minimal);
+    let (mut payload, mut paging) = page(payload, budget, &found.rows, query.offset, query.minimal);
     // The walk's own row limit bounds what any page can show.
     if found.walk_cut() {
         payload = append_summary(payload, &walk_cut_note());
+    }
+    // What a `tests_for` list covers: the tests linked to the target itself,
+    // not the ones through its callers (#327); and rows chosen by name alone
+    // are not a whole answer (#328).
+    let mut via_callers = Vec::new();
+    if pattern == "tests_for" {
+        if let Some(reaching) = found.through_callers() {
+            payload = append_summary(payload, &through_callers_note(reaching, query.target));
+            for test in &reaching.tests {
+                if test.via != query.target && !via_callers.contains(&test.via) {
+                    via_callers.push(test.via.clone());
+                }
+            }
+        }
+        if by_name_only(&found.rows) {
+            payload = append_summary(payload, by_name_note());
+            payload = payload.replace("results_complete", json!(false));
+            paging.results_complete = false;
+        }
     }
     // Say that a closed answer is the whole answer: agents re-checked lists
     // the graph had already completed
@@ -526,6 +546,7 @@ fn answer(
         &paging,
         unbound_caller,
         tests_through_callers,
+        &via_callers,
     );
     payload = payload.replace("next", next);
     Some(finish(payload, found, &answerability, graph))
@@ -548,8 +569,14 @@ impl Direct {
         for (index, (target, reply)) in self.replies.iter().enumerate() {
             let rows = reply["results"].as_array().map_or(&[][..], Vec::as_slice);
             let count = reply["result_count"].as_u64().unwrap_or(rows.len() as u64);
-            let complete = reply["results_complete"] == json!(true) && count <= self.rows as u64;
-            if !complete {
+            // A list cut by the budget or by `rows`; a `tests_for` by name
+            // alone is not complete either, but nothing is cut from it.
+            let truncated = reply
+                .get("_truncation")
+                .is_some_and(|truncation| truncation.get("results").is_some());
+            let shown = count <= self.rows as u64 && !truncated;
+            let complete = reply["results_complete"] == json!(true) && shown;
+            if !shown {
                 cut.push(Cut {
                     index,
                     rows: count,
@@ -566,6 +593,11 @@ impl Direct {
             // are counted, not listed (#325).
             if let Some(outside) = reply.get("outside_module_count") {
                 answer["outside_module_count"] = outside.clone();
+            }
+            // A `tests_for` candidate's tests through callers are counted
+            // (#327).
+            if let Some(through) = reply["test_reach"]["through_callers"].get("count") {
+                answer["tests_through_callers_count"] = through.clone();
             }
             answers.push(answer);
         }
@@ -1007,6 +1039,14 @@ fn page(
     (append_summary(payload, &page_note(&page, minimal)), paging)
 }
 
+/// Whether every `tests_for` row is chosen by name alone: no edge links any.
+fn by_name_only(rows: &[Row]) -> bool {
+    !rows.is_empty()
+        && rows
+            .iter()
+            .all(|row| rows::get(row, "coverage_source") == Some(&json!("heuristic")))
+}
+
 /// `payload` with `sentence` added to its summary.
 fn append_summary(payload: Ordered, sentence: &str) -> Ordered {
     match payload.get("summary").and_then(Value::as_str) {
@@ -1029,6 +1069,7 @@ fn next_calls(
     paging: &Paging,
     unbound_caller: Option<(String, String)>,
     tests_through_callers: bool,
+    via_callers: &[String],
 ) -> Value {
     let Query {
         pattern,
@@ -1109,5 +1150,18 @@ fn next_calls(
             "the tests that reach it through its callers",
         ));
     }
+    // The callers the nearest tests that are not rows reach it through,
+    // nearest first: their tests_for lists those tests.
+    for via in via_callers.iter().take(VIA_CALLS).rev() {
+        first(crate::next::call(
+            "query_graph_tool",
+            json!({"pattern": "tests_for", "target": via}),
+            "tests that run it through this caller",
+        ));
+    }
     next
 }
+
+/// Callers whose tests `next` lists for a `tests_for` with tests through
+/// callers.
+const VIA_CALLS: usize = 2;

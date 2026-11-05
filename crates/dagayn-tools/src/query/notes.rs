@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use super::MAX_DEPTH;
 use super::rows::{VALUE_REFERENCE, get};
-use super::walk::{Found, TRANSITIVE_ROW_LIMIT};
+use super::walk::{Found, Reaching, TRANSITIVE_ROW_LIMIT};
 use crate::go_module::GoScope;
 
 /// The zero-result reason for a node the graph has but that no edge of the
@@ -819,6 +819,59 @@ pub(super) fn tests_through_callers_note(nearest: Option<(&str, u64)>, callers: 
              tests included"
         ),
     }
+}
+
+/// Tests through callers the summary names; `test_reach.through_callers`
+/// lists more.
+const THROUGH_CALLERS_NAMED: usize = 3;
+
+/// What `tests_for` with rows says of the tests that are not rows but reach
+/// the target through its callers (G10 H1, #327): the rows are the tests
+/// linked to the target itself; these run it through a caller.
+pub(super) fn through_callers_note(reaching: &Reaching, target: &str) -> String {
+    let count = reaching.tests.len();
+    let limit = reaching.limit;
+    let at_least = if reaching.truncated { "at least " } else { "" };
+    let named: Vec<String> = reaching
+        .tests
+        .iter()
+        .take(THROUGH_CALLERS_NAMED)
+        .map(|test| {
+            if test.via == target {
+                format!("{} ({} hop(s), uses it)", test.test, test.hops)
+            } else {
+                format!("{} ({} hop(s), through {})", test.test, test.hops, test.via)
+            }
+        })
+        .collect();
+    let rest = count.saturating_sub(named.len());
+    let rest = if rest > 0 {
+        format!(", and {rest} more")
+    } else {
+        String::new()
+    };
+    let stopped = if reaching.truncated {
+        format!(
+            "; the walk stopped at {} nodes",
+            crate::findings::REACH_NODE_LIMIT
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "The rows are the tests linked to it directly; {at_least}{count} more test(s) reach \
+         it through its callers within {limit} hop(s) and are not rows (test_reach.through_callers): \
+         {}{rest}{stopped}",
+        named.join(", ")
+    )
+}
+
+/// What `tests_for` says when every row is chosen by name (G10 H2, #328):
+/// nothing in the graph links them, so the list is not the whole answer.
+pub(super) fn by_name_note() -> &'static str {
+    "Every row is chosen by name (coverage_source \"heuristic\"): no call, value use, or \
+     dagayn: tests directive in the graph links one to it, so tests may be missing and \
+     results_complete is false"
 }
 
 /// The page of rows a reply shows, where the budget cut them or `offset`
