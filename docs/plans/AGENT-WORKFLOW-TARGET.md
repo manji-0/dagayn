@@ -73,8 +73,8 @@ Consequences of that sentence:
   review risk score.
 - **Ambiguity names its retry.** `status="ambiguous"` returns the
   candidates (non-test first) and a `next` with one call per candidate,
-  `target` set to its `qualified_name`. Where the name matches at most
-  five nodes, `query_graph_tool` (but `source_of`) answers each in
+  `target` set to its `qualified_name`. Where at most five nodes carry
+  the name, `query_graph_tool` (but `source_of`) answers each in
   `answers` instead, and `next` holds only the full calls for the
   answers it cut ([decisions](#decisions-2026-11-05)).
 - **Counts agree.** A response states one number for one thing:
@@ -182,8 +182,9 @@ related node(s)" with `counts.result_count: 13`.
 
 ## Decisions (2026-11-05)
 
-- A `query_graph_tool` target that matches at most five nodes is answered
-  for each of them (#307), which replaces the 2026-10-07 decision that an
+- A `query_graph_tool` target that at most five nodes carry, exactly or
+  respelled (`(*T).M` for `T.M`), is answered for each of them (#307),
+  which replaces the 2026-10-07 decision that an
   ambiguous target runs nothing. In G9, 12 first calls named a method
   without its type or path and needed one more request (about 24.5K
   tokens) to resend it; the per-candidate answers of those calls are 3.6K
@@ -200,6 +201,9 @@ related node(s)" with `counts.result_count: 13`.
 - `source_of` is not answered per candidate: a row is a whole span, so
   the row cap does not bound it. More than five matches keep the list
   and the retries.
+- Search hits that only look like the name (no node carries it) are not
+  answered: answering for loosely related nodes is the wrong guess the
+  issue rules out. They keep the list and the retries.
 
 ## Evaluation
 

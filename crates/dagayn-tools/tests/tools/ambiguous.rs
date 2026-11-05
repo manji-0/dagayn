@@ -1,5 +1,6 @@
 //! `query_graph_tool` on a name that matches more than one node: at most
-//! five are each answered as a direct query would answer them (issue #307).
+//! five nodes that carry the name are each answered as a direct query would
+//! answer them (issue #307).
 
 use dagayn_tools::Context;
 use serde_json::{Value, json};
@@ -265,4 +266,41 @@ fn answers_fit_the_minimal_budget() {
         assert_eq!(call["args"]["target"], item["target"]);
         assert_eq!(call["args"]["detail_level"], "minimal");
     }
+}
+
+#[test]
+fn search_hits_that_only_look_like_the_name_are_not_answered() {
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
+    let repo = Repo::new("ambiguous-fuzzy", false);
+    repo.write(
+        "loaders.py",
+        "def config_loader():\n    pass\n\n\ndef cache_loader():\n    pass\n\n\n\
+         def run():\n    config_loader()\n    cache_loader()\n",
+    );
+    repo.build();
+    let reply = answer(
+        &repo.context(),
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "loader"}),
+    );
+    assert_eq!(reply["status"], "ambiguous", "{reply}");
+    let candidates = reply["candidates"].as_array().expect("candidates");
+    assert!(
+        (2..=5).contains(&candidates.len()),
+        "{}",
+        reply["candidates"]
+    );
+    assert!(candidates.iter().all(|node| node["name"] != "loader"));
+    assert_eq!(reply["candidates_truncated"], false);
+    assert!(reply.get("answers").is_none(), "{reply}");
+    assert_eq!(
+        reply["next"].as_array().map(Vec::len),
+        Some(candidates.len().min(3))
+    );
+    assert!(
+        reply["summary"]
+            .as_str()
+            .expect("summary")
+            .starts_with("Multiple matches for 'loader'.")
+    );
 }

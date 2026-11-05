@@ -46,7 +46,8 @@ All notable changes to `dagayn` are documented here.
 ### Changed
 
 - `query_graph_tool` answers an ambiguous target for each candidate when
-  the name matches at most five nodes (#307). The reply stays
+  at most five nodes carry the name exactly, or as a respelling such as
+  `(*T).M` (#307). The reply stays
   `status="ambiguous"` with `result_count: 0`, `results: []`, and
   `candidates`, and adds `answers`: per candidate its `target` (the
   qualified name), `result_count`, `results_complete`, and at most 20
@@ -55,8 +56,9 @@ All notable changes to `dagayn` are documented here.
   each answer that was cut, and is empty when none was. In G9, 12 first
   calls with a bare or half-qualified method name (`IsBool`,
   `(*Assertions).True`) cost one more request to resend; kong's `IsBool`
-  now gets the five answers in 3.6K characters. `source_of` and names
-  with more than five matches keep the list and the retries.
+  now gets the five answers in 3.6K characters. `source_of`, names
+  with more than five matches, and search hits that only look like the
+  name keep the list and the retries.
 - The ambiguous summary names the spelling to resend: a candidate's
   `qualified_name`, or `path::Type.Method` (for Go also
   `path::(*Type).Method`).

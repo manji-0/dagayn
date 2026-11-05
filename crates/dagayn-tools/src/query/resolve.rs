@@ -189,19 +189,30 @@ fn not_found(
 pub(super) struct Ambiguity {
     pub(super) candidates: Vec<GraphNode>,
     pub(super) total: usize,
+    /// Whether every candidate carries the name (or its respelling) exactly,
+    /// as opposed to search hits that only look like it.
+    pub(super) exact_name: bool,
 }
 
 /// Candidates an ambiguous reply lists.
 pub(super) const SHOWN_CANDIDATES: usize = 5;
 
 impl Ambiguity {
-    fn new<'a>(matches: impl IntoIterator<Item = &'a GraphNode>, total: usize) -> Self {
+    fn new<'a>(
+        matches: impl IntoIterator<Item = &'a GraphNode>,
+        total: usize,
+        exact_name: bool,
+    ) -> Self {
         let mut candidates: Vec<GraphNode> = crate::next::tests_last(matches)
             .into_iter()
             .cloned()
             .collect();
         candidates.truncate(SHOWN_CANDIDATES);
-        Self { candidates, total }
+        Self {
+            candidates,
+            total,
+            exact_name,
+        }
     }
 
     /// Whether the name matched more nodes than the reply lists.
@@ -373,6 +384,7 @@ pub(super) fn resolve(
         return Some(Err(Unresolved::Ambiguous(Ambiguity::new(
             respelled.iter(),
             respelled.len(),
+            true,
         ))));
     }
     let (node, resolution) = match (exact_node, respelled.pop()) {
@@ -417,9 +429,9 @@ pub(super) fn resolve(
                 // Where no node has the name itself, the search hits (at
                 // most `NAME_SEARCH_LIMIT`): the reply lists the first five.
                 let ambiguity = if named.is_empty() {
-                    Ambiguity::new(hits.iter().take(SHOWN_CANDIDATES), hits.len())
+                    Ambiguity::new(hits.iter().take(SHOWN_CANDIDATES), hits.len(), false)
                 } else {
-                    Ambiguity::new(named.iter().copied(), named.len())
+                    Ambiguity::new(named.iter().copied(), named.len(), true)
                 };
                 if named.len() == 1 {
                     (Some(named[0].clone()), Resolution::ExactName)

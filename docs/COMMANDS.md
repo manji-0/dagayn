@@ -819,7 +819,8 @@ keeps every edit for `apply_refactor_tool`, and `verbose` returns them all.
 
 `semantic_search_nodes_tool` and `query_graph_tool` report result counts,
 exactness or ambiguity, evidence type, zero-result reason, and `next`: the
-first hits' `source_of`, or one retry per candidate of an ambiguous target. Mixed docs/code hits are labelled so a Markdown body hit is not confused
+first hits' `source_of`, or, for an ambiguous target, the per-candidate
+`answers` or one retry per candidate. Mixed docs/code hits are labelled so a Markdown body hit is not confused
 with a code symbol hit.
 For `query_graph_tool`, missing targets use the same consumer contract as empty
 relationship results: `status="not_found"`, `result_count=0`, `results=[]`,
@@ -828,8 +829,9 @@ relationship results: `status="not_found"`, `result_count=0`, `results=[]`,
 A bare target name resolves to its node when exactly one node carries that exact
 name (`resolution="exact_name"`, with `original_target`), even when fuzzy search
 ranks look-alike names higher; several exact-name matches return
-`status="ambiguous"` with only those as `candidates`. When the name matches at
-most five nodes, an ambiguous reply (but for `source_of`) also has `answers`:
+`status="ambiguous"` with only those as `candidates`. When at most five nodes
+carry the name (exactly, or respelled as in `(*T).M`), an ambiguous reply (but
+for `source_of`) also has `answers`:
 for each candidate, its `target`, `result_count`, `results_complete`, and at
 most 20 `detail_level="minimal"` rows of the direct query on that qualified
 name; `next` then holds the full query for each answer that was cut.

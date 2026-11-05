@@ -373,9 +373,14 @@ fn answer(
         Ok(resolved) => resolved,
         Err(Unresolved::Answer(answer)) => return Some(answer),
         Err(Unresolved::Ambiguous(ambiguity)) => {
-            let answers = (answer_candidates && pattern != "source_of" && !ambiguity.truncated())
-                .then(|| candidate_answers(graph, root, arguments, &ambiguity))
-                .flatten();
+            // Only nodes that carry the name are answered: answering search
+            // hits that merely look like it would be a guess (#307).
+            let answers = (answer_candidates
+                && ambiguity.exact_name
+                && pattern != "source_of"
+                && !ambiguity.truncated())
+            .then(|| candidate_answers(graph, root, arguments, &ambiguity))
+            .flatten();
             let ambiguous = |answers: Option<&Answers>| {
                 ambiguous(
                     arguments,

@@ -2,32 +2,6 @@
   "_repo": {
     "repo_root": "<REPO>"
   },
-  "answers": [
-    {
-      "result_count": 0,
-      "results": [],
-      "results_complete": true,
-      "target": "docs/README.md::graph-api"
-    },
-    {
-      "result_count": 0,
-      "results": [],
-      "results_complete": true,
-      "target": "docs/README.md::graph-api--body-1"
-    },
-    {
-      "result_count": 0,
-      "results": [],
-      "results_complete": true,
-      "target": "docs/README.md"
-    },
-    {
-      "result_count": 0,
-      "results": [],
-      "results_complete": true,
-      "target": "docs/README.md::mixed-fixture"
-    }
-  ],
   "candidates": [
     {
       "file_path": "docs/README.md",
@@ -86,16 +60,41 @@
       "severity": "medium"
     },
     {
-      "claim_effect": "each candidate is answered on its own; no answer is for the name alone",
+      "claim_effect": "relationship query was not run for a unique node",
       "reason_code": "ambiguous_target",
       "severity": "medium"
     }
   ],
-  "next": [],
+  "next": [
+    {
+      "args": {
+        "pattern": "implementations_of",
+        "target": "docs/README.md::graph-api"
+      },
+      "tool": "query_graph_tool",
+      "why": "'graph-api' as the DocSection at docs/README.md:5"
+    },
+    {
+      "args": {
+        "pattern": "implementations_of",
+        "target": "docs/README.md::graph-api--body-1"
+      },
+      "tool": "query_graph_tool",
+      "why": "'graph-api--body-1' as the DocBody at docs/README.md:7"
+    },
+    {
+      "args": {
+        "pattern": "implementations_of",
+        "target": "docs/README.md"
+      },
+      "tool": "query_graph_tool",
+      "why": "'docs/README.md' as the File at docs/README.md:1"
+    }
+  ],
   "pattern": "implementations_of",
   "result_count": 0,
   "results": [],
   "status": "ambiguous",
-  "summary": "'Graph API' matches 4 nodes; each is answered below. Resend target as one candidate's qualified_name.",
+  "summary": "Multiple matches for 'Graph API'. Resend target as one candidate's qualified_name.",
   "target": "Graph API"
 }

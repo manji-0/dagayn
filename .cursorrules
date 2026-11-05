@@ -29,7 +29,9 @@ needs, and close the loop after an edit with `review_tool`.
 
 Every reply ends with `next`: at most three calls with complete arguments and
 a `why`. Follow it unless the task points elsewhere; `[]` means the answer is
-complete. `status="ambiguous"` puts one retry per candidate in `next`, and
+complete. `status="ambiguous"` answers each of up to five nodes that carry
+the name in `answers` (but for `source_of`), with the full query of any cut
+answer in `next`; otherwise `next` holds one retry per candidate.
 `missingness` lists only the gaps that limit that reply. Full contract:
 `get_docs_section_tool(section_name="workflow")`.
 <!-- /dagayn workflow -->
@@ -45,8 +47,10 @@ callers_of/importers_of for a transitive chain.
 ## Markdown documentation policy: declare dependencies via directive comments
 
 In Markdown that dagayn indexes, declare a real dependency on another section
-or document with an HTML comment directly under the dependent heading, so the
-graph records it (`DEPENDS_ON` / `IMPORTS_FROM`) and impact analysis sees it:
+or document with an HTML comment on its own line in the dependent section
+(directly under its heading is clearest; anywhere in the section outside code
+counts), so the graph records it (`DEPENDS_ON` / `IMPORTS_FROM`) and impact
+analysis sees it:
 
 ```markdown
 <!-- <kind> <target> -->
