@@ -1,0 +1,45 @@
+{
+ "_about": "G10 (eval/g10_go/PREREG.md): 2 Go questions on testify v1.12.1 (959dbda), drawn by keys/g10draw.py. Keys were built without dagayn (keys/g10keys.py).",
+ "source_commit": "959dbdacf1533e155162811ea90c90117a420463",
+ "preamble": "このリポジトリ (カレントディレクトリ。Go のモジュール github.com/stretchr/testify v1.12.1 のチェックアウト) について、次の質問に答えてください。\n- リポジトリのファイルは変更しないこと。一時ファイルが必要なら /tmp の下に作ること。\n- テストやリポジトリのコードは実行しないこと (go test や go run は使わない。読む・検索する・解析用のスクリプトを書いて実行するのはよい)。\n- 回答の最後に、次の形式の JSON コードブロックを 1 つだけ置くこと: ```json\n{\"answer\": [...]}\n```\n\n質問: ",
+ "condition_line": {
+  "graph": "- dagayn の MCP ツール (サーバ名 dagayn) が使える。まずそれで調べ、必要なら他の道具で確かめること。\n",
+  "none": "- dagayn の MCP ツールは使えない。標準の道具 (検索・ファイルの読み込み・シェル) で調べること。\n"
+ },
+ "tasks": {
+  "T13": {
+   "prompt": "`internal/spew/config.go` のメソッド `(*ConfigState).convertArgs` の本体は、どのテストを実行したときに実行されるか。`func TestXxx(t *testing.T)` の形のテスト関数のうち、そのテストを 1 つだけ実行したとき (`go test -run '^TestXxx$'` で、そのサブテストを含む。`-short` は付けない) に `(*ConfigState).convertArgs` の本体が実行されるものをすべて挙げてください。対象はリポジトリのすべてのパッケージのテスト。`Benchmark`・`Fuzz`・`Example` で始まる関数は数えない。形式は \"ファイルパス::テスト関数名\" (ファイルパスはリポジトリルートから)。",
+   "kind": "symbols",
+   "length": "LONG",
+   "stratum": "reach",
+   "question_kind": 1,
+   "truth": [
+    "internal/spew/format_test.go::TestPrintSortedKeys",
+    "internal/spew/spew_test.go::TestSpew"
+   ]
+  },
+  "T14": {
+   "prompt": "`mock/mock.go` のメソッド `(Arguments).Error` を直接呼んでいる関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.Error(...)` は、x の静的な型が mock パッケージの `Arguments` (または `Arguments`) か、それを埋め込んだ型で、呼び出しがこのメソッドに解決されるなら数える。インタフェース型の値を通した呼び出し、ほかの型の `Error`、同じ名前の関数、標準ライブラリや外部パッケージの関数・メソッドは数えない。コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "length": "LONG",
+   "stratum": "name",
+   "question_kind": 2,
+   "truth": [
+    "http/test_round_tripper.go::TestRoundTripper.RoundTrip",
+    "mock/mock_test.go::TestExampleImplementation.TheExampleMethod3",
+    "mock/mock_test.go::TestExampleImplementation.TheExampleMethod4",
+    "mock/mock_test.go::TestExampleImplementation.TheExampleMethod5",
+    "mock/mock_test.go::TestExampleImplementation.TheExampleMethod6",
+    "mock/mock_test.go::TestExampleImplementation.TheExampleMethod7",
+    "mock/mock_test.go::TestExampleImplementation.TheExampleMethodFunc",
+    "mock/mock_test.go::TestExampleImplementation.TheExampleMethodFuncType",
+    "mock/mock_test.go::TestExampleImplementation.TheExampleMethodFunctionalOptions",
+    "mock/mock_test.go::TestExampleImplementation.TheExampleMethodMixedVariadic",
+    "mock/mock_test.go::TestExampleImplementation.TheExampleMethodVariadic",
+    "mock/mock_test.go::TestExampleImplementation.TheExampleMethodVariadicInterface",
+    "mock/mock_test.go::Test_Arguments_Error",
+    "mock/mock_test.go::Test_Arguments_Error_Nil"
+   ]
+  }
+ }
+}

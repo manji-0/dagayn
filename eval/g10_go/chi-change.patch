@@ -1,0 +1,53 @@
+diff --git a/middleware/logger.go b/middleware/logger.go
+index 72e735f..de80bf6 100644
+--- a/middleware/logger.go
++++ b/middleware/logger.go
+@@ -119,13 +119,11 @@ func (l *DefaultLogFormatter) NewLogEntry(r *http.Request) LogEntry {
+ 	}
+ 	cW(entry.buf, useColor, nCyan, "%s://%s%s %s\" ", scheme, r.Host, r.RequestURI, r.Proto)
+ 
+-	entry.buf.WriteString("from ")
+ 	clientIP := GetClientIP(ctx)
+ 	if clientIP == "" {
+ 		clientIP = r.RemoteAddr
+ 	}
+-	entry.buf.WriteString(clientIP)
+-	entry.buf.WriteString(" - ")
++	entry.buf.WriteString("from " + clientIP + " - ")
+ 
+ 	return entry
+ }
+diff --git a/middleware/recoverer.go b/middleware/recoverer.go
+index e82de6b..5c364db 100644
+--- a/middleware/recoverer.go
++++ b/middleware/recoverer.go
+@@ -183,9 +183,8 @@ func (s prettyStack) decorateSourceLine(line string, useColor bool, num int) (st
+ 	dir := path[0 : idx+1]
+ 	file := path[idx+1:]
+ 
+-	idx = strings.Index(lineno, " ")
+-	if idx > 0 {
+-		lineno = lineno[0:idx]
++	if sp := strings.Index(lineno, " "); sp > 0 {
++		lineno = lineno[:sp]
+ 	}
+ 	fileColor := bCyan
+ 	lineColor := bGreen
+diff --git a/middleware/terminal.go b/middleware/terminal.go
+index 5613318..0b8d42b 100644
+--- a/middleware/terminal.go
++++ b/middleware/terminal.go
+@@ -56,7 +56,12 @@ func cW(w io.Writer, useColor bool, color []byte, s string, args ...any) {
+ 	if IsTTY && useColor {
+ 		w.Write(color)
+ 	}
+-	fmt.Fprintf(w, s, args...)
++	if len(args) == 0 {
++		// Without arguments s is plain text: a '%' in it is not a verb.
++		io.WriteString(w, s)
++	} else {
++		fmt.Fprintf(w, s, args...)
++	}
+ 	if IsTTY && useColor {
+ 		w.Write(reset)
+ 	}

@@ -1,0 +1,144 @@
+{
+ "picks": [
+  {
+   "kind": 1,
+   "length": "LONG",
+   "name_calls": 22,
+   "repository": "testify",
+   "stratum": "reach",
+   "target": "internal/spew/config.go::ConfigState.convertArgs",
+   "tests": 2,
+   "tests_naming_it": 0
+  },
+  {
+   "callers": 14,
+   "declarations": 8,
+   "kind": 2,
+   "length": "LONG",
+   "name_calls": 305,
+   "repository": "testify",
+   "stratum": "name",
+   "target": "mock/mock.go::Arguments.Error"
+  },
+  {
+   "kind": 1,
+   "length": "LONG",
+   "name_calls": 2,
+   "repository": "compress",
+   "stratum": "reach",
+   "target": "s2/index.go::Index.LoadStream",
+   "tests": 2,
+   "tests_naming_it": 0
+  },
+  {
+   "interface_methods": [
+    "scip-go gomod github.com/klauspost/compress 86733e212b35 `github.com/klauspost/compress/gzip`/crcer#Reset."
+   ],
+   "kind": 3,
+   "length": "LONG",
+   "name_calls": 273,
+   "repository": "compress",
+   "stratum": "name",
+   "target": "gzip/gunzip.go::crcUpdater.Reset",
+   "via": "interface"
+  },
+  {
+   "kind": 1,
+   "length": "LONG",
+   "name_calls": 2,
+   "repository": "kong",
+   "stratum": "reach",
+   "target": "help.go::formatEnvs",
+   "tests": 4,
+   "tests_naming_it": 0
+  },
+  {
+   "callers": 10,
+   "declarations": 12,
+   "kind": 2,
+   "length": "SHORT",
+   "name_calls": 77,
+   "repository": "kong",
+   "stratum": "short",
+   "target": "context.go::Context.Run"
+  },
+  {
+   "kind": 1,
+   "length": "LONG",
+   "name_calls": 5,
+   "repository": "chi",
+   "stratum": "reach",
+   "target": "middleware/throttle.go::ThrottleWithOpts",
+   "tests": 6,
+   "tests_naming_it": 2
+  },
+  {
+   "kind": 1,
+   "length": "LONG",
+   "name_calls": 2,
+   "repository": "chi",
+   "stratum": "reach",
+   "target": "middleware/recoverer.go::prettyStack.parse",
+   "tests": 2,
+   "tests_naming_it": 0
+  },
+  {
+   "interface_methods": [
+    "scip-go gomod github.com/go-chi/chi/v5 a265d44519c7 `github.com/go-chi/chi/v5`/Router#Get."
+   ],
+   "kind": 3,
+   "length": "LONG",
+   "name_calls": 240,
+   "repository": "chi",
+   "stratum": "name",
+   "target": "mux.go::Mux.Get",
+   "via": "interface"
+  },
+  {
+   "callers": 6,
+   "edited_callers": [
+    "middleware/logger.go::DefaultLogFormatter.NewLogEntry",
+    "middleware/recoverer.go::prettyStack.decorateSourceLine"
+   ],
+   "kind": 4,
+   "length": "SHORT",
+   "name_calls": 31,
+   "non_test_callers": [
+    "middleware/logger.go::DefaultLogFormatter.NewLogEntry",
+    "middleware/logger.go::defaultLogEntry.Write",
+    "middleware/recoverer.go::prettyStack.decorateFuncCallLine",
+    "middleware/recoverer.go::prettyStack.decorateSourceLine",
+    "middleware/recoverer.go::prettyStack.parse"
+   ],
+   "repository": "chi",
+   "stratum": "short",
+   "target": "middleware/terminal.go::cW"
+  },
+  {
+   "interface_methods": [
+    "scip-go gomod github.com/go-chi/chi/v5 a265d44519c7 `github.com/go-chi/chi/v5`/Router#Group."
+   ],
+   "kind": 3,
+   "length": "SHORT",
+   "name_calls": 17,
+   "repository": "chi",
+   "stratum": "short",
+   "target": "mux.go::Mux.Group",
+   "via": "interface"
+  },
+  {
+   "interface_methods": [
+    "scip-go gomod github.com/go-chi/chi/v5 a265d44519c7 `github.com/go-chi/chi/v5/middleware`/LogFormatter#NewLogEntry."
+   ],
+   "kind": 3,
+   "length": "SHORT",
+   "name_calls": 3,
+   "repository": "chi",
+   "stratum": "short",
+   "target": "middleware/logger.go::DefaultLogFormatter.NewLogEntry",
+   "via": "interface"
+  }
+ ],
+ "pools_sha256": "68320917564954e4035de85f74c0bd47b2fa7ade7dec94b17c721fba1a2ba5b5",
+ "seed": 1748109591
+}
