@@ -9,10 +9,9 @@ questions, and before any dagayn call on their targets. `PREREG.sha256`
 holds the SHA-256 of every registered file. The results name the commit
 that registered them.
 
-One item is open: **the candidate arm's transport** (MCP or CLI), under
-[Arms](#arms). It is fixed, and `PREREG.sha256` recomputed, before this
-file merges and before any run. The questions, keys, scoring, analysis,
-and bar do not depend on it.
+**G10 measures dagayn through its CLI**: the candidate arm runs
+`dagayn tool ...` in the shell, with no MCP server, against a baseline with
+no dagayn ([Arms](#arms)). A pass says nothing about the MCP transport.
 
 ## Purpose
 
@@ -171,14 +170,17 @@ The commits on `eval/g10-prereg` show the order:
 
 | Commit | What it holds |
 |---|---|
-| b993cc48 | the rule (this section up to "Draw"), `keys/g10pools.py`, `keys/g10draw.py`, `pools.json`, `analyze.py`, and `fixed_cost.py` |
-| 0b3feb60 | `draw.json`, `chi-change.patch`, `keys/g10keys.py`, and the prompts and keys |
-| the registering commit | `keys/g10answers.py` (not run), `plumbing_chi.json`, this file in full, and `PREREG.sha256` |
+| f85cfcf5 | the rule (this section up to "Draw"), `keys/g10pools.py`, `keys/g10draw.py`, `pools.json`, `analyze.py`, and `fixed_cost.py` |
+| 30f21fe7 | `draw.json`, `chi-change.patch`, `keys/g10keys.py`, and the prompts and keys |
+| b97e7e7c | `keys/g10answers.py` (not run), `plumbing_chi.json`, this file with the transport left open, and `PREREG.sha256` |
+| the registering commit | the owner's transport decision (CLI): the candidate build and harness at d8ecb51f, the `cli` condition line in the tasks files and `plumbing_chi.json` (and in `keys/g10keys.py`, which writes them), the CLI dagayn call in `analyze.py` and `fixed_cost.py`, this file, and `PREREG.sha256` |
 
-`g10draw.py pools.json` reproduces `draw.json` (seed 1748109591). The
-subsections above, from "Question length" to "Draw", are as committed in
-b993cc48. The registering commit replaces b993cc48's one-line status note
-with the header above and adds the rest of this file.
+The first three were committed on c309242c as b993cc48, 0b3feb60, and
+665d191b, and rebased onto d8ecb51f without change. `g10draw.py pools.json`
+reproduces `draw.json` (seed 1748109591). The subsections above, from
+"Question length" to "Draw", are as committed in f85cfcf5. Later commits
+replace its one-line status note with the header above and add the rest of
+this file. No commit after 30f21fe7 changes a question, prompt, or key.
 
 ## The change commit
 
@@ -286,45 +288,62 @@ in the results as report only and decides nothing.
 
 | Arm | Setup |
 |---|---|
-| candidate | dagayn at main c309242c (go extractor 18, rust 28, python 17, javascript 16): the `dagayn` uv tool at `$HOME/.local/bin/dagayn`, reinstalled non-editable from a checkout of c309242c on Python 3.14, with the 1.99.1 toolchain first on PATH, and not reinstalled during G10. The tool installed now reports go 17, so the reinstall is required. Before the runs, `$HOME/.local/share/uv/tools/dagayn/bin/python -c "import dagayn._core as c; print(c.extractor_versions())"`, run outside the checkout, must report go 18; the results record the `_core` SHA-256 before and after the runs; every run's `graph_before` must show go 18. Each run clones the target and runs `dagayn build --local-embedding none` (the harness default). Transport: **TBD**, below. |
-| baseline | No dagayn: no MCP server and no `dagayn` on PATH (the harness removes it). |
+| candidate | dagayn at main d8ecb51f (go extractor 18, rust 28, python 17, javascript 16, read from a `_core` built at d8ecb51f with the 1.99.1 toolchain), reached through the CLI. It is the `dagayn` uv tool at `$HOME/.local/bin/dagayn`, reinstalled non-editable from a checkout of d8ecb51f on Python 3.14 with the 1.99.1 toolchain first on PATH, and not reinstalled during G10. The installed tool reports go 17, so the reinstall is required. Before the runs, `$HOME/.local/share/uv/tools/dagayn/bin/python -c "import dagayn._core as c; print(c.extractor_versions())"`, run outside the checkout, must report go 18. The results record the `_core` SHA-256 before and after the runs. Every run's `graph_before` must show go 18. Each run clones the target and runs `dagayn build --local-embedding none` (the harness default). The harness runs it with `--candidate-transport cli`: there is no MCP server, a `dagayn` on the run's PATH runs the uv tool, and the prompt carries `condition_line.cli`. The agent calls `dagayn tool <tool> --arg k=v` through Bash. Since #321 the tool prints one-line JSON. |
+| baseline | No dagayn: no MCP server and no `dagayn` on PATH (the harness removes it). The prompt carries `condition_line.none`, G8's. |
 
 No `--scip`, and `scip-go` is not on the runs' PATH, as in G7 to G9. Both
 arms have Go 1.24.13 (`mise`) on PATH and neither has `gopls`, `guru`, or
 `callgraph`.
 
-**TBD: the candidate arm's transport.** To be fixed before this file merges
-and before any run. One of:
+### Why the CLI
 
-- **MCP**, as G9: the MCP server is `dagayn serve`, the tasks files'
-  `condition_line.graph` stays as committed (G8's line: dagayn's MCP tools,
-  server name dagayn, are available), and a candidate run whose MCP server
-  did not connect is failed.
-- **CLI**: no MCP server; the agent runs `dagayn tool <name> --arg k=v`
-  through Bash. `condition_line.graph` in the four tasks files and
-  `plumbing_chi.json` is replaced by a line that names the CLI, and the
-  change to `run_agent_tokens_eval.py` that runs a candidate without an MCP
-  config is named here with its commit and SHA-256.
+<!-- derived-from ../g9_go/RESULTS.md#short-one-more-request-than-the-baseline -->
 
-The choice changes only this cell, `condition_line.graph`, the harness
-flags under [Procedure](#procedure), and `PREREG.sha256`. It does not
-change the questions, prompts, keys, scoring, or analysis: `analyze.py`
-and `fixed_cost.py` count a dagayn call as an `mcp__dagayn__*` tool call or
-a Bash command that runs `dagayn`, and fail a candidate run on its MCP
-status only when its init event lists an MCP server. Two descriptive
-numbers do depend on it: the harness's `dagayn_calls` column and G7's
-"checks after the first dagayn call" (`describe`, imported unchanged)
-count `mcp__` tool calls only, so under CLI both read 0, and the results
-would give those counts from the transcripts instead. Neither enters the
-bar. The record of the choice goes under
-[Changes after registration](#changes-after-registration).
+The owner chose the CLI after this file was first committed with the
+transport open, and before any G10 run. In G9, 114 of the 120 dagayn runs
+first spent a request on `ToolSearch` to load the MCP tool schemas. That is about 22k
+tokens per run before the agent learns anything (#308). The CLI has no
+schemas to load. An exploratory pilot, not registered, compared the CLI arm
+with the MCP arm, not with the baseline. It used six G9 questions (T11,
+C10 LONG; T12, C12, K3, K4 SHORT), 5 runs per arm, the harness of #322, and
+the condition line below. Its results:
+
+- On SHORT, the sum of the per-question median tokens was 0.74x MCP's. On
+  LONG it was 0.54x.
+- Both arms gave 30 exact answers out of 30.
+- No CLI run called `ToolSearch`, and no CLI call failed on its arguments.
+
+The pilot's raw runs are outside the repository, in the session's
+scratchpad (`pilot-cli/`). They decide nothing, because these six
+questions had been tuned on.
+
+`condition_line.cli`, the candidate's line, is the pilot's, unchanged. It
+names the call form, says the output is one line of JSON, and lists the
+patterns. It says that `next` holds calls to run as `dagayn tool`, and
+that a complete `ok` reply is not to be recounted with grep.
+`condition_line.graph` (G8's MCP line) stays in the tasks files and is
+not used.
+
+What the transport changes in the analysis: `analyze.py` and
+`fixed_cost.py` count a dagayn call as an `mcp__dagayn__*` tool call or a
+Bash command matching the harness's `dagayn tool X` rule. A candidate run
+fails on its MCP status only when its init event lists an MCP server, and
+a CLI run lists none. The harness at d8ecb51f scores a Bash
+`dagayn tool X` call as `mcp__dagayn__X`, so its `dagayn_calls` and
+`dagayn_tools` columns count CLI calls. The raw transcript still names
+such a call `Bash`. So `analyze.py` replaces G7's "checks after the first
+dagayn call" with a version that recognizes the CLI call and does not
+count it as a check.
 
 ## Procedure
 
-- Harness: `eval/run_agent_tokens_eval.py` at c309242c, unless the TBD
-  item names a change. Its code is G7's to G9's; since G9 only one line
-  of its docstring changed (#313, a test file's path), so its SHA-256
-  (`a0e5e92b...efa980884`) is not G9's.
+- Harness: `eval/run_agent_tokens_eval.py` at d8ecb51f (SHA-256
+  `ec5d7844...f9d25162`). Since G9 it has gained a setup transport
+  (#322): `--candidate-transport cli` puts a `dagayn` that runs the
+  candidate command on the run's PATH and gives no MCP config. It also
+  reads the prompt's `condition_line.cli` and scores a Bash
+  `dagayn tool X` call as the tool X. Its MCP path and its scoring of
+  answers, tokens, and time are G7's to G9's.
 - Model `claude-haiku-5-5`, `--effort medium`, 10 runs per question per
   arm, 3 runs in parallel per invocation, timeout 1,200 s per run.
 - Four invocations: testify and compress at the same time, then kong and
@@ -340,8 +359,7 @@ bar. The record of the choice goes under
 
 ```bash
 B=build/g10
-COMMON="--candidate $HOME/.local/bin/dagayn --baseline none --keep-home --reps 10 -j 3 --timeout 1200 --model claude-haiku-5-5 --effort medium"
-# (the TBD transport may change --candidate and add flags here)
+COMMON="--candidate $HOME/.local/bin/dagayn --candidate-transport cli --baseline none --keep-home --reps 10 -j 3 --timeout 1200 --model claude-haiku-5-5 --effort medium"
 # Plumbing check (not part of the results)
 python eval/run_agent_tokens_eval.py --tasks-file eval/g10_go/plumbing_chi.json \
   --source-repo $B/chi-src --seed 20261116 --out out-g10-plumbing $COMMON --reps 1
@@ -385,8 +403,11 @@ As G7 to G9:
 
 The test is `analyze.py` in this directory. It imports G7's `analyze.py`
 unchanged for the effect, the permutation test, Holm's correction, and the
-descriptive numbers. Its `load` is G7's except for the MCP check (see the
-TBD item). Each question's length is the `length` field of its task.
+descriptive numbers. Two parts differ from G7's. Its `load` fails a
+candidate run on MCP status only when the run lists an MCP server. Its
+"checks after the first dagayn call" recognizes the CLI call
+([Why the CLI](#why-the-cli)). Each question's length is the `length`
+field of its task.
 
 - **Effect.** For a set of questions: the mean over the questions of the
   per-question difference in mean log tokens (log time; F1), candidate
@@ -414,8 +435,10 @@ TBD item). Each question's length is the `length` field of its task.
   SHORT token ratio with each candidate run's fixed cost taken off. On
   G9's SHORT runs it gives what G9's results reported: 36 of 40 runs with
   `ToolSearch` then the call, a pooled median of 45k tokens (22k
-  `ToolSearch`, 23k the call), and 0.83x without the fixed cost. It
-  decides nothing.
+  `ToolSearch`, 23k the call), and 0.83x without the fixed cost. With the
+  CLI there is no `ToolSearch`, so G10's fixed cost is mostly the request
+  that makes the first `dagayn tool` call, with any reading done before
+  it. It decides nothing.
 
 ## The bar
 
@@ -443,8 +466,10 @@ results report it.
 
 - A run is failed when it has no result event, ends with an error, or
   times out, or (candidate) its init event lists an MCP server and
-  `dagayn:connected` is not among them. Failed runs are recorded, not
-  rerun, and left out of the primary analysis. The sensitivity analysis
+  `dagayn:connected` is not among them. A CLI run lists none, so for
+  G10 only the first three apply. A candidate run that never calls
+  `dagayn tool` is not failed; the results count such runs. Failed runs
+  are recorded, not rerun, and left out of the primary analysis. The sensitivity analysis
   (`--include-failed`) counts them with F1 0 and the largest tokens and
   time of their question and arm.
 - A candidate run whose graph metadata changed during the run
@@ -491,8 +516,20 @@ batches and reports if it projects past the cap.
   questions (G9's threat, unchanged). A LONG question may turn out short
   for the baseline here; the test does not reclassify questions after the
   runs, and the results report each question's baseline turns.
-- **The transport is open** at the time of this commit. It is fixed
-  before any run, and the results say which ran.
+- **G10 measures dagayn through the CLI, not MCP.** A pass or a miss
+  says nothing about the MCP transport, which G7 to G9 measured.
+- **The instructions sit in different places.** The CLI arm's
+  instructions (call form, patterns, what `next` means, not to recount a
+  complete answer) are in the user prompt (`condition_line.cli`).
+  Under MCP, the equivalent text is in the server's instructions and the
+  tool descriptions. In a real install, the CLI's instructions would come
+  from `AGENTS.md` or `CLAUDE.md`, not from the question. So the prompt
+  that G10's candidate arm sees is longer and more explicit than G9's.
+- **The transport was chosen on tuned questions.** The pilot behind the
+  choice (CLI 0.74x MCP's tokens on SHORT, 0.54x on LONG) used six G9
+  questions that had been tuned on, with 5 runs per arm. It was not
+  registered, and it compared two dagayn transports, not dagayn with no
+  dagayn.
 - Keys come from scip-go and coverage. The interface entries (C14, H3, H5,
   H6) count a call that can run the target at run time; every such entry
   was checked against the source.

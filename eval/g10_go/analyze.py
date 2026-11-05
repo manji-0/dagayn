@@ -41,9 +41,34 @@ g7 = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(g7)
 MEASURES, describe, effect, family = g7.MEASURES, g7.describe, g7.effect, g7.family
 graphs_rewritten, holm, permutation = g7.graphs_rewritten, g7.holm, g7.permutation
-from fixed_cost import fixed_cost_report  # noqa: E402
+from fixed_cost import fixed_cost_report, is_dagayn_call  # noqa: E402
 
 SHORT_TOKEN_RATIO_MAX = 1.25
+CHECKS = ("Bash", "Grep", "Read", "Glob")
+
+
+def checks_after_dagayn(raw: Path) -> int:
+    """G7's count of Bash, Grep, Read, and Glob calls after the first dagayn
+    call, with a dagayn call read as `is_dagayn_call` does: the raw transcript
+    of a CLI run names a `dagayn tool X` call `Bash`, so G7's test (a name
+    starting `mcp__`) would never see it and would count it as a check."""
+    seen, n = False, 0
+    for line in open(raw):
+        e = json.loads(line)
+        if e.get("type") != "assistant":
+            continue
+        for b in e["message"]["content"]:
+            if b.get("type") != "tool_use":
+                continue
+            if is_dagayn_call(b):
+                seen = True
+            elif seen and b["name"] in CHECKS:
+                n += 1
+    return n
+
+
+# G7's `describe` looks the function up in its module when it runs.
+g7.checks_after_dagayn = checks_after_dagayn
 NEW_REPOSITORY = "chi"
 
 

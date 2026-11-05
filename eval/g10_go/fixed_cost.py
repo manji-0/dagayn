@@ -8,7 +8,8 @@ It reads each run's raw transcript (`OUT/raw/ID.jsonl`, not committed).
 A request is one model call: one distinct assistant message id, in transcript
 order, with the tokens of its usage (input, output, cache read, and cache
 write). A dagayn call is a tool call named `mcp__dagayn__*`, or a Bash call
-whose command runs `dagayn`. For each candidate run of a SHORT question:
+whose command runs `dagayn tool X` (the harness's rule). For each candidate
+run of a SHORT question:
 
 - `fixed`: the tokens of every request up to and including the first one that
   makes a dagayn call. A run with no dagayn call has none and is counted.
@@ -32,7 +33,9 @@ import sys
 from pathlib import Path
 
 USAGE = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
-CLI_CALL = re.compile(r"(?:^|[\s;&|(/])dagayn\s")
+# The harness's rule for a shell call of dagayn (`DAGAYN_CLI` in
+# run_agent_tokens_eval.py, which scores it as the MCP tool of that name).
+CLI_CALL = re.compile(r"\bdagayn\s+tool\s+([A-Za-z_]+)")
 
 
 def is_dagayn_call(block: dict) -> bool:

@@ -45,6 +45,25 @@ REPOS = {
 }
 
 
+# The candidate arm's line (`--candidate-transport cli`; PREREG.md, "Arms"):
+# the CLI pilot's, unchanged. `graph` (MCP) and `none` are G8's.
+CLI_LINE = (
+    "- dagayn (このリポジトリのコードのグラフを引く CLI) がシェルで使える。"
+    "まずそれで調べ、必要なら他の道具で確かめること。"
+    "呼び方: `dagayn tool query_graph_tool --arg pattern=callers_of "
+    "--arg target='path/to/file.go::Type.Method'`。出力は 1 行の JSON。"
+    "pattern は callers_of, callees_of, tests_for, source_of, importers_of, imports_of, "
+    "children_of, inheritors_of など。"
+    "target は qualified name (`path::Name`、`path::Type.Method`、Go なら `path::(*T).M` も可) "
+    "かファイルのパス。depth (呼び出しをたどる深さ)、offset (続きのページ) も --arg で渡せる。"
+    "返答の next は、次に呼ぶとよい呼び出し (tool と args) で、"
+    "`dagayn tool <tool> --arg <key>=<value> ...` として実行できる。"
+    "status が ok で results_complete が true、summary がグラフに欠けがあると言っていない返答は、"
+    "その summary の範囲の完全な答えなので、grep で数え直さないこと。"
+    "頼る行だけを source_of で読むこと。\n"
+)
+
+
 def tasks_file(name: str, inputs: Path, tree: Path, picks: list[dict]) -> dict:
     repo = REPOS[name]
     ix = Index(inputs, tree, name)
@@ -79,7 +98,7 @@ def tasks_file(name: str, inputs: Path, tree: Path, picks: list[dict]) -> dict:
     return {
         **out,
         "preamble": preamble,
-        "condition_line": spec["condition_line"],
+        "condition_line": {**spec["condition_line"], "cli": CLI_LINE},
         "tasks": tasks,
     }
 
