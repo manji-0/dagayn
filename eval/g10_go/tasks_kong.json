@@ -1,0 +1,44 @@
+{
+ "_about": "G10 (eval/g10_go/PREREG.md): 2 Go questions on kong v1.15.0 (14c97a2), drawn by keys/g10draw.py. Keys were built without dagayn (keys/g10keys.py).",
+ "source_commit": "14c97a2bfca94fff8da01fef6ceb1fc746303044",
+ "preamble": "このリポジトリ (カレントディレクトリ。Go のモジュール github.com/alecthomas/kong v1.15.0 のチェックアウト) について、次の質問に答えてください。\n- リポジトリのファイルは変更しないこと。一時ファイルが必要なら /tmp の下に作ること。\n- テストやリポジトリのコードは実行しないこと (go test や go run は使わない。読む・検索する・解析用のスクリプトを書いて実行するのはよい)。\n- 回答の最後に、次の形式の JSON コードブロックを 1 つだけ置くこと: ```json\n{\"answer\": [...]}\n```\n\n質問: ",
+ "condition_line": {
+  "graph": "- dagayn の MCP ツール (サーバ名 dagayn) が使える。まずそれで調べ、必要なら他の道具で確かめること。\n",
+  "none": "- dagayn の MCP ツールは使えない。標準の道具 (検索・ファイルの読み込み・シェル) で調べること。\n",
+  "cli": "- dagayn (このリポジトリのコードのグラフを引く CLI) がシェルで使える。まずそれで調べ、必要なら他の道具で確かめること。呼び方: `dagayn tool query_graph_tool --arg pattern=callers_of --arg target='path/to/file.go::Type.Method'`。出力は 1 行の JSON。pattern は callers_of, callees_of, tests_for, source_of, importers_of, imports_of, children_of, inheritors_of など。target は qualified name (`path::Name`、`path::Type.Method`、Go なら `path::(*T).M` も可) かファイルのパス。depth (呼び出しをたどる深さ)、offset (続きのページ) も --arg で渡せる。返答の next は、次に呼ぶとよい呼び出し (tool と args) で、`dagayn tool <tool> --arg <key>=<value> ...` として実行できる。status が ok で results_complete が true、summary がグラフに欠けがあると言っていない返答は、その summary の範囲の完全な答えなので、grep で数え直さないこと。頼る行だけを source_of で読むこと。\n"
+ },
+ "tasks": {
+  "K5": {
+   "prompt": "`help.go` の関数 `formatEnvs` の本体は、どのテストを実行したときに実行されるか。`func TestXxx(t *testing.T)` の形のテスト関数のうち、そのテストを 1 つだけ実行したとき (`go test -run '^TestXxx$'` で、そのサブテストを含む。`-short` は付けない) に `formatEnvs` の本体が実行されるものをすべて挙げてください。対象はリポジトリのすべてのパッケージのテスト。`Benchmark`・`Fuzz`・`Example` で始まる関数は数えない。形式は \"ファイルパス::テスト関数名\" (ファイルパスはリポジトリルートから)。",
+   "kind": "symbols",
+   "length": "LONG",
+   "stratum": "reach",
+   "question_kind": 1,
+   "truth": [
+    "help_test.go::TestEnvarAutoHelp",
+    "help_test.go::TestEnvarAutoHelpWithEnvPrefix",
+    "help_test.go::TestMultipleEnvarAutoHelp",
+    "help_test.go::TestMultipleEnvarAutoHelpWithEnvPrefix"
+   ]
+  },
+  "K6": {
+   "prompt": "`context.go` のメソッド `(*Context).Run` を直接呼んでいる関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.Run(...)` は、x の静的な型が kong パッケージの `*Context` (または `Context`) か、それを埋め込んだ型で、呼び出しがこのメソッドに解決されるなら数える。インタフェース型の値を通した呼び出し、ほかの型の `Run`、同じ名前の関数、標準ライブラリや外部パッケージの関数・メソッドは数えない。コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "length": "SHORT",
+   "stratum": "short",
+   "question_kind": 2,
+   "truth": [
+    "kong_test.go::TestAfterRun",
+    "kong_test.go::TestApplyCalledOnce",
+    "kong_test.go::TestDynamicCommands",
+    "kong_test.go::TestIssue483EmptyRootNodeNoRun",
+    "kong_test.go::TestNegatableFlag",
+    "kong_test.go::TestPassesThroughOriginalCommandError",
+    "kong_test.go::TestProviderMethods",
+    "kong_test.go::TestProviderWithoutError",
+    "kong_test.go::TestRun",
+    "options_test.go::TestBindToProvider"
+   ]
+  }
+ }
+}

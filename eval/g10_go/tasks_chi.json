@@ -1,0 +1,172 @@
+{
+ "_about": "G10 (eval/g10_go/PREREG.md): 6 Go questions on chi v5.5.0 (3a33ba5) with the change in chi-change.patch as the last commit, drawn by keys/g10draw.py. Keys were built without dagayn (keys/g10keys.py).",
+ "source_commit": "3a33ba578e0dd93444e0ff386cc26e665d92e31e",
+ "change": {
+  "patch": "chi-change.patch",
+  "message": "middleware: write cW's string as it is when it has no arguments"
+ },
+ "preamble": "このリポジトリ (カレントディレクトリ。Go のモジュール github.com/go-chi/chi/v5 v5.5.0 のチェックアウト) について、次の質問に答えてください。\n- リポジトリのファイルは変更しないこと。一時ファイルが必要なら /tmp の下に作ること。\n- テストやリポジトリのコードは実行しないこと (go test や go run は使わない。読む・検索する・解析用のスクリプトを書いて実行するのはよい)。\n- 回答の最後に、次の形式の JSON コードブロックを 1 つだけ置くこと: ```json\n{\"answer\": [...]}\n```\n\n質問: ",
+ "condition_line": {
+  "graph": "- dagayn の MCP ツール (サーバ名 dagayn) が使える。まずそれで調べ、必要なら他の道具で確かめること。\n",
+  "none": "- dagayn の MCP ツールは使えない。標準の道具 (検索・ファイルの読み込み・シェル) で調べること。\n",
+  "cli": "- dagayn (このリポジトリのコードのグラフを引く CLI) がシェルで使える。まずそれで調べ、必要なら他の道具で確かめること。呼び方: `dagayn tool query_graph_tool --arg pattern=callers_of --arg target='path/to/file.go::Type.Method'`。出力は 1 行の JSON。pattern は callers_of, callees_of, tests_for, source_of, importers_of, imports_of, children_of, inheritors_of など。target は qualified name (`path::Name`、`path::Type.Method`、Go なら `path::(*T).M` も可) かファイルのパス。depth (呼び出しをたどる深さ)、offset (続きのページ) も --arg で渡せる。返答の next は、次に呼ぶとよい呼び出し (tool と args) で、`dagayn tool <tool> --arg <key>=<value> ...` として実行できる。status が ok で results_complete が true、summary がグラフに欠けがあると言っていない返答は、その summary の範囲の完全な答えなので、grep で数え直さないこと。頼る行だけを source_of で読むこと。\n"
+ },
+ "tasks": {
+  "H1": {
+   "prompt": "`middleware/throttle.go` の関数 `ThrottleWithOpts` の本体は、どのテストを実行したときに実行されるか。`func TestXxx(t *testing.T)` の形のテスト関数のうち、そのテストを 1 つだけ実行したとき (`go test -run '^TestXxx$'` で、そのサブテストを含む。`-short` は付けない) に `ThrottleWithOpts` の本体が実行されるものをすべて挙げてください。対象はリポジトリのすべてのパッケージのテスト。`Benchmark`・`Fuzz`・`Example` で始まる関数は数えない。形式は \"ファイルパス::テスト関数名\" (ファイルパスはリポジトリルートから)。",
+   "kind": "symbols",
+   "length": "LONG",
+   "stratum": "reach",
+   "question_kind": 1,
+   "truth": [
+    "middleware/throttle_test.go::TestThrottleBacklog",
+    "middleware/throttle_test.go::TestThrottleClientTimeout",
+    "middleware/throttle_test.go::TestThrottleCustomStatusCode",
+    "middleware/throttle_test.go::TestThrottleMaximum",
+    "middleware/throttle_test.go::TestThrottleRetryAfter",
+    "middleware/throttle_test.go::TestThrottleTriggerGatewayTimeout"
+   ]
+  },
+  "H2": {
+   "prompt": "`middleware/recoverer.go` のメソッド `(prettyStack).parse` の本体は、どのテストを実行したときに実行されるか。`func TestXxx(t *testing.T)` の形のテスト関数のうち、そのテストを 1 つだけ実行したとき (`go test -run '^TestXxx$'` で、そのサブテストを含む。`-short` は付けない) に `(prettyStack).parse` の本体が実行されるものをすべて挙げてください。対象はリポジトリのすべてのパッケージのテスト。`Benchmark`・`Fuzz`・`Example` で始まる関数は数えない。形式は \"ファイルパス::テスト関数名\" (ファイルパスはリポジトリルートから)。",
+   "kind": "symbols",
+   "length": "LONG",
+   "stratum": "reach",
+   "question_kind": 1,
+   "truth": [
+    "middleware/recoverer_test.go::TestRecoverer",
+    "middleware/recoverer_test.go::TestRecovererNoColor"
+   ]
+  },
+  "H3": {
+   "prompt": "`mux.go` のメソッド `(*Mux).Get` を直接呼び得る関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.Get(...)` という呼び出しは、実行時にその呼び出しが `(*Mux).Get` を実行し得るなら数える (`Mux` を埋め込んだ型の値での呼び出しや、インタフェース型の値を通した呼び出しを含む)。ほかの型の `Get` やコメントでの言及は数えない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "length": "LONG",
+   "stratum": "name",
+   "question_kind": 3,
+   "truth": [
+    "middleware/basic_auth_test.go::TestBasicAuth",
+    "middleware/clean_path_test.go::TestCleanPath",
+    "middleware/client_ip_example_test.go::Example_clientIP",
+    "middleware/client_ip_example_test.go::Example_clientIPFromXFFTrustedProxies",
+    "middleware/client_ip_test.go::TestAdvisory_GHSA_3fxj_6jh8_hvhx",
+    "middleware/client_ip_test.go::TestAdvisory_GHSA_9g5q_2w5x_hmxf",
+    "middleware/client_ip_test.go::TestGetClientIPAddr_RoundTrip",
+    "middleware/client_ip_test.go::run",
+    "middleware/client_ip_test.go::runChain",
+    "middleware/compress_test.go::TestCompressor",
+    "middleware/compress_test.go::TestCompressorDefaultTextTypes",
+    "middleware/deprecation_test.go::TestDeprecation",
+    "middleware/get_head_test.go::TestGetHead",
+    "middleware/middleware_test.go::TestNew",
+    "middleware/path_rewrite_test.go::TestPathRewrite",
+    "middleware/profiler.go::Profiler",
+    "middleware/realip_test.go::TestInvalidIP",
+    "middleware/realip_test.go::TestXForwardForIP",
+    "middleware/realip_test.go::TestXForwardForXRealIPPrecedence",
+    "middleware/realip_test.go::TestXRealIP",
+    "middleware/recoverer_test.go::TestRecoverer",
+    "middleware/recoverer_test.go::TestRecovererAbortHandler",
+    "middleware/recoverer_test.go::TestRecovererNoColor",
+    "middleware/request_id_test.go::TestRequestID",
+    "middleware/strip_test.go::TestRedirectSlashes",
+    "middleware/strip_test.go::TestStripPrefix",
+    "middleware/strip_test.go::TestStripSlashes",
+    "middleware/strip_test.go::TestStripSlashesInRoute",
+    "middleware/sunset_test.go::TestSunset",
+    "middleware/supress_notfound_test.go::TestSupressNotFoundMount",
+    "middleware/supress_notfound_test.go::TestSupressNotFoundRoutePattern",
+    "middleware/throttle_test.go::TestThrottleBacklog",
+    "middleware/throttle_test.go::TestThrottleClientTimeout",
+    "middleware/throttle_test.go::TestThrottleCustomStatusCode",
+    "middleware/throttle_test.go::TestThrottleMaximum",
+    "middleware/throttle_test.go::TestThrottleRetryAfter",
+    "middleware/throttle_test.go::TestThrottleTriggerGatewayTimeout",
+    "middleware/url_format_test.go::TestURLFormat",
+    "middleware/url_format_test.go::TestURLFormatInSubRouter",
+    "middleware/value_test.go::TestWithValue",
+    "mux_test.go::BenchmarkMux",
+    "mux_test.go::TestCustomHTTPMethod",
+    "mux_test.go::TestEscapedURLParams",
+    "mux_test.go::TestMethodNotAllowed",
+    "mux_test.go::TestMiddlewarePanicOnLateUse",
+    "mux_test.go::TestMountingExistingPath",
+    "mux_test.go::TestMountingSelf",
+    "mux_test.go::TestMountingSimilarPattern",
+    "mux_test.go::TestMuxBasic",
+    "mux_test.go::TestMuxComplicatedNotFound",
+    "mux_test.go::TestMuxContextIsThreadSafe",
+    "mux_test.go::TestMuxEmptyParams",
+    "mux_test.go::TestMuxFind",
+    "mux_test.go::TestMuxMatch",
+    "mux_test.go::TestMuxMatch_HasBasePath",
+    "mux_test.go::TestMuxMiddlewareStack",
+    "mux_test.go::TestMuxMissingParams",
+    "mux_test.go::TestMuxMounts",
+    "mux_test.go::TestMuxNestedMethodNotAllowed",
+    "mux_test.go::TestMuxNestedNotFound",
+    "mux_test.go::TestMuxPlain",
+    "mux_test.go::TestMuxRegexp",
+    "mux_test.go::TestMuxRegexp2",
+    "mux_test.go::TestMuxRegexp3",
+    "mux_test.go::TestMuxRouteGroups",
+    "mux_test.go::TestMuxSubrouterWildcardParam",
+    "mux_test.go::TestMuxSubroutes",
+    "mux_test.go::TestMuxSubroutesBasic",
+    "mux_test.go::TestMuxTrailingSlash",
+    "mux_test.go::TestMuxWildcardRoute",
+    "mux_test.go::TestMuxWildcardRouteCheckTwo",
+    "mux_test.go::TestMuxWith",
+    "mux_test.go::TestNestedGroups",
+    "mux_test.go::TestQueryHTTPMethod",
+    "mux_test.go::TestRouterFromMuxWith",
+    "mux_test.go::TestServeHTTPExistingContext",
+    "mux_test.go::TestServerBaseContext",
+    "mux_test.go::bigMux",
+    "tree_test.go::TestRoutesHidesMountStub",
+    "tree_test.go::TestTree",
+    "tree_test.go::TestWalkMiddlewaresAcrossGroupAndRoute",
+    "tree_test.go::TestWalkRouteWithHandlerAndSubrouter"
+   ]
+  },
+  "H4": {
+   "prompt": "最後のコミットは `middleware/terminal.go` の関数 `cW` の振る舞いを変えた。このコミットの時点で `cW` を直接呼んでいる関数・メソッドのうち、このコミットで変更されていないものをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。ほかのパッケージの同じ名前の関数や、名前の違う関数の呼び出しは数えない。「変更された」は、コミットの差分が、その関数・メソッドの定義 (`func` の行から本体の最後の行まで) の中の行を変えた・足した・消したこと。コメントでの言及は呼び出しではない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "length": "SHORT",
+   "stratum": "short",
+   "question_kind": 4,
+   "truth": [
+    "middleware/logger.go::defaultLogEntry.Write",
+    "middleware/recoverer.go::prettyStack.decorateFuncCallLine",
+    "middleware/recoverer.go::prettyStack.parse",
+    "middleware/terminal_test.go::Test_cW"
+   ]
+  },
+  "H5": {
+   "prompt": "`mux.go` のメソッド `(*Mux).Group` を直接呼び得る関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.Group(...)` という呼び出しは、実行時にその呼び出しが `(*Mux).Group` を実行し得るなら数える (`Mux` を埋め込んだ型の値での呼び出しや、インタフェース型の値を通した呼び出しを含む)。ほかの型の `Group` やコメントでの言及は数えない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "length": "SHORT",
+   "stratum": "short",
+   "question_kind": 3,
+   "truth": [
+    "mux_test.go::TestMountingSelf",
+    "mux_test.go::TestMuxNestedNotFound",
+    "mux_test.go::TestMuxRouteGroups",
+    "mux_test.go::TestNestedGroups",
+    "mux_test.go::bigMux",
+    "tree_test.go::TestWalkInlineMiddlewaresAcrossSubrouter",
+    "tree_test.go::TestWalkMiddlewaresAcrossGroupAndRoute"
+   ]
+  },
+  "H6": {
+   "prompt": "`middleware/logger.go` のメソッド `(*DefaultLogFormatter).NewLogEntry` を直接呼び得る関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.NewLogEntry(...)` という呼び出しは、実行時にその呼び出しが `(*DefaultLogFormatter).NewLogEntry` を実行し得るなら数える (`DefaultLogFormatter` を埋め込んだ型の値での呼び出しや、インタフェース型の値を通した呼び出しを含む)。ほかの型の `NewLogEntry` やコメントでの言及は数えない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "length": "SHORT",
+   "stratum": "short",
+   "question_kind": 3,
+   "truth": [
+    "middleware/logger.go::RequestLogger"
+   ]
+  }
+ }
+}

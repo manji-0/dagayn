@@ -1,0 +1,33 @@
+{
+ "_about": "G10 (eval/g10_go/PREREG.md): 2 Go questions on compress v1.20.1 (5d880f2), drawn by keys/g10draw.py. Keys were built without dagayn (keys/g10keys.py).",
+ "source_commit": "5d880f230c38a0fc806b9ca1613103a44feff0ac",
+ "preamble": "このリポジトリ (カレントディレクトリ。Go のモジュール github.com/klauspost/compress v1.20.1 のチェックアウト) について、次の質問に答えてください。\n- リポジトリのファイルは変更しないこと。一時ファイルが必要なら /tmp の下に作ること。\n- テストやリポジトリのコードは実行しないこと (go test や go run は使わない。読む・検索する・解析用のスクリプトを書いて実行するのはよい)。\n- 回答の最後に、次の形式の JSON コードブロックを 1 つだけ置くこと: ```json\n{\"answer\": [...]}\n```\n\n質問: ",
+ "condition_line": {
+  "graph": "- dagayn の MCP ツール (サーバ名 dagayn) が使える。まずそれで調べ、必要なら他の道具で確かめること。\n",
+  "none": "- dagayn の MCP ツールは使えない。標準の道具 (検索・ファイルの読み込み・シェル) で調べること。\n",
+  "cli": "- dagayn (このリポジトリのコードのグラフを引く CLI) がシェルで使える。まずそれで調べ、必要なら他の道具で確かめること。呼び方: `dagayn tool query_graph_tool --arg pattern=callers_of --arg target='path/to/file.go::Type.Method'`。出力は 1 行の JSON。pattern は callers_of, callees_of, tests_for, source_of, importers_of, imports_of, children_of, inheritors_of など。target は qualified name (`path::Name`、`path::Type.Method`、Go なら `path::(*T).M` も可) かファイルのパス。depth (呼び出しをたどる深さ)、offset (続きのページ) も --arg で渡せる。返答の next は、次に呼ぶとよい呼び出し (tool と args) で、`dagayn tool <tool> --arg <key>=<value> ...` として実行できる。status が ok で results_complete が true、summary がグラフに欠けがあると言っていない返答は、その summary の範囲の完全な答えなので、grep で数え直さないこと。頼る行だけを source_of で読むこと。\n"
+ },
+ "tasks": {
+  "C13": {
+   "prompt": "`s2/index.go` のメソッド `(*Index).LoadStream` の本体は、どのテストを実行したときに実行されるか。`func TestXxx(t *testing.T)` の形のテスト関数のうち、そのテストを 1 つだけ実行したとき (`go test -run '^TestXxx$'` で、そのサブテストを含む。`-short` は付けない) に `(*Index).LoadStream` の本体が実行されるものをすべて挙げてください。対象はリポジトリのすべてのパッケージのテスト。`Benchmark`・`Fuzz`・`Example` で始まる関数は数えない。形式は \"ファイルパス::テスト関数名\" (ファイルパスはリポジトリルートから)。",
+   "kind": "symbols",
+   "length": "LONG",
+   "stratum": "reach",
+   "question_kind": 1,
+   "truth": [
+    "s2/index_test.go::TestSeeking",
+    "s2/writer_test.go::TestIndex"
+   ]
+  },
+  "C14": {
+   "prompt": "`gzip/gunzip.go` のメソッド `(*crcUpdater).Reset` を直接呼び得る関数・メソッドをすべて挙げてください。対象はリポジトリの .go ファイル (テストファイルを含む。Go のツールと同じく、`_` や `.` で始まるディレクトリと `testdata` は除く)。`x.Reset(...)` という呼び出しは、実行時にその呼び出しが `(*crcUpdater).Reset` を実行し得るなら数える (`crcUpdater` を埋め込んだ型の値での呼び出しや、インタフェース型の値を通した呼び出しを含む)。ほかの型の `Reset` やコメントでの言及は数えない。形式は \"ファイルパス::関数名\"、メソッドなら \"ファイルパス::型名.メソッド名\" (ファイルパスはリポジトリルートから。型名にポインタの `*` や括弧は付けない。呼び出しを囲む、トップレベルで宣言された関数・メソッド。関数リテラルの中の呼び出しは、それを囲む宣言のものとして数える)。",
+   "kind": "symbols",
+   "length": "LONG",
+   "stratum": "name",
+   "question_kind": 3,
+   "truth": [
+    "gzip/gunzip.go::Reader.WriteTo"
+   ]
+  }
+ }
+}
