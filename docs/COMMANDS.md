@@ -580,6 +580,32 @@ type. Only calls of the last kind are left to read. When every such call lies
 in a function the reply already lists, the summary says that no caller is
 missing from the list.
 
+For a Go target, rows where the Go tools building the target's module do
+not look are listed apart from the answer (#325). The target's module is the
+one whose `go.mod` is nearest above the target's file; `go list ./...` of it
+skips a directory or file whose name starts with `_` or `.`, a `testdata`
+directory, and a directory under another `go.mod` (another module). The rows
+of `callers_of` (at every `depth`), `callees_of`, `importers_of`, and
+`tests_for` there move out of `results` into `outside_module`: one compact
+row per node (`qualified_name`, or `file` for an importer, then `lines`,
+`depth` past hop 1, and `reason`: `other_module`, `underscore_name`,
+`dot_name`, or `testdata`), at most 10 at `minimal` and 20 at `standard`,
+with `outside_module_count` for all of them. They are not counted in
+`result_count`, and `next` never reads them: `next` reads the answer. The
+summary says how many there are and where, as
+`13 callers are in directories the Go tools do not build for this module,
+listed in outside_module and not counted in results: _examples/ (10, name
+starts with _), _examples/rest/ (2, its own module) and _examples/versions/
+(1, its own module)`. The account of unbound calls leaves out the calls
+there and then names its scope as the directories the Go tools build for
+this module. `tests_for`'s `test_reach` does not walk such a test or caller,
+so `review_tool`'s `untested_change` does not count it either. When every
+row is outside, `zero_result_reason` is `outside_module_only`. A target that
+is itself in such a place (an example's function) keeps its rows, and other
+languages are unchanged. The module comes from the File node's
+`go_module_dir` (go extractor 19); a graph parsed before that splits nothing
+until `dagayn update` re-parses it.
+
 On a graph built with `dagayn build --scip`, a `callers_of` or `callees_of`
 row whose call a SCIP index settled (moved to that node, or confirmed)
 carries `resolved_by: "scip"`, at every detail level; a row that folds

@@ -8,6 +8,7 @@ mod common;
 mod docs;
 mod ensure_graph;
 mod flow;
+mod go_outside_module;
 mod minimal_context;
 mod postprocess;
 mod query_graph;

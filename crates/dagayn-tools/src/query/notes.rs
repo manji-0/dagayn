@@ -10,10 +10,54 @@ use serde_json::{Value, json};
 use super::MAX_DEPTH;
 use super::rows::{VALUE_REFERENCE, get};
 use super::walk::{Found, TRANSITIVE_ROW_LIMIT};
+use crate::go_module::GoScope;
 
 /// The zero-result reason for a node the graph has but that no edge of the
 /// kind asked for reaches (#195).
 pub(super) const NO_MATCHING_EDGES: &str = "node_has_no_matching_edges";
+/// The zero-result reason for a Go node whose only rows are where the Go
+/// tools building its module do not look (#325).
+pub(super) const OUTSIDE_MODULE_ONLY: &str = "outside_module_only";
+
+/// The sentence for the rows `outside_module` lists: `count` of them by
+/// node, `listed` shown, in `places` (place, why, rows), as
+/// `13 callers are in directories the Go tools do not build for this
+/// module, listed in outside_module and not counted in results:
+/// _examples/ (11, name starts with _) and _examples/rest/ (2, its own
+/// module)`.
+pub(super) fn outside_note(
+    pattern: &str,
+    count: usize,
+    listed: usize,
+    places: &[(String, &str, usize)],
+) -> String {
+    let noun = match pattern {
+        "callers_of" => "caller",
+        "callees_of" => "callee",
+        "importers_of" => "importer",
+        "tests_for" => "test",
+        _ => "row",
+    };
+    let (noun, verb) = if count == 1 {
+        (noun.to_string(), "is in a directory")
+    } else {
+        (format!("{noun}s"), "are in directories")
+    };
+    let first = if listed < count {
+        format!(" (the first {listed})")
+    } else {
+        String::new()
+    };
+    let places: Vec<String> = places
+        .iter()
+        .map(|(place, why, rows)| format!("{place} ({rows}, {why})"))
+        .collect();
+    format!(
+        "{count} {noun} {verb} the Go tools do not build for this module, \
+         listed in outside_module{first} and not counted in results: {}",
+        capped_list(&places, 5)
+    )
+}
 
 /// `query_graph_guidance` for a result set, sealed as `GuidanceItem` dumps it.
 pub(super) fn guidance(
@@ -456,9 +500,12 @@ fn go_callers_note(
     unbound: &[(GraphEdge, GoUnbound)],
     rows: &HashSet<&str>,
     by_name: bool,
+    built_only: bool,
 ) -> String {
     let name = &node.name;
-    let scope = if name.starts_with(char::is_uppercase) {
+    let scope = if built_only && name.starts_with(char::is_uppercase) {
+        "the directories the Go tools build for this module".to_string()
+    } else if name.starts_with(char::is_uppercase) {
         "the repository".to_string()
     } else {
         let package = Path::new(&node.file_path)
@@ -612,13 +659,18 @@ fn go_callers_note(
         count => format!("{count} calls named"),
     };
     let verb = if unbound.len() == 1 { "goes" } else { "go" };
+    let scope = if built_only {
+        scope
+    } else {
+        "the repository".to_string()
+    };
     let read = if to_read.is_empty() {
         String::new()
     } else {
         format!(", so callers may be missing: read {shown}{more}")
     };
     format!(
-        "{calls} {name} {verb} to no definition in the repository, {}{reach}{read}",
+        "{calls} {name} {verb} to no definition in {scope}, {}{reach}{read}",
         go_unbound_counts(unbound)
     )
 }
@@ -818,6 +870,7 @@ pub(super) fn ending(
     found: &Found,
     closed: bool,
     import_kind: Option<&str>,
+    scope: Option<&mut GoScope>,
 ) -> Option<(String, Option<(String, String)>)> {
     // Counted by node, as `merge` folds the rows.
     let value_uses = found
@@ -846,7 +899,14 @@ pub(super) fn ending(
         }
         _ => None,
     };
-    if let Some((node, unbound)) = unbound {
+    if let Some((node, mut unbound)) = unbound {
+        // Calls where the Go tools do not look are not the module's (#325):
+        // the summary neither counts them nor names them to read.
+        let before = unbound.len();
+        if let Some(scope) = scope {
+            unbound.retain(|(edge, _)| scope.outside(&edge.file_path).is_none());
+        }
+        let built_only = unbound.len() < before;
         let rows: HashSet<&str> = found
             .rows
             .iter()
@@ -858,7 +918,7 @@ pub(super) fn ending(
                 .iter()
                 .all(|row| get(row, "match") == Some(&json!("bare_name")));
         return Some((
-            go_callers_note(node, &unbound, &rows, by_name),
+            go_callers_note(node, &unbound, &rows, by_name, built_only),
             go_unbound_next(node, &unbound, &rows),
         ));
     }

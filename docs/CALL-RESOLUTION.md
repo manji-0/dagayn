@@ -380,6 +380,10 @@ edges, not from `TESTED_BY`.
 - `callers_of("<package>")` lists the callers of a package
   (`callers_of("subprocess")`, `callers_of("rusqlite")`), as it does for a
   JavaScript `pkg::symbol`.
+- Go edges are kept wherever the code is, `_examples/` and other modules
+  included; `query_graph_tool` lists the rows the Go tools building the
+  target's module skip in `outside_module`, not `results`
+  ([COMMANDS.md](./COMMANDS.md)).
 - An `external` edge never shares a name with a repository symbol for
   query-time fallbacks or dead-code analysis.
 - `LOW` is reserved for calls nothing settled; `MEDIUM` marks inference,

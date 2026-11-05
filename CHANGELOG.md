@@ -76,6 +76,24 @@ All notable changes to `dagayn` are documented here.
   now gets the five answers in 3.6K characters. `source_of`, names
   with more than five matches, and search hits that only look like the
   name keep the list and the retries.
+- For a Go target, `query_graph_tool` lists rows where the Go tools
+  building the target's module do not look apart from the answer (#325):
+  a directory or file whose name starts with `_` or `.`, a `testdata`
+  directory, or a directory under another `go.mod`. The rows of
+  `callers_of` (every `depth`), `callees_of`, `importers_of`, and
+  `tests_for` there move from `results` to `outside_module` (compact rows
+  with a `reason`, at most 10 at `minimal` and 20 at `standard`) with
+  `outside_module_count`. They are not in `result_count` or `next`, and
+  the summary says how many and where. The account of unbound calls
+  leaves them out too, so it no longer names `_examples/` functions to
+  read first. `tests_for`'s `test_reach`, and with it `review_tool`'s
+  `untested_change`, no longer counts a test or caller there: `go test
+  ./...` does not run it. In G10, `callers_of` on chi's `Mux.Get` listed
+  13 `_examples/` functions among 89 rows and named one to read first;
+  it now answers 76 rows with those 13 in `outside_module`. Go extractor
+  19: the File node records `go_module_dir`, the directory of its
+  `go.mod`, so Go graphs re-parse on the next update. Other languages are
+  unchanged.
 - The ambiguous summary names the spelling to resend: a candidate's
   `qualified_name`, or `path::Type.Method` (for Go also
   `path::(*Type).Method`).

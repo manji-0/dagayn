@@ -146,7 +146,10 @@ A Go file's File node declares its package's import path as its namespace
 directory below it (`example.com/m/zstd`), with `_test` appended for an
 external test package (`package zstd_test`), and none for a file the build
 ignores (`//go:build ignore`). Without a `go.mod` the directory stands in for
-the path. So the files of one package see each other, and a test file of the
+the path. The File node also records that `go.mod`'s repository-relative
+directory as `extra.go_module_dir` (`""` at the root, absent without one),
+which `query_graph_tool` reads to tell the target's module from a nested one.
+So the files of one package see each other, and a test file of the
 package sees the package. Only a plain call (`encode(x)`) binds by name
 there, and only to a top-level function or type. A call through a package
 qualifier or a value of the package (`huff0.Compress()`, `cfg.Load()`)

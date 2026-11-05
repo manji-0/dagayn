@@ -11,6 +11,7 @@ use super::rows::{
     Row, VALUE_REFERENCE, cross_artifact_role, edge_dict, edge_import_kind, get,
     import_kind_matches, node_row, resolved_by, row_file,
 };
+use crate::go_module::{GoScope, Outside};
 use crate::pypath::realpath;
 use crate::source::{SourceCoverage, source_row};
 
@@ -74,6 +75,9 @@ pub(super) struct Found {
     pub(super) source: Option<SourceCoverage>,
     /// `tests_for`: what `review_tool`'s `untested_change` decides from.
     pub(super) test_reach: Option<Value>,
+    /// Go rows where the Go tools building the target's module do not look
+    /// (#325), taken out of `rows`, and why.
+    pub(super) outside: Vec<(Row, Outside)>,
 }
 
 impl Found {
@@ -107,6 +111,40 @@ impl Found {
                 row_file(row)
             };
             file.is_some_and(|file| file.starts_with(prefix))
+        });
+    }
+
+    /// Move the rows `scope` says the Go tools skip from `rows` to
+    /// `outside`, with their edges, for the patterns whose rows answer who
+    /// uses or is used by the target: a walk's rows at every hop.
+    pub(super) fn split_outside(&mut self, pattern: &str, scope: &mut GoScope) {
+        if !matches!(
+            pattern,
+            "callers_of" | "callees_of" | "importers_of" | "tests_for"
+        ) {
+            return;
+        }
+        let rows = std::mem::take(&mut self.rows);
+        for row in rows {
+            match row_file(&row).and_then(|file| scope.outside(file)) {
+                Some(outside) => self.outside.push((row, outside)),
+                None => self.rows.push(row),
+            }
+        }
+        if self.outside.is_empty() {
+            return;
+        }
+        // The edge's end that is the row: the callee or test for the
+        // patterns that follow edges out of the target, else the source.
+        let key = if matches!(pattern, "callees_of" | "tests_for") {
+            "target"
+        } else {
+            "source"
+        };
+        self.edges.retain(|edge| {
+            let end = edge.get(key).and_then(Value::as_str).unwrap_or("");
+            let file = end.split_once("::").map_or(end, |(file, _)| file);
+            scope.outside(file).is_none()
         });
     }
 
