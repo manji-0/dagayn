@@ -1629,6 +1629,15 @@ pub(crate) fn resolve_member_shapes(tx: &Transaction<'_>, context: &ResolveConte
     resolve_shape_receivers(tx, &context.graph)
 }
 
+/// What the call a receiver came from records about the package it binds
+/// to, read once from its `extra`.
+struct OriginPackage<'a> {
+    external: bool,
+    package: Option<&'a str>,
+    stdlib: bool,
+    symbol: Option<&'a str>,
+}
+
 /// Resolves member calls on the result of another call by the return type
 /// of the function that call resolved to (see the module docs). Returns
 /// how many changed.
@@ -1661,6 +1670,12 @@ pub(crate) fn resolve_returned_receivers(
             else {
                 continue;
             };
+            let origin_package = OriginPackage {
+                external: inner_extra.get("external").and_then(Value::as_bool) == Some(true),
+                package: inner_extra.get("external_package").and_then(Value::as_str),
+                stdlib: inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true),
+                symbol: inner_extra.get("external_symbol").and_then(Value::as_str),
+            };
             let separator = if family == "rust" { "::" } else { "." };
             // Typed by a table of package return types, not by a type the
             // code writes: observed-method inference does not learn from it.
@@ -1672,38 +1687,27 @@ pub(crate) fn resolve_returned_receivers(
                 // in the tables.
                 None
             } else if family == "rust"
-                && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
+                && origin_package.external
                 && (!unwrap || !graph.visible(family, &method, &file, import_targets))
-                && !inner_extra
-                    .get("external_symbol")
-                    .and_then(Value::as_str)
-                    .is_some_and(derefs_to_contents)
+                && !origin_package.symbol.is_some_and(derefs_to_contents)
             {
                 // A Rust method of what a package returned (`iter().map()`,
                 // `tree.root_node().kind()`) is one of the package's types.
                 // Unwrapped (`prepare(..)?.query_map(..)`), it is too, unless
                 // the repository has a function of the name the file sees:
                 // `items.get(0).unwrap().save()` is the item's `save`.
-                let package = inner_extra
-                    .get("external_package")
-                    .and_then(Value::as_str)
-                    .unwrap_or(&inner_target);
-                let stdlib = inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true);
-                let symbol = inner_extra
-                    .get("external_symbol")
-                    .and_then(Value::as_str)
-                    .unwrap_or(name);
+                let package = origin_package.package.unwrap_or(&inner_target);
+                let symbol = origin_package.symbol.unwrap_or(name);
                 Some(Returned::External(
                     package.to_string(),
-                    stdlib,
+                    origin_package.stdlib,
                     format!("{symbol}()"),
                 ))
             } else if family == "go"
-                && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
-                && inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true)
-                && !inner_extra
-                    .get("external_package")
-                    .and_then(Value::as_str)
+                && origin_package.external
+                && origin_package.stdlib
+                && !origin_package
+                    .package
                     .is_some_and(go_may_return_callers_type)
             {
                 // A Go method of what a standard-library function returned
@@ -1716,21 +1720,15 @@ pub(crate) fn resolve_returned_receivers(
                 // not known to be generic or not (`lo.MaxBy(nodes, f)`), so a
                 // method on what it returned stays a call the graph does not
                 // bind, rather than one of the dependency's.
-                let package = inner_extra
-                    .get("external_package")
-                    .and_then(Value::as_str)
-                    .unwrap_or(&inner_target);
-                let symbol = inner_extra
-                    .get("external_symbol")
-                    .and_then(Value::as_str)
-                    .unwrap_or(name);
+                let package = origin_package.package.unwrap_or(&inner_target);
+                let symbol = origin_package.symbol.unwrap_or(name);
                 Some(Returned::External(
                     package.to_string(),
                     true,
                     format!("{symbol}()"),
                 ))
             } else if matches!(family, "python" | "javascript")
-                && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
+                && origin_package.external
                 && !graph.visible(family, &method, &file, import_targets)
             {
                 // A package function whose return type is known
@@ -1738,18 +1736,13 @@ pub(crate) fn resolve_returned_receivers(
                 // `vscode.window.createOutputChannel(..).appendLine(..)` a
                 // `vscode.OutputChannel`'s). A JavaScript call names its
                 // function in the target (`vscode::window.createOutputChannel`).
-                let package = inner_extra
-                    .get("external_package")
-                    .and_then(Value::as_str)
-                    .unwrap_or(&inner_target);
-                let stdlib = inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true);
-                let symbol = inner_extra
-                    .get("external_symbol")
-                    .and_then(Value::as_str)
+                let package = origin_package.package.unwrap_or(&inner_target);
+                let symbol = origin_package
+                    .symbol
                     .or_else(|| inner_target.split_once("::").map(|(_, symbol)| symbol))
                     .unwrap_or(name);
                 by_table = true;
-                package_returned(family, package, stdlib, symbol)
+                package_returned(family, package, origin_package.stdlib, symbol)
             } else {
                 None
             };
