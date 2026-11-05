@@ -63,125 +63,181 @@ fn record_step<T>(
     }
 }
 
-pub fn run_post_processing_json(
+/// What the manifest bridge step does in one run.
+pub enum ManifestBridges<'a, F>
+where
+    F: FnOnce() -> Result<(String, String)>,
+{
+    /// No step: the stored bridges stay and no counter is recorded (an
+    /// update that touched no manifest).
+    Keep,
+    /// Nothing was discovered: the stored bridges stay and both counters
+    /// are 0.
+    NoneFound,
+    /// Replace the stored bridges with the `(nodes_json, edges_json)`
+    /// arrays `discover` returns; a discovery error is the step's warning.
+    Replace { extractor_id: &'a str, discover: F },
+}
+
+/// The post-processing passes, in order: signatures, the FTS index, the
+/// edge resolvers, the manifest bridges, and the passes that bind to them.
+///
+/// This is the one list of passes. `run_post_processing_json` (the Python
+/// build and `dagayn watch`) and `dagayn-build`'s post-processing (the Rust
+/// CLI) both run it; communities, summaries, and the orphan prune stay with
+/// each caller. A failed pass becomes a warning and the next pass still runs.
+pub fn run_passes<F>(
     store: &mut GraphStore,
-    manifest_extractor_id: &str,
-    manifest_nodes_json: &str,
-    manifest_edges_json: &str,
-    min_community_size: i64,
     changed_files: Option<&[String]>,
-) -> Result<String> {
-    let mut result = PostprocessResult::default();
+    manifests: ManifestBridges<'_, F>,
+    result: &mut PostprocessResult,
+) where
+    F: FnOnce() -> Result<(String, String)>,
+{
+    let warnings = &mut result.warnings;
 
-    if let Some(count) = record_step(&mut result.warnings, "Signature computation", || {
+    result.signatures_computed = record_step(warnings, "Signature computation", || {
         store.compute_missing_signatures()
-    }) {
-        result.signatures_computed = Some(count);
-    }
+    });
 
-    if let Some(count) =
-        record_step(
-            &mut result.warnings,
-            "FTS index rebuild",
-            || match changed_files {
-                Some(files) if !files.is_empty() => store.sync_fts_for_file_paths(files),
-                _ => store.rebuild_fts_index(),
-            },
-        )
-    {
-        result.fts_indexed = Some(count);
-    }
+    result.fts_indexed = record_step(warnings, "FTS index rebuild", || match changed_files {
+        Some(files) if !files.is_empty() => store.sync_fts_for_file_paths(files),
+        _ => store.rebuild_fts_index(),
+    });
 
-    if let Some(count) = record_step(
-        &mut result.warnings,
-        "Bare-name edge resolution (calls)",
-        || store.resolve_bare_call_targets(),
-    ) {
-        result.bare_call_targets_resolved = Some(count);
-    }
+    // Two steps, so a failed call resolution still resolves inheritance.
+    result.bare_call_targets_resolved =
+        record_step(warnings, "Bare-name edge resolution (calls)", || {
+            store.resolve_bare_call_targets()
+        });
 
-    if let Some(count) = record_step(
-        &mut result.warnings,
-        "Bare-name edge resolution (inheritance)",
-        || store.resolve_bare_inheritance_targets(),
-    ) {
-        result.bare_inheritance_targets_resolved = Some(count);
-    }
+    result.bare_inheritance_targets_resolved =
+        record_step(warnings, "Bare-name edge resolution (inheritance)", || {
+            store.resolve_bare_inheritance_targets()
+        });
 
-    if let Some(count) = record_step(&mut result.warnings, "Rust impl member linking", || {
+    result.foreign_impl_members_linked = record_step(warnings, "Rust impl member linking", || {
         store.link_foreign_impl_members()
-    }) {
-        result.foreign_impl_members_linked = Some(count);
-    }
+    });
 
-    if let Some(count) = record_step(
-        &mut result.warnings,
-        "Terraform module reference resolution",
-        || store.resolve_terraform_module_references(),
-    ) {
-        result.terraform_module_references_resolved = Some(count);
-    }
+    result.terraform_module_references_resolved =
+        record_step(warnings, "Terraform module reference resolution", || {
+            store.resolve_terraform_module_references()
+        });
 
-    if let Some((resolved, dropped, re_resolved, still_unresolved)) = record_step(
-        &mut result.warnings,
-        "Markdown artifact ref resolution",
-        || store.resolve_markdown_artifact_refs(),
-    ) {
+    result.unresolved_endpoint_edges_demoted =
+        record_step(warnings, "Unresolved endpoint demotion", || {
+            store.demote_unresolved_endpoint_edges()
+        });
+
+    if let Some((resolved, dropped, re_resolved, still_unresolved)) =
+        record_step(warnings, "Markdown artifact ref resolution", || {
+            store.resolve_markdown_artifact_refs()
+        })
+    {
         result.markdown_artifact_refs_resolved = Some(resolved);
         result.markdown_artifact_refs_dropped = Some(dropped);
         result.markdown_artifact_refs_re_resolved = Some(re_resolved);
         result.markdown_artifact_refs_still_unresolved = Some(still_unresolved);
     }
 
-    if let Some((resolved, still_unresolved)) = record_step(
-        &mut result.warnings,
-        "Terraform artifact ref resolution",
-        || store.resolve_terraform_artifact_refs(),
-    ) {
+    if let Some((resolved, still_unresolved)) =
+        record_step(warnings, "Terraform artifact ref resolution", || {
+            store.resolve_terraform_artifact_refs()
+        })
+    {
         result.terraform_artifact_refs_resolved = Some(resolved);
         result.terraform_artifact_refs_still_unresolved = Some(still_unresolved);
     }
 
-    if let Some(count) = record_step(&mut result.warnings, "Unresolved endpoint demotion", || {
-        store.demote_unresolved_endpoint_edges()
-    }) {
-        result.unresolved_endpoint_edges_demoted = Some(count);
-    }
-
-    if manifest_nodes_json != "[]" || manifest_edges_json != "[]" {
-        if let Some(nodes_upserted) =
-            record_step(&mut result.warnings, "Manifest bridge extraction", || {
-                store.replace_manifest_bridges_json(
-                    manifest_extractor_id,
-                    manifest_nodes_json,
-                    manifest_edges_json,
-                )
-            })
-        {
-            let edge_count = serde_json::from_str::<Vec<serde_json::Value>>(manifest_edges_json)
-                .map(|edges| edges.len() as i64)
-                .unwrap_or(0);
-            result.manifest_bridges_edges = Some(edge_count);
-            result.manifest_bridges_nodes = Some(nodes_upserted);
+    match manifests {
+        ManifestBridges::Keep => {}
+        ManifestBridges::NoneFound => {
+            result.manifest_bridges_edges = Some(0);
+            result.manifest_bridges_nodes = Some(0);
         }
-    } else {
-        result.manifest_bridges_edges = Some(0);
-        result.manifest_bridges_nodes = Some(0);
+        ManifestBridges::Replace {
+            extractor_id,
+            discover,
+        } => {
+            if let Some((edges, nodes)) =
+                record_step(warnings, "Manifest bridge extraction", || {
+                    let (nodes_json, edges_json) = discover()?;
+                    let edge_count = serde_json::from_str::<Vec<serde_json::Value>>(&edges_json)
+                        .map(|edges| edges.len() as i64)
+                        .unwrap_or(0);
+                    let nodes = store.replace_manifest_bridges_json(
+                        extractor_id,
+                        &nodes_json,
+                        &edges_json,
+                    )?;
+                    Ok((edge_count, nodes))
+                })
+            {
+                result.manifest_bridges_edges = Some(edges);
+                result.manifest_bridges_nodes = Some(nodes);
+            }
+        }
     }
 
     // After the manifest bridges: they name the crates this step binds to.
-    if let Some(count) = record_step(&mut result.warnings, "Native binding resolution", || {
+    result.native_bindings_resolved = record_step(warnings, "Native binding resolution", || {
         store.resolve_native_bindings()
-    }) {
-        result.native_bindings_resolved = Some(count);
-    }
+    });
 
     // After the manifest bridges: they name the worker entry modules.
-    if let Some(count) = record_step(&mut result.warnings, "Request boundary resolution", || {
-        store.resolve_request_boundaries()
-    }) {
-        result.request_boundaries_resolved = Some(count);
-    }
+    result.request_boundaries_resolved =
+        record_step(warnings, "Request boundary resolution", || {
+            store.resolve_request_boundaries()
+        });
+}
+
+/// How `run_post_processing_json` runs the manifest bridge step.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ManifestMode {
+    /// Replace the stored bridges with the given arrays, but treat two empty
+    /// arrays as nothing found and leave the stored bridges (`dagayn watch`).
+    Auto,
+    /// Replace the stored bridges with the given arrays, even empty ones.
+    Replace,
+    /// Leave the stored bridges and record no counter.
+    Keep,
+}
+
+/// `run_passes`, then communities unless `min_community_size` is `None`;
+/// the counters and warnings as `PostprocessResult` JSON.
+pub fn run_post_processing_json(
+    store: &mut GraphStore,
+    manifest_extractor_id: &str,
+    manifest_nodes_json: &str,
+    manifest_edges_json: &str,
+    manifest_mode: ManifestMode,
+    min_community_size: Option<i64>,
+    changed_files: Option<&[String]>,
+) -> Result<String> {
+    let mut result = PostprocessResult::default();
+
+    let discover = || {
+        Ok((
+            manifest_nodes_json.to_string(),
+            manifest_edges_json.to_string(),
+        ))
+    };
+    let manifests = match manifest_mode {
+        ManifestMode::Keep => ManifestBridges::Keep,
+        ManifestMode::Auto if manifest_nodes_json == "[]" && manifest_edges_json == "[]" => {
+            ManifestBridges::NoneFound
+        }
+        ManifestMode::Auto | ManifestMode::Replace => ManifestBridges::Replace {
+            extractor_id: manifest_extractor_id,
+            discover,
+        },
+    };
+    run_passes(store, changed_files, manifests, &mut result);
+
+    let Some(min_size) = min_community_size else {
+        return serde_json::to_string(&result).map_err(GraphError::from);
+    };
 
     let incremental = matches!(changed_files, Some(files) if !files.is_empty());
     let loaded = if incremental {
@@ -198,13 +254,13 @@ pub fn run_post_processing_json(
             "Community detection",
             || match changed_files {
                 Some(files) if !files.is_empty() => {
-                    incremental_detect_communities(store, files, min_community_size, None)
+                    incremental_detect_communities(store, files, min_size, None)
                 }
                 _ => {
                     let communities = if let Some((nodes, edges)) = &loaded {
-                        detect_communities_from(nodes, edges, min_community_size)
+                        detect_communities_from(nodes, edges, min_size)
                     } else {
-                        detect_communities(store, min_community_size)?
+                        detect_communities(store, min_size)?
                     };
                     let payload = serde_json::to_string(&communities).map_err(GraphError::from)?;
                     store.store_communities_json(&payload)
@@ -282,8 +338,16 @@ mod tests {
             )])
             .unwrap();
 
-        let raw =
-            run_post_processing_json(&mut store, "manifest_bridges", "[]", "[]", 2, None).unwrap();
+        let raw = run_post_processing_json(
+            &mut store,
+            "manifest_bridges",
+            "[]",
+            "[]",
+            ManifestMode::Auto,
+            Some(2),
+            None,
+        )
+        .unwrap();
         let payload: serde_json::Value = serde_json::from_str(&raw).unwrap();
 
         assert!(payload.get("signatures_computed").is_some());
@@ -350,7 +414,8 @@ mod tests {
             "manifest_bridges",
             "[]",
             "[]",
-            2,
+            ManifestMode::Auto,
+            Some(2),
             Some(&changed),
         )
         .unwrap();
@@ -360,6 +425,33 @@ mod tests {
             Some(1),
             "incremental FTS should reindex only nodes in changed files"
         );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_failed_pass_is_a_warning_and_the_later_passes_still_run() {
+        let path = temp_db("failed-pass");
+        let mut store = GraphStore::open(path.to_string_lossy().to_string()).unwrap();
+        let mut result = PostprocessResult::default();
+
+        run_passes(
+            &mut store,
+            None,
+            ManifestBridges::Replace {
+                extractor_id: "manifest_bridges",
+                discover: || Err(GraphError::Clock),
+            },
+            &mut result,
+        );
+
+        assert_eq!(
+            result.warnings,
+            vec!["Manifest bridge extraction failed: system clock error".to_string()]
+        );
+        assert_eq!(result.manifest_bridges_edges, None);
+        assert_eq!(result.manifest_bridges_nodes, None);
+        assert!(result.native_bindings_resolved.is_some());
+        assert!(result.request_boundaries_resolved.is_some());
         let _ = std::fs::remove_file(&path);
     }
 }
