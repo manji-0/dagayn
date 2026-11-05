@@ -9,7 +9,7 @@ use serde_json::{Map, Value, json};
 use super::resolve::{file_path_candidates, joined};
 use super::rows::{
     Row, VALUE_REFERENCE, cross_artifact_role, edge_dict, edge_import_kind, get,
-    import_kind_matches, node_row, resolved_by,
+    import_kind_matches, node_row, resolved_by, row_file,
 };
 use crate::pypath::realpath;
 use crate::source::{SourceCoverage, source_row};
@@ -77,6 +77,39 @@ pub(super) struct Found {
 }
 
 impl Found {
+    /// Whether the walk stopped at its own row limit, so rows past it are
+    /// on no page.
+    pub(super) fn walk_cut(&self) -> bool {
+        self.reachability
+            .as_ref()
+            .is_some_and(|reach| reach.get("truncated") == Some(&Value::Bool(true)))
+    }
+
+    /// Whether the rows are every relation the graph records: some rows,
+    /// no endpoint left unresolved, and a walk, if any, that went its whole
+    /// depth.
+    pub(super) fn closed(&self) -> bool {
+        !self.rows.is_empty()
+            && self.unresolved.is_empty()
+            && self.reachability.as_ref().is_none_or(|reach| {
+                reach.get("state") == Some(&json!("complete"))
+                    && reach.get("depth_limit_reached") != Some(&Value::Bool(true))
+            })
+    }
+
+    /// Keep the rows in files under `prefix`: for `imports_of`, the file
+    /// each row imports.
+    pub(super) fn keep_under(&mut self, pattern: &str, prefix: &str) {
+        self.rows.retain(|row| {
+            let file = if pattern == "imports_of" {
+                get(row, "import_target").and_then(Value::as_str)
+            } else {
+                row_file(row)
+            };
+            file.is_some_and(|file| file.starts_with(prefix))
+        });
+    }
+
     fn unresolve(&mut self, names: Vec<String>) {
         for name in names {
             if !self.unresolved.contains(&name) {

@@ -9,9 +9,13 @@ mod resolve;
 mod rows;
 mod walk;
 
+use std::path::Path;
+
+use dagayn_graph::{GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
 
-use crate::{Args, Context, Ordered, Payload, open_graph, resolve_repo};
+use crate::answerability::Answerability;
+use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 use notes::{
     NO_MATCHING_EDGES, Page, ending, found_summary, guidance, no_edges_note, page_note,
     tests_through_callers_note, walk_cut_note,
@@ -22,8 +26,8 @@ pub(crate) use rows::{
     Row, cross_artifact_role, edge_dict, edge_import_kind, import_kind_matches, node_dict,
     node_row, python_dumps_len, sanitize,
 };
-use rows::{compact, get, merge, object, project_minimal, row_file};
-use walk::run_pattern;
+use rows::{compact, merge, object, project_minimal, row_file};
+use walk::{Found, run_pattern};
 
 /// `_BUILTIN_CALL_NAMES`: bare names `callers_of` skips.
 const BUILTIN_CALL_NAMES: &[&str] = &[
@@ -284,6 +288,21 @@ const MAX_DEPTH: i64 = 6;
 const MAX_CUT_FILES: usize = 200;
 const MAX_CUT_FILES_MINIMAL: usize = 60;
 
+/// What a call asks for, once its arguments are checked.
+struct Query<'a> {
+    pattern: &'a str,
+    /// The target as the reply names it: a node found by name goes by its
+    /// qualified name.
+    target: &'a str,
+    detail_level: &'a str,
+    full: bool,
+    minimal: bool,
+    depth: i64,
+    offset: usize,
+    import_kind: Option<&'a str>,
+    path_prefix: Option<&'a str>,
+}
+
 pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> Option<Payload> {
     let args = Args::new(
         arguments,
@@ -306,8 +325,6 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         // Python treats a level it does not know as `standard`.
         Some(_) => "standard",
     };
-    // Python treats any other level as `standard`.
-    let (full, minimal) = (detail_level == "full", detail_level == "minimal");
     let depth = args.integer("depth", 1)?;
     let offset = args.integer("offset", 0)?;
     let import_kind = args.optional_string("import_kind")?;
@@ -322,37 +339,12 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         .or_else(|| import_kind_error(pattern, import_kind))
         .or_else(|| (offset < 0).then(|| format!("offset must be 0 or more, got {offset}.")))
     {
-        return Some(
-            Ordered::default()
-                .put("status", "error")
-                .put("error", message)
-                .put("_repo", graph.repo_context())
-                .into_payload(),
-        );
+        return Some(error_answer(message, &graph));
     }
-    let depth = depth.min(MAX_DEPTH);
-    let offset = usize::try_from(offset).unwrap_or(0);
     let store = &graph.store;
     let answerability = graph.answerability()?;
-
     if pattern == "callers_of" && !target.contains("::") && BUILTIN_CALL_NAMES.contains(&target) {
-        return Some(
-            Ordered::default()
-                .put("status", "ok")
-                .put("pattern", pattern)
-                .put("target", target)
-                .put("description", description(pattern).unwrap_or(""))
-                .put(
-                    "summary",
-                    format!("'{target}' is a common builtin — callers_of skipped to avoid noise."),
-                )
-                .put("results", json!([]))
-                .put("edges", json!([]))
-                .put("answerability", answerability.full())
-                .put("missingness", json!(answerability.missingness()))
-                .put("_repo", graph.repo_context())
-                .into_payload(),
-        );
+        return Some(builtin_answer(pattern, target, &answerability, &graph));
     }
 
     let (node, resolution) =
@@ -360,60 +352,199 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             Ok(resolved) => resolved,
             Err(answer) => return Some(answer),
         };
-    // A name-resolved target is reported by its qualified name.
-    let original_target = target;
-    let target: &str = match (&node, resolution) {
-        (Some(node), Resolution::ExactName | Resolution::Fuzzy) => &node.qualified_name,
-        _ => target,
+    let query = Query {
+        pattern,
+        // A name-resolved target is reported by its qualified name.
+        target: match (&node, resolution) {
+            (Some(node), Resolution::ExactName | Resolution::Fuzzy) => &node.qualified_name,
+            _ => target,
+        },
+        detail_level,
+        // Python treats any other level as `standard`.
+        full: detail_level == "full",
+        minimal: detail_level == "minimal",
+        depth: depth.min(MAX_DEPTH),
+        offset: usize::try_from(offset).unwrap_or(0),
+        import_kind,
+        path_prefix,
     };
     let exact_count = i64::from(
         matches!(resolution, Resolution::Exact | Resolution::ExactName) && node.is_some(),
     );
+    let node = node.as_ref();
     let mut found = run_pattern(
         store,
         &root,
         pattern,
-        target,
-        node.as_ref(),
-        depth,
+        query.target,
+        node,
+        query.depth,
         import_kind,
     )?;
     // Rows outside the scope asked for go after the walk, so a chain through
     // a file outside it still reaches the files inside.
     if let Some(prefix) = path_prefix {
-        found.rows.retain(|row| {
-            let file = if pattern == "imports_of" {
-                get(row, "import_target").and_then(Value::as_str)
-            } else {
-                row_file(row)
-            };
-            file.is_some_and(|file| file.starts_with(prefix))
-        });
+        found.keep_under(pattern, prefix);
     }
 
     // `query_zero_result_fields`.
-    let raw_count = found.rows.len();
-    // A node the graph has, that no edge of the kind asked for reaches.
-    let mut empty_note = node
-        .as_ref()
-        .filter(|_| raw_count == 0 && found.unresolved.is_empty() && exact_count > 0)
-        .and_then(|node| no_edges_note(pattern, &node.language, import_kind));
+    let (empty_note, tests_through_callers) =
+        zero_result_note(store, &root, &query, node, &found, exact_count)?;
+    let (confidence, zero_result_reason) = confidence(&found, empty_note.is_some());
+    let mut payload = Ordered::default()
+        .put("status", "ok")
+        .put("pattern", pattern)
+        .put("target", query.target)
+        .put("unresolved_count", found.unresolved.len())
+        .put("unresolved_targets", json!(found.unresolved))
+        .put("confidence", confidence)
+        .put("zero_result_reason", zero_result_reason)
+        .put("next", json!([]))
+        .put("resolution", resolution.as_str())
+        .put("exact_match_count", exact_count);
+    if matches!(resolution, Resolution::ExactName | Resolution::Fuzzy) {
+        payload = payload.put("resolved_target", query.target);
+        payload = payload.put("original_target", target);
+    }
+    if let Some(reachability) = &found.reachability {
+        payload = payload
+            .put("depth", query.depth)
+            .put("reachability", reachability.clone());
+    }
+    let empty_note = empty_note.as_deref();
+    let (payload, budget) = put_rows(
+        payload,
+        &query,
+        &found,
+        empty_note,
+        &answerability,
+        exact_count,
+    );
+    let (mut payload, paging) = page(payload, budget, &found.rows, query.offset, query.minimal);
+    // The walk's own row limit bounds what any page can show.
+    if found.walk_cut() {
+        payload = append_summary(payload, &walk_cut_note());
+    }
+    // Say that a closed answer is the whole answer: agents re-checked lists
+    // the graph had already completed
+    // (docs/plans/AGENT-WORKFLOW-TARGET.md#order-of-work, step 10).
+    let closed = paging.results_complete && found.closed();
+    let mut unbound_caller = None;
+    if let Some((note, read_first)) = ending(store, pattern, node, &found, closed, import_kind) {
+        payload = append_summary(payload, &note);
+        unbound_caller = read_first;
+    }
+    let rows = payload
+        .get("results")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let next = next_calls(
+        &query,
+        &found,
+        &rows,
+        &paging,
+        unbound_caller,
+        tests_through_callers,
+    );
+    payload = payload.replace("next", next);
+    Some(finish(payload, found, &answerability, &graph))
+}
+
+/// The answer for arguments `query_graph` does not take.
+fn error_answer(message: String, graph: &OpenGraph) -> Payload {
+    Ordered::default()
+        .put("status", "error")
+        .put("error", message)
+        .put("_repo", graph.repo_context())
+        .into_payload()
+}
+
+/// The reply's last fields: what `tests_for` found of the nearest test,
+/// what the graph and a `source_of` read leave out, and the repository.
+fn finish(
+    mut payload: Ordered,
+    found: Found,
+    answerability: &Answerability,
+    graph: &OpenGraph,
+) -> Payload {
+    if let Some(reach) = found.test_reach.clone() {
+        payload = payload.put("test_reach", reach);
+    }
+    let mut missingness = answerability.missingness();
+    // `_attach_source_of_coverage`.
+    if let Some(coverage) = found.source
+        && !found.rows.is_empty()
+    {
+        missingness.extend(coverage.missingness());
+        if coverage.read_error.is_some() || coverage.stale {
+            payload = payload.replace("status", json!("degraded"));
+        }
+        payload = payload.put("source_coverage", coverage.value());
+    }
+    payload
+        .put("missingness", json!(missingness))
+        .put("_repo", graph.repo_context())
+        .into_payload()
+}
+
+/// The answer for `callers_of` on a common builtin name: skipped.
+fn builtin_answer(
+    pattern: &str,
+    target: &str,
+    answerability: &Answerability,
+    graph: &OpenGraph,
+) -> Payload {
+    Ordered::default()
+        .put("status", "ok")
+        .put("pattern", pattern)
+        .put("target", target)
+        .put("description", description(pattern).unwrap_or(""))
+        .put(
+            "summary",
+            format!("'{target}' is a common builtin — callers_of skipped to avoid noise."),
+        )
+        .put("results", json!([]))
+        .put("edges", json!([]))
+        .put("answerability", answerability.full())
+        .put("missingness", json!(answerability.missingness()))
+        .put("_repo", graph.repo_context())
+        .into_payload()
+}
+
+/// The summary sentence for a node the graph has that no edge of the kind
+/// asked for reaches, and whether it is the `tests_for` one that points at
+/// the tests through the node's callers.
+fn zero_result_note(
+    store: &GraphStore,
+    root: &Path,
+    query: &Query,
+    node: Option<&GraphNode>,
+    found: &Found,
+    exact_count: i64,
+) -> Option<(Option<String>, bool)> {
+    let empty_note = node
+        .filter(|_| found.rows.is_empty() && found.unresolved.is_empty() && exact_count > 0)
+        .and_then(|node| no_edges_note(query.pattern, &node.language, query.import_kind));
     // A node no test calls can still run under the tests that call its
-    // callers: say so, and name the walk that lists them, instead of "no
-    // test reaches it" (eval/g8_go/RESULTS.md, defect 4).
-    let mut tests_through_callers = false;
-    if pattern == "tests_for" && empty_note.is_some() {
-        let callers = run_pattern(store, &root, "callers_of", target, node.as_ref(), 1, None)?;
+    // callers: say so, and name the walk that lists them.
+    if query.pattern == "tests_for" && empty_note.is_some() {
+        let callers = run_pattern(store, root, "callers_of", query.target, node, 1, None)?;
         if !callers.rows.is_empty() {
-            tests_through_callers = true;
             let nearest = found
                 .test_reach
                 .as_ref()
                 .and_then(|reach| Some((reach["nearest_test"].as_str()?, reach["hops"].as_u64()?)));
-            empty_note = Some(tests_through_callers_note(nearest, callers.rows.len()));
+            let note = tests_through_callers_note(nearest, callers.rows.len());
+            return Some((Some(note), true));
         }
     }
-    let (confidence, zero_result_reason) = if raw_count > 0 {
+    Some((empty_note, false))
+}
+
+/// The reply's `confidence` and `zero_result_reason`.
+fn confidence(found: &Found, no_edges: bool) -> (&'static str, Value) {
+    if !found.rows.is_empty() {
         let high = !found.edges.is_empty()
             && found.edges.iter().all(|edge| {
                 matches!(
@@ -426,106 +557,105 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         (if high { "high" } else { "medium" }, Value::Null)
     } else if !found.unresolved.is_empty() {
         ("medium", json!("unresolved_endpoints_only"))
-    } else if empty_note.is_some() {
+    } else if no_edges {
         ("low", json!(NO_MATCHING_EDGES))
     } else {
         ("low", json!("not_found_in_current_graph"))
-    };
-    let guidance = guidance(pattern, target, raw_count, exact_count);
-    let summary = found_summary(
-        raw_count,
-        pattern,
-        target,
-        depth,
-        path_prefix,
-        empty_note.as_deref(),
-    );
+    }
+}
 
-    let mut payload = Ordered::default()
-        .put("status", "ok")
-        .put("pattern", pattern)
-        .put("target", target)
-        .put("unresolved_count", found.unresolved.len())
-        .put("unresolved_targets", json!(found.unresolved))
-        .put("confidence", confidence)
-        .put("zero_result_reason", zero_result_reason)
-        .put("next", json!([]))
-        .put("resolution", resolution.as_str())
-        .put("exact_match_count", exact_count);
-    if matches!(resolution, Resolution::ExactName | Resolution::Fuzzy) {
-        payload = payload.put("resolved_target", target);
-        payload = payload.put("original_target", original_target);
-    }
-    if let Some(reachability) = &found.reachability {
-        payload = payload
-            .put("depth", depth)
-            .put("reachability", reachability.clone());
-    }
-    let budget;
-    if full {
+/// The rows at the detail level asked for, from `offset` on, with the
+/// summary (ending in `empty_note`) and guidance for how many there are,
+/// and the token budget the reply is cut to.
+fn put_rows(
+    payload: Ordered,
+    query: &Query,
+    found: &Found,
+    empty_note: Option<&str>,
+    answerability: &Answerability,
+    exact_count: i64,
+) -> (Ordered, usize) {
+    let (pattern, target, offset) = (query.pattern, query.target, query.offset);
+    let summary = |count| {
+        let (depth, prefix) = (query.depth, query.path_prefix);
+        found_summary(count, pattern, target, depth, prefix, empty_note)
+    };
+    let raw_count = found.rows.len();
+    if query.full {
         let edges: Vec<Value> = found.edges.iter().cloned().map(Value::Object).collect();
-        payload = payload
+        let rows: Vec<Value> = found
+            .rows
+            .iter()
+            .skip(offset)
+            .cloned()
+            .map(object)
+            .collect();
+        let payload = payload
             .put("description", description(pattern).unwrap_or(""))
-            .put("summary", summary)
+            .put("summary", summary(raw_count))
             .put("result_count", raw_count)
             .put("answerability", answerability.full())
-            .put(
-                "results",
-                json!(
-                    found
-                        .rows
-                        .iter()
-                        .skip(offset)
-                        .cloned()
-                        .map(object)
-                        .collect::<Vec<_>>()
-                ),
-            )
+            .put("results", json!(rows))
             .put("edges", json!(edges))
-            .put("guidance", guidance);
-        budget = 8000;
-    } else {
-        let mut rows: Vec<Row> = found.rows.iter().map(|row| compact(row, minimal)).collect();
-        if MERGED.contains(&pattern) {
-            rows = merge(rows);
-        }
-        let rows: Vec<Value> = rows
-            .into_iter()
-            .map(|row| {
-                if minimal {
-                    project_minimal(row)
-                } else {
-                    object(row)
-                }
-            })
-            .collect();
-        let summary = summary.replacen(
-            &format!("Found {raw_count} "),
-            &format!("Found {} ", rows.len()),
-            1,
-        );
-        let rows_len = rows.len();
-        let rows: Vec<Value> = rows.into_iter().skip(offset).collect();
-        payload = payload
-            .put("summary", summary)
-            .put("result_count", rows_len)
-            .put("answerability", answerability.compact())
-            .put("results", json!(rows));
-        if !minimal {
-            // One count per reply: the rows, after `merge` folded the edges
-            // of one node into one row.
-            payload = payload.put(
+            .put(
                 "guidance",
-                self::guidance(pattern, target, rows_len, exact_count),
+                guidance(pattern, target, raw_count, exact_count),
             );
-        }
-        budget = if minimal {
-            crate::MINIMAL_BUDGET
-        } else {
-            crate::STANDARD_BUDGET
-        };
+        return (payload, 8000);
     }
-    payload = payload.apply_output_budget(budget, &["results", "edges"]);
+    let mut rows: Vec<Row> = found
+        .rows
+        .iter()
+        .map(|row| compact(row, query.minimal))
+        .collect();
+    if MERGED.contains(&pattern) {
+        rows = merge(rows);
+    }
+    let rows: Vec<Value> = rows
+        .into_iter()
+        .map(|row| {
+            if query.minimal {
+                project_minimal(row)
+            } else {
+                object(row)
+            }
+        })
+        .collect();
+    let rows_len = rows.len();
+    let rows: Vec<Value> = rows.into_iter().skip(offset).collect();
+    let mut payload = payload
+        .put("summary", summary(rows_len))
+        .put("result_count", rows_len)
+        .put("answerability", answerability.compact())
+        .put("results", json!(rows));
+    if query.minimal {
+        return (payload, crate::MINIMAL_BUDGET);
+    }
+    // One count per reply: the rows, after `merge` folded the edges of one
+    // node into one row.
+    payload = payload.put("guidance", guidance(pattern, target, rows_len, exact_count));
+    (payload, crate::STANDARD_BUDGET)
+}
+
+/// What the budget and `offset` left of the rows.
+struct Paging {
+    /// The rows kept and the rows there were, where the budget cut them.
+    cut: Option<(u64, u64)>,
+    /// The rows a cut or offset page shows.
+    kept: u64,
+    results_complete: bool,
+}
+
+/// Cut the reply to `budget`. Where that cuts the rows, or `offset` skips
+/// some, list the files of every row and say which rows this page shows.
+fn page(
+    payload: Ordered,
+    budget: usize,
+    rows: &[Row],
+    offset: usize,
+    minimal: bool,
+) -> (Ordered, Paging) {
+    let mut payload = payload.apply_output_budget(budget, &["results", "edges"]);
     // A page after the first leaves out the rows before it.
     let results_complete = offset == 0
         && !payload
@@ -549,103 +679,103 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         .get("results")
         .and_then(Value::as_array)
         .map_or(0, |rows| rows.len() as u64);
-    let page = cut.or_else(|| (offset > 0).then_some((shown_rows, shown_rows)));
-    let mut page_kept = 0;
-    if let Some((kept, rest)) = page
-        && let Some(summary) = payload
-            .get("summary")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-    {
-        // The files of every row, cut or not: a question about which files
-        // gets its whole answer even when the rows do not fit.
-        let mut files: Vec<&str> = found.rows.iter().filter_map(row_file).collect();
-        files.sort_unstable();
-        files.dedup();
-        let cap = if minimal {
-            MAX_CUT_FILES_MINIMAL
-        } else {
-            MAX_CUT_FILES
-        };
-        let shown = files.len().min(cap);
-        let count = files.len();
-        files.truncate(cap);
-        // The file list comes before more rows: cut the rows again to fit it.
-        payload = payload
-            .put("files", json!(files))
-            .apply_output_budget(budget, &["results", "edges"]);
-        let kept = payload
-            .get("results")
-            .and_then(Value::as_array)
-            .map_or(kept, |rows| rows.len() as u64);
-        page_kept = kept;
-        let total = offset as u64 + rest;
-        let mut record = json!({"kept": kept, "total": total});
-        if offset > 0 {
-            record["offset"] = json!(offset);
-        }
-        let mut truncation = payload
-            .get("_truncation")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        truncation["results"] = record;
-        payload = payload.set("_truncation", truncation);
-        let page = Page {
-            offset,
-            kept,
-            total,
-            cut: cut.is_some(),
-            files: count,
-            files_shown: shown,
-        };
-        let summary = format!("{summary}. {}", page_note(&page, minimal));
-        payload = payload.replace("summary", json!(summary));
+    let mut paging = Paging {
+        cut,
+        kept: 0,
+        results_complete,
+    };
+    let Some((kept, rest)) = cut.or_else(|| (offset > 0).then_some((shown_rows, shown_rows)))
+    else {
+        return (payload, paging);
+    };
+    if payload.get("summary").and_then(Value::as_str).is_none() {
+        return (payload, paging);
     }
-    // The walk's own row limit bounds what any page can show.
-    if found
-        .reachability
-        .as_ref()
-        .is_some_and(|reach| reach.get("truncated") == Some(&Value::Bool(true)))
-        && let Some(summary) = payload.get("summary").and_then(Value::as_str)
-    {
-        let summary = format!("{summary}. {}", walk_cut_note());
-        payload = payload.replace("summary", json!(summary));
-    }
-    // Say that a closed answer is the whole answer: agents re-checked lists
-    // the graph had already completed
-    // (docs/plans/AGENT-WORKFLOW-TARGET.md#order-of-work, step 10).
-    let closed = results_complete
-        && raw_count > 0
-        && found.unresolved.is_empty()
-        && found.reachability.as_ref().is_none_or(|reach| {
-            reach.get("state") == Some(&json!("complete"))
-                && reach.get("depth_limit_reached") != Some(&Value::Bool(true))
-        });
-    let mut unbound_caller = None;
-    if let Some((note, read_first)) =
-        ending(store, pattern, node.as_ref(), &found, closed, import_kind)
-        && let Some(summary) = payload.get("summary").and_then(Value::as_str)
-    {
-        let summary = format!("{summary}. {note}");
-        payload = payload.replace("summary", json!(summary));
-        unbound_caller = read_first;
-    }
-    let rows = payload
+    // The files of every row, cut or not: a question about which files
+    // gets its whole answer even when the rows do not fit.
+    let mut files: Vec<&str> = rows.iter().filter_map(row_file).collect();
+    files.sort_unstable();
+    files.dedup();
+    let cap = if minimal {
+        MAX_CUT_FILES_MINIMAL
+    } else {
+        MAX_CUT_FILES
+    };
+    let shown = files.len().min(cap);
+    let count = files.len();
+    files.truncate(cap);
+    // The file list comes before more rows: cut the rows again to fit it.
+    payload = payload
+        .put("files", json!(files))
+        .apply_output_budget(budget, &["results", "edges"]);
+    let kept = payload
         .get("results")
         .and_then(Value::as_array)
+        .map_or(kept, |rows| rows.len() as u64);
+    paging.kept = kept;
+    let total = offset as u64 + rest;
+    let mut record = json!({"kept": kept, "total": total});
+    if offset > 0 {
+        record["offset"] = json!(offset);
+    }
+    let mut truncation = payload
+        .get("_truncation")
         .cloned()
-        .unwrap_or_default();
-    let mut next = crate::next::after_query(pattern, target, &rows);
+        .unwrap_or_else(|| json!({}));
+    truncation["results"] = record;
+    payload = payload.set("_truncation", truncation);
+    let page = Page {
+        offset,
+        kept,
+        total,
+        cut: cut.is_some(),
+        files: count,
+        files_shown: shown,
+    };
+    (append_summary(payload, &page_note(&page, minimal)), paging)
+}
+
+/// `payload` with `sentence` added to its summary.
+fn append_summary(payload: Ordered, sentence: &str) -> Ordered {
+    match payload.get("summary").and_then(Value::as_str) {
+        Some(summary) => {
+            let summary = format!("{summary}. {sentence}");
+            payload.replace("summary", json!(summary))
+        }
+        None => payload,
+    }
+}
+
+/// `next`: the calls `crate::next::after_query` picks for the rows shown,
+/// after the ones this reply leaves open, the last of these first: the
+/// tests through the target's callers, the function a Go call left unbound
+/// is in, the rows past a cut page, and the walk past the depth asked for.
+fn next_calls(
+    query: &Query,
+    found: &Found,
+    rows: &[Value],
+    paging: &Paging,
+    unbound_caller: Option<(String, String)>,
+    tests_through_callers: bool,
+) -> Value {
+    let Query {
+        pattern,
+        target,
+        depth,
+        offset,
+        ..
+    } = *query;
+    let mut next = crate::next::after_query(pattern, target, rows);
     // This call's arguments, for a call that goes on from it.
     let this_call = |pattern: &str, depth: Option<i64>| {
         let mut args = json!({"pattern": pattern, "target": target});
         if let Some(depth) = depth {
             args["depth"] = json!(depth);
         }
-        if let Some(kind) = import_kind {
+        if let Some(kind) = query.import_kind {
             args["import_kind"] = json!(kind);
         }
-        if let Some(prefix) = path_prefix {
+        if let Some(prefix) = query.path_prefix {
             args["path_prefix"] = json!(prefix);
         }
         args
@@ -669,7 +799,7 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
         ));
     }
     let walked = found.reachability.is_some().then_some(depth);
-    if cut.is_some() && minimal {
+    if paging.cut.is_some() && query.minimal {
         let mut args = this_call(pattern, walked);
         args["detail_level"] = json!("standard");
         if offset > 0 {
@@ -680,12 +810,12 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             args,
             "the rows minimal cut to fit",
         ));
-    } else if cut.is_some() && page_kept > 0 {
+    } else if paging.cut.is_some() && paging.kept > 0 {
         let mut args = this_call(pattern, walked);
-        if detail_level != "standard" {
-            args["detail_level"] = json!(detail_level);
+        if query.detail_level != "standard" {
+            args["detail_level"] = json!(query.detail_level);
         }
-        let after = offset as u64 + page_kept;
+        let after = offset as u64 + paging.kept;
         args["offset"] = json!(after);
         first(crate::next::call(
             "query_graph_tool",
@@ -707,25 +837,5 @@ pub(crate) fn query_graph(context: &Context, arguments: &Map<String, Value>) -> 
             "the tests that reach it through its callers",
         ));
     }
-    payload = payload.replace("next", next);
-    if let Some(reach) = found.test_reach.clone() {
-        payload = payload.put("test_reach", reach);
-    }
-    let mut missingness = answerability.missingness();
-    // `_attach_source_of_coverage`.
-    if let Some(coverage) = found.source
-        && raw_count > 0
-    {
-        missingness.extend(coverage.missingness());
-        if coverage.read_error.is_some() || coverage.stale {
-            payload = payload.replace("status", json!("degraded"));
-        }
-        payload = payload.put("source_coverage", coverage.value());
-    }
-    Some(
-        payload
-            .put("missingness", json!(missingness))
-            .put("_repo", graph.repo_context())
-            .into_payload(),
-    )
+    next
 }
