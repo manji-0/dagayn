@@ -1,0 +1,4 @@
+# Parallel PRs each add a bullet under the same Unreleased heading; a
+# union merge keeps both in a local merge or rebase. GitHub's merge
+# check ignores this file.
+CHANGELOG.md merge=union
