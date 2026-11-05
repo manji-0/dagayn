@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Whole-task eval: what an agent spends to answer with a dagayn build.
 
-The contract tests (``crates/dagayn-tools/tests/tools.rs``) hold each reply to
+The contract tests (``crates/dagayn-tools/tests/tools/reply_contract.rs``) hold each reply to
 its budget. What an agent pays is the whole task: every turn re-reads the
 conversation, so an extra round trip costs more than a long reply
 (docs/plans/AGENT-WORKFLOW-TARGET.md#order-of-work, step 10). This harness

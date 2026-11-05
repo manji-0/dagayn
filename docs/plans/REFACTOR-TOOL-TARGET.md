@@ -275,4 +275,4 @@ step 4 it also runs the full gate.
   `docs/LLM-OPTIMIZED-REFERENCE.md`, the MCP tool description, and the
   `refactor-safely` skill.
 - Tests: the suggest cases in `tests/test_refactor.py`,
-  `crates/dagayn-tools/tests/tools.rs`, and the MCP parity snapshots.
+  `crates/dagayn-tools/tests/tools/refactor.rs`, and the MCP parity snapshots.
