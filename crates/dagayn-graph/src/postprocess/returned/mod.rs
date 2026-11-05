@@ -25,6 +25,11 @@ use crate::*;
 
 use super::bare_names::{DIRECT_IMPORT_CONFIDENCE, INFERRED_CONFIDENCE, language_family};
 
+mod go;
+
+pub(crate) use go::go_directory;
+use go::{go_first_result, go_may_return_callers_type, resolve_go_declared_receivers};
+
 /// How many links of a call chain are followed.
 const MAX_ROUNDS: usize = 6;
 
@@ -719,276 +724,353 @@ const UNWRAPPED_WRAPPERS: &[&str] = &[
     "Optional",
 ];
 
+/// Which type names a row of [`BUILTIN_TYPE_PACKAGES`] matches.
+enum BuiltinNames {
+    /// Every name.
+    Any,
+    /// One of these names.
+    In(&'static [&'static str]),
+    /// A name with this prefix.
+    Prefix(&'static str),
+}
+
+impl BuiltinNames {
+    fn matches(&self, name: &str) -> bool {
+        match self {
+            Self::Any => true,
+            Self::In(names) => names.contains(&name),
+            Self::Prefix(prefix) => name.starts_with(prefix),
+        }
+    }
+}
+
+/// Files of any extension.
+const ANY_FILE: &[&str] = &[];
+const KOTLIN_FILES: &[&str] = &[".kt", ".kts"];
+const SCALA_FILES: &[&str] = &[".scala", ".sc"];
+
+/// Built-in types by `(family, file extensions, names, package)`: a type of
+/// `family` that `names` matches, in a file ending in one of the extensions
+/// (any file when there are none), belongs to `package`, or to no package
+/// when it is `None`. The first matching row wins, so the Kotlin and Scala
+/// rows, each ending in one for any other name, come before the Java rows:
+/// a Kotlin or Scala file never gets a Java package.
+const BUILTIN_TYPE_PACKAGES: &[(&str, &[&str], BuiltinNames, Option<&str>)] = &[
+    (
+        "python",
+        ANY_FILE,
+        BuiltinNames::In(PYTHON_BUILTIN_TYPES),
+        Some("builtins"),
+    ),
+    (
+        "rust",
+        ANY_FILE,
+        BuiltinNames::In(RUST_STD_TYPES),
+        Some("std"),
+    ),
+    (
+        "javascript",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "Array",
+            "Map",
+            "Set",
+            "WeakMap",
+            "WeakSet",
+            "Promise",
+            "String",
+            "Number",
+            "Boolean",
+            "Date",
+            "RegExp",
+            "Error",
+            "URL",
+            "URLSearchParams",
+            "Uint8Array",
+            "ArrayBuffer",
+            "Buffer",
+            "ReadonlyArray",
+            "Record",
+            "string",
+            "number",
+            "boolean",
+            "bigint",
+            "symbol",
+        ]),
+        Some("globalThis"),
+    ),
+    (
+        "jvm",
+        KOTLIN_FILES,
+        BuiltinNames::In(&[
+            "String",
+            "Int",
+            "Long",
+            "Double",
+            "Float",
+            "Boolean",
+            "Char",
+            "Byte",
+            "Short",
+            "List",
+            "MutableList",
+            "Map",
+            "MutableMap",
+            "Set",
+            "MutableSet",
+            "Array",
+            "Sequence",
+            "Pair",
+            "Triple",
+            "Collection",
+            "Iterable",
+            "Regex",
+            "Result",
+        ]),
+        Some("kotlin"),
+    ),
+    ("jvm", KOTLIN_FILES, BuiltinNames::Any, None),
+    (
+        "jvm",
+        SCALA_FILES,
+        BuiltinNames::In(&[
+            "String", "Int", "Long", "Double", "Boolean", "List", "Seq", "Vector", "Map", "Set",
+            "Option", "Either", "Future", "Array", "Iterator",
+        ]),
+        Some("scala"),
+    ),
+    ("jvm", SCALA_FILES, BuiltinNames::Any, None),
+    (
+        "jvm",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "String",
+            "Integer",
+            "Long",
+            "Double",
+            "Float",
+            "Boolean",
+            "Character",
+            "Byte",
+            "Short",
+            "StringBuilder",
+            "StringBuffer",
+            "Thread",
+            "Class",
+            "Iterable",
+            "Number",
+            "Enum",
+            "Record",
+            "CharSequence",
+            "Runnable",
+            "Exception",
+            "RuntimeException",
+        ]),
+        Some("java.lang"),
+    ),
+    (
+        "jvm",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "List",
+            "ArrayList",
+            "LinkedList",
+            "Map",
+            "HashMap",
+            "LinkedHashMap",
+            "TreeMap",
+            "Set",
+            "HashSet",
+            "LinkedHashSet",
+            "TreeSet",
+            "Optional",
+            "Collection",
+            "Iterator",
+            "Deque",
+            "ArrayDeque",
+            "Queue",
+            "Stream",
+        ]),
+        Some("java.util"),
+    ),
+    (
+        "csharp",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "List",
+            "Dictionary",
+            "HashSet",
+            "IEnumerable",
+            "IList",
+            "IDictionary",
+            "ICollection",
+            "Queue",
+            "Stack",
+            "SortedDictionary",
+            "LinkedList",
+        ]),
+        Some("System.Collections.Generic"),
+    ),
+    (
+        "csharp",
+        ANY_FILE,
+        BuiltinNames::In(&["Task", "ValueTask"]),
+        Some("System.Threading.Tasks"),
+    ),
+    (
+        "csharp",
+        ANY_FILE,
+        BuiltinNames::In(&["StringBuilder"]),
+        Some("System.Text"),
+    ),
+    (
+        "csharp",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "string",
+            "String",
+            "int",
+            "long",
+            "double",
+            "bool",
+            "object",
+            "DateTime",
+            "TimeSpan",
+            "Guid",
+            "Uri",
+            "Exception",
+            "Array",
+            "Span",
+        ]),
+        Some("System"),
+    ),
+    (
+        "go",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "string", "error", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16",
+            "uint32", "uint64", "byte", "rune", "float32", "float64", "bool", "[]", "map",
+        ]),
+        Some("builtin"),
+    ),
+    (
+        "swift",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "String",
+            "Int",
+            "Double",
+            "Float",
+            "Bool",
+            "Array",
+            "Dictionary",
+            "Set",
+            "Character",
+            "Substring",
+            "Result",
+            "Optional",
+        ]),
+        Some("Swift"),
+    ),
+    (
+        "swift",
+        ANY_FILE,
+        BuiltinNames::In(&["Date", "URL", "Data", "UUID", "FileManager", "JSONDecoder"]),
+        Some("Foundation"),
+    ),
+    (
+        "dart",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "String", "int", "double", "num", "bool", "List", "Map", "Set", "Iterable", "Future",
+            "Stream", "DateTime", "Duration", "Uri", "RegExp",
+        ]),
+        Some("dart:core"),
+    ),
+    (
+        "c",
+        ANY_FILE,
+        BuiltinNames::Prefix("NS"),
+        Some("Foundation"),
+    ),
+    ("c", ANY_FILE, BuiltinNames::Prefix("UI"), Some("UIKit")),
+    (
+        "php",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "DateTime",
+            "DateTimeImmutable",
+            "DateInterval",
+            "Exception",
+            "ArrayObject",
+            "ArrayIterator",
+            "PDO",
+            "PDOStatement",
+            "SplStack",
+            "SplQueue",
+            "Closure",
+            "Generator",
+            "SplObjectStorage",
+        ]),
+        Some("php"),
+    ),
+    (
+        "julia",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "String", "Int", "Int64", "Float64", "Vector", "Matrix", "Array", "Dict", "Set",
+            "Tuple", "Symbol",
+        ]),
+        Some("Base"),
+    ),
+    (
+        "gdscript",
+        ANY_FILE,
+        BuiltinNames::In(&[
+            "Node",
+            "Node2D",
+            "Node3D",
+            "Control",
+            "Vector2",
+            "Vector3",
+            "Vector2i",
+            "Color",
+            "Array",
+            "Dictionary",
+            "String",
+            "Resource",
+            "PackedScene",
+            "Timer",
+            "Tween",
+            "Label",
+            "Button",
+            "Sprite2D",
+            "Area2D",
+            "CharacterBody2D",
+            "Camera2D",
+            "AnimationPlayer",
+            "Texture2D",
+            "Rect2",
+            "Transform2D",
+            "Object",
+            "RefCounted",
+        ]),
+        Some("godot"),
+    ),
+];
+
 /// The package a built-in type of `family` belongs to (`dict` of Python,
 /// `String` of Java, `Map` of JavaScript), for a type written without a
 /// path; `file` tells Java, Kotlin, and Scala apart.
 fn builtin_type_package(family: &str, file: &str, name: &str) -> Option<&'static str> {
-    let is = |names: &[&str]| names.contains(&name);
-    let package = match family {
-        "python" if is(PYTHON_BUILTIN_TYPES) => "builtins",
-        "rust" if is(RUST_STD_TYPES) => "std",
-        "javascript"
-            if is(&[
-                "Array",
-                "Map",
-                "Set",
-                "WeakMap",
-                "WeakSet",
-                "Promise",
-                "String",
-                "Number",
-                "Boolean",
-                "Date",
-                "RegExp",
-                "Error",
-                "URL",
-                "URLSearchParams",
-                "Uint8Array",
-                "ArrayBuffer",
-                "Buffer",
-                "ReadonlyArray",
-                "Record",
-                "string",
-                "number",
-                "boolean",
-                "bigint",
-                "symbol",
-            ]) =>
-        {
-            "globalThis"
-        }
-        "jvm"
-            if (file.ends_with(".kt") || file.ends_with(".kts"))
-                && is(&[
-                    "String",
-                    "Int",
-                    "Long",
-                    "Double",
-                    "Float",
-                    "Boolean",
-                    "Char",
-                    "Byte",
-                    "Short",
-                    "List",
-                    "MutableList",
-                    "Map",
-                    "MutableMap",
-                    "Set",
-                    "MutableSet",
-                    "Array",
-                    "Sequence",
-                    "Pair",
-                    "Triple",
-                    "Collection",
-                    "Iterable",
-                    "Regex",
-                    "Result",
-                ]) =>
-        {
-            "kotlin"
-        }
-        "jvm" if file.ends_with(".kt") || file.ends_with(".kts") => return None,
-        "jvm"
-            if (file.ends_with(".scala") || file.ends_with(".sc"))
-                && is(&[
-                    "String", "Int", "Long", "Double", "Boolean", "List", "Seq", "Vector", "Map",
-                    "Set", "Option", "Either", "Future", "Array", "Iterator",
-                ]) =>
-        {
-            "scala"
-        }
-        "jvm" if file.ends_with(".scala") || file.ends_with(".sc") => return None,
-        "jvm"
-            if is(&[
-                "String",
-                "Integer",
-                "Long",
-                "Double",
-                "Float",
-                "Boolean",
-                "Character",
-                "Byte",
-                "Short",
-                "StringBuilder",
-                "StringBuffer",
-                "Thread",
-                "Class",
-                "Iterable",
-                "Number",
-                "Enum",
-                "Record",
-                "CharSequence",
-                "Runnable",
-                "Exception",
-                "RuntimeException",
-            ]) =>
-        {
-            "java.lang"
-        }
-        "jvm"
-            if is(&[
-                "List",
-                "ArrayList",
-                "LinkedList",
-                "Map",
-                "HashMap",
-                "LinkedHashMap",
-                "TreeMap",
-                "Set",
-                "HashSet",
-                "LinkedHashSet",
-                "TreeSet",
-                "Optional",
-                "Collection",
-                "Iterator",
-                "Deque",
-                "ArrayDeque",
-                "Queue",
-                "Stream",
-            ]) =>
-        {
-            "java.util"
-        }
-        "csharp"
-            if is(&[
-                "List",
-                "Dictionary",
-                "HashSet",
-                "IEnumerable",
-                "IList",
-                "IDictionary",
-                "ICollection",
-                "Queue",
-                "Stack",
-                "SortedDictionary",
-                "LinkedList",
-            ]) =>
-        {
-            "System.Collections.Generic"
-        }
-        "csharp" if is(&["Task", "ValueTask"]) => "System.Threading.Tasks",
-        "csharp" if is(&["StringBuilder"]) => "System.Text",
-        "csharp"
-            if is(&[
-                "string",
-                "String",
-                "int",
-                "long",
-                "double",
-                "bool",
-                "object",
-                "DateTime",
-                "TimeSpan",
-                "Guid",
-                "Uri",
-                "Exception",
-                "Array",
-                "Span",
-            ]) =>
-        {
-            "System"
-        }
-        "go" if is(&[
-            "string", "error", "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16",
-            "uint32", "uint64", "byte", "rune", "float32", "float64", "bool", "[]", "map",
-        ]) =>
-        {
-            "builtin"
-        }
-        "swift"
-            if is(&[
-                "String",
-                "Int",
-                "Double",
-                "Float",
-                "Bool",
-                "Array",
-                "Dictionary",
-                "Set",
-                "Character",
-                "Substring",
-                "Result",
-                "Optional",
-            ]) =>
-        {
-            "Swift"
-        }
-        "swift" if is(&["Date", "URL", "Data", "UUID", "FileManager", "JSONDecoder"]) => {
-            "Foundation"
-        }
-        "dart"
-            if is(&[
-                "String", "int", "double", "num", "bool", "List", "Map", "Set", "Iterable",
-                "Future", "Stream", "DateTime", "Duration", "Uri", "RegExp",
-            ]) =>
-        {
-            "dart:core"
-        }
-        "c" if name.starts_with("NS") => "Foundation",
-        "c" if name.starts_with("UI") => "UIKit",
-        "php"
-            if is(&[
-                "DateTime",
-                "DateTimeImmutable",
-                "DateInterval",
-                "Exception",
-                "ArrayObject",
-                "ArrayIterator",
-                "PDO",
-                "PDOStatement",
-                "SplStack",
-                "SplQueue",
-                "Closure",
-                "Generator",
-                "SplObjectStorage",
-            ]) =>
-        {
-            "php"
-        }
-        "julia"
-            if is(&[
-                "String", "Int", "Int64", "Float64", "Vector", "Matrix", "Array", "Dict", "Set",
-                "Tuple", "Symbol",
-            ]) =>
-        {
-            "Base"
-        }
-        "gdscript"
-            if is(&[
-                "Node",
-                "Node2D",
-                "Node3D",
-                "Control",
-                "Vector2",
-                "Vector3",
-                "Vector2i",
-                "Color",
-                "Array",
-                "Dictionary",
-                "String",
-                "Resource",
-                "PackedScene",
-                "Timer",
-                "Tween",
-                "Label",
-                "Button",
-                "Sprite2D",
-                "Area2D",
-                "CharacterBody2D",
-                "Camera2D",
-                "AnimationPlayer",
-                "Texture2D",
-                "Rect2",
-                "Transform2D",
-                "Object",
-                "RefCounted",
-            ]) =>
-        {
-            "godot"
-        }
-        _ => return None,
-    };
-    Some(package)
+    BUILTIN_TYPE_PACKAGES
+        .iter()
+        .find(|(row_family, extensions, names, _)| {
+            *row_family == family
+                && (extensions.is_empty() || extensions.iter().any(|ext| file.ends_with(ext)))
+                && names.matches(name)
+        })
+        .and_then(|(_, _, _, package)| *package)
 }
 
 /// What `type_path` names in `file` (a function of `family` declared
@@ -1147,58 +1229,6 @@ fn returned_by(graph: &Graph, function: &str, unwrap: bool, element: bool) -> Op
     }
     drop(arguments);
     resolve_type(graph, &base, file, family, owner.as_deref())
-}
-
-/// The type of a Go function's first result, without its name:
-/// `io.ReadCloser` for `(rc io.ReadCloser, err error)`, which read whole
-/// names no type (`rc io` is no package).
-fn go_first_result(return_type: &str) -> String {
-    let text = return_type.trim();
-    let Some(inner) = text
-        .strip_prefix('(')
-        .and_then(|rest| rest.strip_suffix(')'))
-    else {
-        return text.to_string();
-    };
-    let Some(first) = split_arguments(inner).into_iter().next() else {
-        return text.to_string();
-    };
-    match first.trim().split_once(char::is_whitespace) {
-        Some((name, ty))
-            if name.chars().all(|c| c.is_alphanumeric() || c == '_') && !ty.trim().is_empty() =>
-        {
-            ty.trim().to_string()
-        }
-        _ => first.trim().to_string(),
-    }
-}
-
-/// Standard-library packages with type parameters in their API, whose
-/// functions and generic types' methods may return a value of the caller's
-/// own type (`slices.MaxFunc(nodes, f)`, `cmp.Or(a, b)`, `p.Load()` on `p
-/// atomic.Pointer[Node]`, `sync.OnceValue(f)`, `unique.Make(v).Value()`),
-/// and the builtins (`min`, `max`). The graph does not index the standard
-/// library, so it cannot tell a generic function from another one there.
-const GO_GENERIC_STD_PACKAGES: &[&str] = &[
-    "builtin",
-    "cmp",
-    "container/heap",
-    "container/list",
-    "container/ring",
-    "iter",
-    "maps",
-    "math/rand/v2",
-    "slices",
-    "sync",
-    "sync/atomic",
-    "unique",
-    "weak",
-];
-
-/// Whether a call into the Go package `package` may return a value of the
-/// calling module's own type, so a method on its result may be the module's.
-fn go_may_return_callers_type(package: &str) -> bool {
-    GO_GENERIC_STD_PACKAGES.contains(&package)
 }
 
 type PendingCall = (i64, String, String, String, Value);
@@ -1401,207 +1431,6 @@ fn resolve_field_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
     Ok(changed)
 }
 
-/// The directory of a file or of a node's QN: a Go package.
-pub(crate) fn go_directory(qualified: &str) -> &str {
-    let file = qualified
-        .split_once("::")
-        .map_or(qualified, |(file, _)| file);
-    file.rsplit_once('/').map_or("", |(dir, _)| dir)
-}
-
-/// What a Go selector `x.name` names on a value of the type `class`.
-#[derive(Debug, PartialEq, Eq)]
-enum GoMember<'g> {
-    Method(&'g String),
-    /// A field, with its type as `field_types` spells it.
-    Field(&'g str),
-}
-
-/// How deep embedded types are followed.
-const GO_MAX_EMBEDDING_DEPTH: usize = 4;
-
-/// The Go type of the name `name` in the directory `dir`, if exactly one.
-fn go_class_in<'g>(graph: &'g Graph, name: &str, dir: &str) -> Option<&'g String> {
-    let classes = graph.classes.get(&("go", name.to_string()))?;
-    let mut found = classes.iter().filter(|class| go_directory(class) == dir);
-    let only = found.next()?;
-    found.next().is_none().then_some(only)
-}
-
-/// The Go type a `field_types` or `embedded` entry names, seen from the
-/// directory `dir`: `Name` is that package's, `import/path.Name` the
-/// package's of that import path.
-fn go_type_class<'g>(graph: &'g Graph, ty: &str, dir: &str) -> Option<&'g String> {
-    match ty.rsplit_once('.') {
-        Some((path, name)) => {
-            let dir = graph.go_packages.get(path)?.as_deref()?;
-            go_class_in(graph, name, dir)
-        }
-        None => go_class_in(graph, ty, dir),
-    }
-}
-
-/// The member `name` of a value of the Go type `class` by Go's selector
-/// rule: the type's own method or field, else the one member of that name
-/// among the types it embeds at the shallowest depth. Two at one depth are
-/// ambiguous, and a depth with an embedded type whose members are unknown
-/// (of a package outside the repository, an interface, a type of no
-/// `field_types`) hides the deeper ones; both give none.
-fn go_member<'g>(graph: &'g Graph, class: &str, name: &str) -> Option<GoMember<'g>> {
-    let mut level = vec![class.to_string()];
-    let mut seen = HashSet::new();
-    for depth in 0..=GO_MAX_EMBEDDING_DEPTH {
-        let mut hits = Vec::new();
-        let mut opaque = false;
-        let mut next = Vec::new();
-        for class in &level {
-            if !seen.insert(class.clone()) {
-                continue;
-            }
-            let dir = go_directory(class);
-            let symbol = class
-                .split_once("::")
-                .map_or(class.as_str(), |(_, symbol)| symbol);
-            let type_name = symbol.rsplit('.').next().unwrap_or(symbol);
-            hits.extend(
-                graph
-                    .methods
-                    .get(&("go", type_name.to_string(), name.to_string()))
-                    .into_iter()
-                    .flatten()
-                    .filter(|method| go_directory(method) == dir)
-                    .map(GoMember::Method),
-            );
-            let Some(fields) = graph.fields.get(class) else {
-                opaque |= depth > 0;
-                continue;
-            };
-            if let Some(field_type) = fields.get(name) {
-                hits.push(GoMember::Field(field_type));
-            }
-            for embedded in graph.embedded.get(class).into_iter().flatten() {
-                match go_type_class(graph, embedded, dir) {
-                    Some(inner) => next.push(inner.clone()),
-                    None => opaque = true,
-                }
-            }
-        }
-        if !hits.is_empty() {
-            return (hits.len() == 1).then(|| hits.pop()).flatten();
-        }
-        if opaque || next.is_empty() {
-            return None;
-        }
-        level = next;
-    }
-    None
-}
-
-/// The Go type of the field at `path` from the type `owner` (`state.jobs`,
-/// `nodes[].x`: `[]` takes an element), an element of it when `element`.
-fn go_field_class<'g>(
-    graph: &'g Graph,
-    owner: &'g String,
-    path: &str,
-    element: bool,
-) -> Option<&'g String> {
-    let segments = path.split('.').collect::<Vec<_>>();
-    let mut class = owner;
-    for (index, segment) in segments.iter().enumerate() {
-        let (name, mut take_element) = match segment.strip_suffix("[]") {
-            Some(name) => (name, true),
-            None => (*segment, false),
-        };
-        take_element |= element && index + 1 == segments.len();
-        let Some(GoMember::Field(field_type)) = go_member(graph, class, name) else {
-            return None;
-        };
-        let field_type = if take_element {
-            field_type.strip_prefix("[]")?
-        } else {
-            field_type
-        };
-        if field_type.is_empty() || field_type.starts_with("[]") {
-            return None;
-        }
-        class = go_type_class(graph, field_type, go_directory(class))?;
-    }
-    Some(class)
-}
-
-/// Go member calls typed by what the code declares, which one file cannot
-/// finish: `s.bw.close()`, `e.state.jobs.put()`, and `br := &s.br;
-/// br.advance()` on a struct of another file (`receiver_field`: owner,
-/// field path, element) take the fields' types from the structs'
-/// `field_types`; a method of a typed receiver that
-/// its type does not declare (`receiver_type`, or `receiver_class` for one
-/// a returned type gave) is the one an embedded type declares. An
-/// unqualified type is its own package's, a qualified one
-/// (`receiver_package`, `import/path.Name`) the package's of that import
-/// path in the repository.
-/// Returns how many changed.
-fn resolve_go_declared_receivers(tx: &Transaction<'_>, graph: &Graph) -> Result<i64> {
-    let calls = {
-        let mut stmt = tx.prepare(
-            "SELECT id, file_path, target_qualified, extra FROM edges \
-             WHERE kind = 'CALLS' AND file_path LIKE '%.go' \
-               AND (json_extract(extra, '$.receiver_field') IS NOT NULL \
-                    OR json_extract(extra, '$.receiver_type') IS NOT NULL) \
-               AND COALESCE(json_extract(extra, '$.external'), 0) = 0 \
-               AND NOT EXISTS (SELECT 1 FROM nodes n \
-                               WHERE n.qualified_name = edges.target_qualified)",
-        )?;
-        let rows = stmt.query_map([], |row| <(i64, String, String, String)>::try_from(row))?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()?
-    };
-    let mut changed = 0_i64;
-    for (id, file, method, extra) in calls {
-        let mut extra: Value = serde_json::from_str(&extra)?;
-        let dir = go_directory(&file);
-        let class = if let Some(owner) = extra["receiver_field"]["owner"].as_str() {
-            let path = extra["receiver_field"]["field"]
-                .as_str()
-                .unwrap_or_default();
-            let element = extra["receiver_field"]["element"].as_bool() == Some(true);
-            match go_class_in(graph, owner, dir)
-                .and_then(|owner| go_field_class(graph, owner, path, element))
-            {
-                Some(class) => class.clone(),
-                None => continue,
-            }
-        } else if let Some(class) = extra["receiver_class"].as_str() {
-            class.to_string()
-        } else if extra.get("receiver_unknown").and_then(Value::as_bool) == Some(true) {
-            continue;
-        } else {
-            let package_dir = match extra["receiver_package"].as_str() {
-                Some(path) => graph.go_packages.get(path).and_then(Option::as_deref),
-                None => Some(dir),
-            };
-            let Some(class) = package_dir.and_then(|package_dir| {
-                go_class_in(graph, extra["receiver_type"].as_str()?, package_dir)
-            }) else {
-                continue;
-            };
-            class.clone()
-        };
-        let Some(GoMember::Method(target)) = go_member(graph, &class, &method) else {
-            continue;
-        };
-        if let Some(map) = extra.as_object_mut() {
-            map.remove("receiver_unknown");
-        }
-        let symbol = class
-            .split_once("::")
-            .map_or(class.as_str(), |(_, symbol)| symbol);
-        extra["receiver_type"] = json!(symbol.rsplit('.').next().unwrap_or(symbol));
-        // Declared types and Go's selector rule settle the method.
-        update_call(tx, id, target, &extra, ConfidenceTier::High)?;
-        changed += 1;
-    }
-    Ok(changed)
-}
-
 /// Member names a single use cannot type a parameter by: the standard
 /// objects have them too (`(req) => req.text()` on a fetch `Request` is no
 /// call of the repository's `HonoRequest.text`).
@@ -1800,6 +1629,15 @@ pub(crate) fn resolve_member_shapes(tx: &Transaction<'_>, context: &ResolveConte
     resolve_shape_receivers(tx, &context.graph)
 }
 
+/// What the call a receiver came from records about the package it binds
+/// to, read once from its `extra`.
+struct OriginPackage<'a> {
+    external: bool,
+    package: Option<&'a str>,
+    stdlib: bool,
+    symbol: Option<&'a str>,
+}
+
 /// Resolves member calls on the result of another call by the return type
 /// of the function that call resolved to (see the module docs). Returns
 /// how many changed.
@@ -1832,6 +1670,12 @@ pub(crate) fn resolve_returned_receivers(
             else {
                 continue;
             };
+            let origin_package = OriginPackage {
+                external: inner_extra.get("external").and_then(Value::as_bool) == Some(true),
+                package: inner_extra.get("external_package").and_then(Value::as_str),
+                stdlib: inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true),
+                symbol: inner_extra.get("external_symbol").and_then(Value::as_str),
+            };
             let separator = if family == "rust" { "::" } else { "." };
             // Typed by a table of package return types, not by a type the
             // code writes: observed-method inference does not learn from it.
@@ -1843,38 +1687,27 @@ pub(crate) fn resolve_returned_receivers(
                 // in the tables.
                 None
             } else if family == "rust"
-                && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
+                && origin_package.external
                 && (!unwrap || !graph.visible(family, &method, &file, import_targets))
-                && !inner_extra
-                    .get("external_symbol")
-                    .and_then(Value::as_str)
-                    .is_some_and(derefs_to_contents)
+                && !origin_package.symbol.is_some_and(derefs_to_contents)
             {
                 // A Rust method of what a package returned (`iter().map()`,
                 // `tree.root_node().kind()`) is one of the package's types.
                 // Unwrapped (`prepare(..)?.query_map(..)`), it is too, unless
                 // the repository has a function of the name the file sees:
                 // `items.get(0).unwrap().save()` is the item's `save`.
-                let package = inner_extra
-                    .get("external_package")
-                    .and_then(Value::as_str)
-                    .unwrap_or(&inner_target);
-                let stdlib = inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true);
-                let symbol = inner_extra
-                    .get("external_symbol")
-                    .and_then(Value::as_str)
-                    .unwrap_or(name);
+                let package = origin_package.package.unwrap_or(&inner_target);
+                let symbol = origin_package.symbol.unwrap_or(name);
                 Some(Returned::External(
                     package.to_string(),
-                    stdlib,
+                    origin_package.stdlib,
                     format!("{symbol}()"),
                 ))
             } else if family == "go"
-                && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
-                && inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true)
-                && !inner_extra
-                    .get("external_package")
-                    .and_then(Value::as_str)
+                && origin_package.external
+                && origin_package.stdlib
+                && !origin_package
+                    .package
                     .is_some_and(go_may_return_callers_type)
             {
                 // A Go method of what a standard-library function returned
@@ -1887,21 +1720,15 @@ pub(crate) fn resolve_returned_receivers(
                 // not known to be generic or not (`lo.MaxBy(nodes, f)`), so a
                 // method on what it returned stays a call the graph does not
                 // bind, rather than one of the dependency's.
-                let package = inner_extra
-                    .get("external_package")
-                    .and_then(Value::as_str)
-                    .unwrap_or(&inner_target);
-                let symbol = inner_extra
-                    .get("external_symbol")
-                    .and_then(Value::as_str)
-                    .unwrap_or(name);
+                let package = origin_package.package.unwrap_or(&inner_target);
+                let symbol = origin_package.symbol.unwrap_or(name);
                 Some(Returned::External(
                     package.to_string(),
                     true,
                     format!("{symbol}()"),
                 ))
             } else if matches!(family, "python" | "javascript")
-                && inner_extra.get("external").and_then(Value::as_bool) == Some(true)
+                && origin_package.external
                 && !graph.visible(family, &method, &file, import_targets)
             {
                 // A package function whose return type is known
@@ -1909,18 +1736,13 @@ pub(crate) fn resolve_returned_receivers(
                 // `vscode.window.createOutputChannel(..).appendLine(..)` a
                 // `vscode.OutputChannel`'s). A JavaScript call names its
                 // function in the target (`vscode::window.createOutputChannel`).
-                let package = inner_extra
-                    .get("external_package")
-                    .and_then(Value::as_str)
-                    .unwrap_or(&inner_target);
-                let stdlib = inner_extra.get("stdlib").and_then(Value::as_bool) == Some(true);
-                let symbol = inner_extra
-                    .get("external_symbol")
-                    .and_then(Value::as_str)
+                let package = origin_package.package.unwrap_or(&inner_target);
+                let symbol = origin_package
+                    .symbol
                     .or_else(|| inner_target.split_once("::").map(|(_, symbol)| symbol))
                     .unwrap_or(name);
                 by_table = true;
-                package_returned(family, package, stdlib, symbol)
+                package_returned(family, package, origin_package.stdlib, symbol)
             } else {
                 None
             };
