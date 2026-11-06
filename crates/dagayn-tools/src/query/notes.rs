@@ -237,7 +237,14 @@ enum GoUnbound {
     },
     /// On a value of a standard-library or dependency type
     /// (`external_symbol`): `owner` is that type (`bytes.Buffer`).
-    Library { owner: String, stdlib: bool },
+    /// `concrete` when the code writes the value so that the type is no
+    /// interface (`receiver_concrete`: `t *testing.T`, `bytes.Buffer{}`), so
+    /// the call is that type's method and cannot reach the repository's.
+    Library {
+        owner: String,
+        stdlib: bool,
+        concrete: bool,
+    },
     /// On a value whose type the graph does not know, or of a type
     /// (`typed`) whose method of the name it does not find; `from` names
     /// the function that returned the value (`receiver_from`).
@@ -257,6 +264,7 @@ impl GoUnbound {
             return GoUnbound::Library {
                 owner: owner.to_string(),
                 stdlib: edge.extra.get("stdlib") == Some(&Value::Bool(true)),
+                concrete: edge.extra.get("receiver_concrete") == Some(&Value::Bool(true)),
             };
         }
         if let Some(interface) = text("receiver_type").and_then(|type_name| {
@@ -288,6 +296,7 @@ impl GoUnbound {
             GoUnbound::Library {
                 owner,
                 stdlib: true,
+                ..
             } => format!("on the standard-library type {owner}"),
             GoUnbound::Library { owner, .. } => format!("on the dependency type {owner}"),
             GoUnbound::Unknown {
@@ -542,6 +551,15 @@ fn go_callers_note(
             .unwrap_or(".");
         format!("package {package}")
     };
+    // Calls on a library type the code writes as no interface are that
+    // type's methods (#329): counted apart, never a caller that may be
+    // missing.
+    let (concrete, open): (Vec<_>, Vec<_>) = unbound
+        .iter()
+        .partition(|(_, kind)| matches!(kind, GoUnbound::Library { concrete: true, .. }));
+    let concrete_owners = go_concrete_owners(&concrete);
+    let unbound: Vec<(GraphEdge, GoUnbound)> = open.into_iter().cloned().collect();
+    let unbound = unbound.as_slice();
     if unbound.is_empty() {
         // A Go method call is bound only on a receiver of a type the code
         // gives it (a parameter, a binding, a field, what a function
@@ -551,11 +569,33 @@ fn go_callers_note(
         } else {
             ""
         };
+        if concrete.is_empty() {
+            return format!(
+                "No direct caller the graph records is missing; every call named {name} in \
+                 {scope}, _test.go files included, is bound to a definition{how}"
+            );
+        }
+        let (left, verb) = match concrete.len() {
+            1 => ("the 1 that goes".to_string(), "is"),
+            count => (format!("the {count} that go"), "are"),
+        };
         return format!(
-            "No direct caller the graph records is missing; every call named {name} in \
-             {scope}, _test.go files included, is bound to a definition{how}"
+            "No direct caller the graph records is missing; every other call named {name} in \
+             {scope}, _test.go files included, is bound to a definition{how}; {left} to no \
+             definition {verb} on {concrete_owners}, which cannot reach {}",
+            go_target(node)
         );
     }
+    let also = if concrete.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "; another {} {} to no definition on {concrete_owners}, which cannot reach {}",
+            concrete.len(),
+            if concrete.len() == 1 { "goes" } else { "go" },
+            go_target(node)
+        )
+    };
     let reach = go_reach_clause(node, unbound);
     let unknown: Vec<&GraphEdge> = unbound
         .iter()
@@ -593,7 +633,7 @@ fn go_callers_note(
         return format!(
             "Every call named {name} in {scope}, _test.go files included, is bound to a \
              definition or lies in a function listed here, so no caller is missing from the \
-             list; {rows_are}{count} {}{reach}{read}",
+             list; {rows_are}{count} {}{reach}{read}{also}",
             go_unbound_counts(unbound)
         );
     }
@@ -660,7 +700,7 @@ fn go_callers_note(
         };
         return format!(
             "Every other call named {name} in {scope}, _test.go files included, is bound to a \
-             definition; {left} to no definition {verb} {places}{reach}{read}"
+             definition; {left} to no definition {verb} {places}{reach}{read}{also}"
         );
     }
     // The functions the reply does not list, those with calls on values of
@@ -697,9 +737,41 @@ fn go_callers_note(
         format!(", so callers may be missing: read {shown}{more}")
     };
     format!(
-        "{calls} {name} {verb} to no definition in {scope}, {}{reach}{read}",
+        "{calls} {name} {verb} to no definition in {scope}, {}{reach}{read}{also}",
         go_unbound_counts(unbound)
     )
+}
+
+/// `Context.Run` for a method, `Run` for a function.
+fn go_target(node: &GraphNode) -> String {
+    match node.parent_name.as_deref() {
+        Some(owner) => format!("{owner}.{}", node.name),
+        None => node.name.clone(),
+    }
+}
+
+/// The library types of calls on values the code writes as no interface,
+/// most calls first: `the concrete standard-library type testing.T`, or
+/// `concrete library types (testing.T and testing.B)`.
+fn go_concrete_owners(concrete: &[&(GraphEdge, GoUnbound)]) -> String {
+    let mut owners: Vec<(&str, bool, usize)> = Vec::new();
+    for (_, kind) in concrete {
+        if let GoUnbound::Library { owner, stdlib, .. } = kind {
+            match owners.iter_mut().find(|(seen, _, _)| seen == owner) {
+                Some((_, _, count)) => *count += 1,
+                None => owners.push((owner, *stdlib, 1)),
+            }
+        }
+    }
+    owners.sort_by_key(|(_, _, count)| std::cmp::Reverse(*count));
+    match owners.as_slice() {
+        [(owner, true, _)] => format!("the concrete standard-library type {owner}"),
+        [(owner, false, _)] => format!("the concrete dependency type {owner}"),
+        many => {
+            let names: Vec<String> = many.iter().map(|(owner, _, _)| owner.to_string()).collect();
+            format!("concrete library types ({})", capped_list(&names, 3))
+        }
+    }
 }
 
 /// The first `next` call of a closed Go `callers_of` with unbound calls:

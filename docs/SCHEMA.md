@@ -167,7 +167,7 @@ Calls into a package (the standard library or a dependency) target the
 package itself with `extra.external`, `external_package`, `external_symbol`,
 and, for the standard library, `stdlib`; receivers are typed through
 `receiver_type`, `receiver_unknown`, `receiver_from`, and in Go
-`receiver_field` and `receiver_package`, and functions
+`receiver_field`, `receiver_package`, and `receiver_concrete`, and functions
 record their declared `return_type`. [CALL-RESOLUTION.md](./CALL-RESOLUTION.md)
 specifies these keys, the package names per language, the post-processing
 passes that read them, and their confidence tiers.
