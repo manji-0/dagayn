@@ -4,7 +4,7 @@
       "result": {
         "content": [
           {
-            "text": "1 validation error for call[query_graph_tool]\ndepth\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='two', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/int_parsing",
+            "text": "1 validation error for call[query_graph_tool]\ndepth\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='two', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.14/v/int_parsing",
             "type": "text"
           }
         ],
@@ -58,7 +58,7 @@
       "result": {
         "content": [
           {
-            "text": "1 validation error for call[query_graph_tool]\ntarget\n  Missing required argument [type=missing_argument, input_value={'pattern': 'callers_of'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing_argument",
+            "text": "1 validation error for call[query_graph_tool]\ntarget\n  Missing required argument [type=missing_argument, input_value={'pattern': 'callers_of'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing_argument",
             "type": "text"
           }
         ],
@@ -69,7 +69,7 @@
       "result": {
         "content": [
           {
-            "text": "1 validation error for call[query_graph_tool]\nbogus\n  Unexpected keyword argument [type=unexpected_keyword_argument, input_value=1, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.12/v/unexpected_keyword_argument",
+            "text": "1 validation error for call[query_graph_tool]\nbogus\n  Unexpected keyword argument [type=unexpected_keyword_argument, input_value=1, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.14/v/unexpected_keyword_argument",
             "type": "text"
           }
         ],
@@ -1342,7 +1342,7 @@
       "result": {
         "content": [
           {
-            "text": "1 validation error for call[query_graph_tool]\ndepth\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='two', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/int_parsing",
+            "text": "1 validation error for call[query_graph_tool]\ndepth\n  Input should be a valid integer, unable to parse string as an integer [type=int_parsing, input_value='two', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.14/v/int_parsing",
             "type": "text"
           }
         ],
@@ -1396,7 +1396,7 @@
       "result": {
         "content": [
           {
-            "text": "1 validation error for call[query_graph_tool]\ntarget\n  Missing required argument [type=missing_argument, input_value={'pattern': 'callers_of'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.12/v/missing_argument",
+            "text": "1 validation error for call[query_graph_tool]\ntarget\n  Missing required argument [type=missing_argument, input_value={'pattern': 'callers_of'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing_argument",
             "type": "text"
           }
         ],
@@ -1407,7 +1407,7 @@
       "result": {
         "content": [
           {
-            "text": "1 validation error for call[query_graph_tool]\nbogus\n  Unexpected keyword argument [type=unexpected_keyword_argument, input_value=1, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.12/v/unexpected_keyword_argument",
+            "text": "1 validation error for call[query_graph_tool]\nbogus\n  Unexpected keyword argument [type=unexpected_keyword_argument, input_value=1, input_type=int]\n    For further information visit https://errors.pydantic.dev/2.14/v/unexpected_keyword_argument",
             "type": "text"
           }
         ],

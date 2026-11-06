@@ -4,6 +4,21 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Added
+
+- Python 3.15 is supported: CI runs the tests on it and the prebuilt
+  wheel is checked on it. The `watchdog` requirement is now
+  `>=4.0.0,<8`, since only watchdog 7 has 3.15 wheels.
+
+### Changed
+
+- The prebuilt wheels use the stable ABI (`cp312-abi3`): one wheel per
+  platform (Linux x86_64, macOS arm64) serves CPython 3.12 and later,
+  instead of one wheel for each Python version (#341). A release now
+  uploads 2 wheels of about 51 MB instead of 6, which keeps the PyPI
+  project under its 10 GiB limit for longer. The 11.1.0 upload hit that
+  limit.
+
 ## 11.1.0 — 2026-11-07
 
 ### Added
