@@ -397,7 +397,11 @@ These are for the owner. The steps above do not depend on the answers.
   #287 added a Go branch to `resolve_returned_receivers` in `returned.rs`
   as a bug fix. Are fixes of that kind allowed in frozen code? If they
   are, should the freeze table say so for Go? If not, should they wait for
-  the SCIP overlay? Step 7 does not depend on the answer.
+  the SCIP overlay? Step 7 does not depend on the answer. Partly
+  answered (2026-11-07, #329): recording a fact the language fixes (a Go
+  receiver written `*T` is a concrete type) is allowed in frozen code; see
+  [the freeze](./SCIP-CALL-RESOLUTION.md#freezing-the-inference-layer).
+  Whether a new resolution branch like #287's is allowed is still open.
 - **A separate version for post-processing.** #283 and #287 bumped the Go
   extractor so that unchanged files would re-bind. That re-parses every Go
   file, though only the post-processing passes needed to run again. A

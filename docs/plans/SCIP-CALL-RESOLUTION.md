@@ -237,7 +237,14 @@ The overlay makes parts of the inference layer redundant per language
 passes alone, so they cannot simply be deleted: without them a changed Rust
 file's calls stay `LOW` until the next `build`. Frozen means no new table
 entries or rules; bugs that SCIP exposes (the `RefCell::borrow()` chains)
-are still fixed. Whether to delete them later is an open question below.
+are still fixed. Recording a fact the language itself fixes is not a new
+rule and is allowed in a frozen pass (owner's decision, 2026-11-07, #329):
+Go's receiver tracking may mark a receiver written `*T`, `&T{}`, `T{}`,
+`new(T)`, `make(T)`, or `x.(*T)` as a concrete type, since the Go
+specification gives a pointer to an interface no methods and no composite
+literal an interface type. Such a fact may change what a reply says about
+a call, not an edge's target, tier, or confidence. Whether to delete the
+frozen passes later is an open question below.
 
 | Pass or table | Rust | TypeScript | Python | Go |
 | ------------- | ---- | ---------- | ------ | -- |
