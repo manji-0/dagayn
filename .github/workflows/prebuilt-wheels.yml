@@ -24,13 +24,13 @@ jobs:
           - os: ubuntu-latest
             platform: linux-amd64
             python-version: "3.14"
-          - os: macos-14
+          - os: macos-15
             platform: macos-arm64
             python-version: "3.12"
-          - os: macos-14
+          - os: macos-15
             platform: macos-arm64
             python-version: "3.13"
-          - os: macos-14
+          - os: macos-15
             platform: macos-arm64
             python-version: "3.14"
     runs-on: ${{ matrix.os }}
@@ -45,7 +45,7 @@ jobs:
           enable-cache: true
 
       - name: Install Rust
-        # The macOS-14 runner image ships a stale ``$HOME/.cargo/bin/cargo``
+        # The macOS runner image can ship a stale ``$HOME/.cargo/bin/cargo``
         # that is actually a rustup-init binary (verified by running
         # ``cargo --version`` and seeing ``rustup-init 1.29.0``).
         # ``dtolnay/rust-toolchain@stable`` doesn't rebuild that shim

@@ -25,15 +25,15 @@ jobs:
             platform: linux-amd64
             python-version: "3.14"
             args: --release --out dist -i python
-          - os: macos-14
+          - os: macos-15
             platform: macos-arm64
             python-version: "3.12"
             args: --release --out dist -i python
-          - os: macos-14
+          - os: macos-15
             platform: macos-arm64
             python-version: "3.13"
             args: --release --out dist -i python
-          - os: macos-14
+          - os: macos-15
             platform: macos-arm64
             python-version: "3.14"
             args: --release --out dist -i python
@@ -49,7 +49,7 @@ jobs:
           enable-cache: true
 
       - name: Install Rust
-        # Keep this aligned with prebuilt-wheels.yml: the macOS-14 runner can
+        # Keep this aligned with prebuilt-wheels.yml: the macOS runner can
         # ship a stale cargo shim that dtolnay/rust-toolchain does not replace.
         shell: bash
         run: |
