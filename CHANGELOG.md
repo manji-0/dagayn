@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 11.1.0 — 2026-11-07
+
 ### Added
 
 - G8, the pre-registered rerun of the Go agent experiment
