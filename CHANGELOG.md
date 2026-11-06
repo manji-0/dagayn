@@ -100,6 +100,39 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- `tests_for` without rows lists the tests that reach the target through
+  its callers, and its `next` returns them (#326). In G10's H2,
+  `tests_for(prettyStack.parse)` on chi named `TestRecoverer` (4 hops)
+  and sent the agent to `callers_of` with depth 6, which returned 4
+  functions and no test, and said "No caller the graph records is
+  missing": the tests pass `Recoverer` as a value (`r.Use(Recoverer)`),
+  which that walk did not follow. The reply now carries
+  `test_reach.through_callers`, as a reply with rows does (#327), and each
+  listed test has `value_use` (`user`, `value`) when its path passes a
+  value use, which the walk counts as a call. The summary names the first
+  three ("TestRecoverer (4 hop(s), uses middleware/recoverer.go::Recoverer
+  as a value)") and says that a stored value may never be called. `next`
+  starts with `tests_for` on the caller the nearest tests go through
+  (`tests_for(Recoverer)`, which lists all three), not `callers_of`.
+  Where no test is reached, the summary says so and `next` keeps
+  `callers_of` with depth 6, to read the callers.
+- Go `callers_of` with a depth lists, at every hop, the places that use a
+  caller as a value (relation `references`), as its first hop already
+  did, and does not walk past them (#326). On chi,
+  `callers_of(prettyStack.parse, depth=6)` now lists `TestRecoverer`,
+  `TestRecovererNoColor`, and `TestRecovererAbortHandler` at hop 4, and
+  its summary says "3 use it or a caller as a value ...; the walk does
+  not go past them" instead of "No caller the graph records is missing".
+- The nearest test prefers a test function to a Go example, benchmark,
+  or fuzz target at the same hop, and to a helper in a test file (#326).
+  In G10's C13 the nearest test of `Index.LoadStream` was
+  `ExampleIndexStream`; it is now `TestSeeking`. Tests at the same hop
+  and of the same kind still tie by name (#318).
+  `test_reach.through_callers` lists them in the same order.
+- A `depth` above 6 says that the walk went 6 hops (#326): the reply has
+  `depth_requested` and its summary says "depth 10 is above the maximum,
+  6, so the walk went 6 hops". Before, `depth=10` was answered "within 6
+  hops" with no note.
 - `tests_for` with rows says which tests reach the target through its
   callers (#327). In G10's H1, `tests_for(ThrottleWithOpts)` on chi gave
   its 2 direct tests with `results_complete: true` and said nothing of

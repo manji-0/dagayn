@@ -18,9 +18,9 @@ use crate::answerability::Answerability;
 use crate::go_module::GoScope;
 use crate::{Args, Context, OpenGraph, Ordered, Payload, open_graph, resolve_repo};
 use notes::{
-    NO_MATCHING_EDGES, OUTSIDE_MODULE_ONLY, Page, by_name_note, ending, found_summary, guidance,
-    no_edges_note, outside_guidance, outside_note, page_note, tests_through_callers_note,
-    through_callers_note, walk_cut_note,
+    NO_MATCHING_EDGES, OUTSIDE_MODULE_ONLY, Page, by_name_note, depth_capped_note, ending,
+    found_summary, guidance, no_edges_note, no_tests_through_callers_note, outside_guidance,
+    outside_note, page_note, tests_through_callers_note, through_callers_note, walk_cut_note,
 };
 pub(crate) use resolve::looks_like_file_target;
 use resolve::{Ambiguity, Answers, Cut, Resolution, Unresolved, ambiguous, resolve};
@@ -453,6 +453,9 @@ fn answer(
         found.split_outside(pattern, scope);
     }
 
+    // `tests_for`: the tests through its callers that are not rows, with
+    // rows (#327) or without (#326).
+    let through = pattern == "tests_for" && found.through_callers().is_some();
     // `query_zero_result_fields`.
     let (empty_note, tests_through_callers) = zero_result_note(
         store,
@@ -462,6 +465,7 @@ fn answer(
         &found,
         exact_count,
         scope.as_mut(),
+        through,
     )?;
     let (confidence, zero_result_reason) = confidence(&found, empty_note.is_some());
     let mut payload = Ordered::default()
@@ -483,6 +487,9 @@ fn answer(
         payload = payload
             .put("depth", query.depth)
             .put("reachability", reachability.clone());
+        if depth > query.depth {
+            payload = payload.put("depth_requested", depth);
+        }
     }
     let empty_note = empty_note.as_deref();
     let (payload, budget) = put_rows(
@@ -498,13 +505,20 @@ fn answer(
     if found.walk_cut() {
         payload = append_summary(payload, &walk_cut_note());
     }
+    // A depth past the maximum is walked at the maximum (G10 H2, #326).
+    if found.reachability.is_some() && depth > query.depth {
+        payload = append_summary(payload, &depth_capped_note(depth));
+    }
     // What a `tests_for` list covers: the tests linked to the target itself,
     // not the ones through its callers (#327); and rows chosen by name alone
     // are not a whole answer (#328).
     let mut via_callers = Vec::new();
     if pattern == "tests_for" {
-        if let Some(reaching) = found.through_callers() {
-            payload = append_summary(payload, &through_callers_note(reaching, query.target));
+        if let Some(reaching) = found.reaching.as_ref().filter(|_| through) {
+            // Without rows, the zero-result note names them.
+            if !found.rows.is_empty() {
+                payload = append_summary(payload, &through_callers_note(reaching, query.target));
+            }
             for test in &reaching.tests {
                 if test.via != query.target && !via_callers.contains(&test.via) {
                     via_callers.push(test.via.clone());
@@ -703,8 +717,10 @@ fn builtin_answer(
 }
 
 /// The summary sentence for a node the graph has that no edge of the kind
-/// asked for reaches, and whether it is the `tests_for` one that points at
-/// the tests through the node's callers.
+/// asked for reaches, and whether it is the `tests_for` one that sends the
+/// reader to the node's callers. With `through`, `found.reaching` holds the
+/// tests through its callers, which the sentence names (#326).
+#[allow(clippy::too_many_arguments)]
 fn zero_result_note(
     store: &GraphStore,
     root: &Path,
@@ -713,6 +729,7 @@ fn zero_result_note(
     found: &Found,
     exact_count: i64,
     scope: Option<&mut GoScope>,
+    through: bool,
 ) -> Option<(Option<String>, bool)> {
     let empty_note = node
         .filter(|_| {
@@ -723,8 +740,14 @@ fn zero_result_note(
         })
         .and_then(|node| no_edges_note(query.pattern, &node.language, query.import_kind));
     // A node no test calls can still run under the tests that call its
-    // callers: say so, and name the walk that lists them.
+    // callers: name them, from the walk `test_reach` counts with.
     if query.pattern == "tests_for" && empty_note.is_some() {
+        if let Some(reaching) = found.reaching.as_ref().filter(|_| through) {
+            return Some((
+                Some(tests_through_callers_note(reaching, query.target)),
+                false,
+            ));
+        }
         let mut callers = run_pattern(store, root, "callers_of", query.target, node, 1, None)?;
         if let Some(scope) = scope {
             callers.split_outside("callers_of", scope);
@@ -734,7 +757,7 @@ fn zero_result_note(
                 .test_reach
                 .as_ref()
                 .and_then(|reach| Some((reach["nearest_test"].as_str()?, reach["hops"].as_u64()?)));
-            let note = tests_through_callers_note(nearest, callers.rows.len());
+            let note = no_tests_through_callers_note(nearest, callers.rows.len());
             return Some((Some(note), true));
         }
     }
@@ -1147,7 +1170,7 @@ fn next_calls(
         first(crate::next::call(
             "query_graph_tool",
             this_call("callers_of", Some(MAX_DEPTH)),
-            "the tests that reach it through its callers",
+            "its callers, where a test the graph does not link may start",
         ));
     }
     // The callers the nearest tests that are not rows reach it through,

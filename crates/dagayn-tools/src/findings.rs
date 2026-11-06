@@ -520,15 +520,37 @@ pub(crate) fn nearest_test(
 }
 
 /// A test the [`nearest_test`] walk meets: its hops, the node it calls (or
-/// uses as a value, or tests directly) on the way to the target, and
-/// whether it is a test function (`Test`) rather than other code in a test
-/// file (a helper, which the walk does not go through).
+/// uses as a value, or tests directly) on the way to the target, whether it
+/// is a test function (`Test`) rather than other code in a test file (a
+/// helper, which the walk does not go through), and the first value use on
+/// its path, if any: the node that uses another as a value, and that value.
+/// The walk counts a value use as a call, which it may not be (a value
+/// stored in a field and never called, G10 K5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReachingTest {
     pub(crate) hops: usize,
     pub(crate) test: String,
     pub(crate) via: String,
     pub(crate) is_test: bool,
+    pub(crate) value_use: Option<(String, String)>,
+    rank: u8,
+}
+
+/// Where a test sorts among those at the same hop: a test function first,
+/// then a Go example, benchmark, or fuzz target (which a question about the
+/// tests that run a function does not count, G10 C13), then a helper.
+fn test_rank(test: &GraphNode) -> u8 {
+    if test.kind != "Test" {
+        2
+    } else if test.language == "go"
+        && ["Example", "Benchmark", "Fuzz"]
+            .iter()
+            .any(|prefix| test.name.starts_with(prefix))
+    {
+        1
+    } else {
+        0
+    }
 }
 
 /// Nodes past which [`tests_reaching`] stops collecting: a hub's callers
@@ -536,7 +558,8 @@ pub(crate) struct ReachingTest {
 pub(crate) const REACH_NODE_LIMIT: usize = 500;
 
 /// Every test the [`nearest_test`] walk meets within `limit` hops, each at
-/// its fewest hops, nearest first and then by qualified name: the tests
+/// its fewest hops, nearest first, test functions before examples,
+/// benchmarks, and helpers, and then by qualified name: the tests
 /// that run `qn` through its callers, where `tests_for` lists only the
 /// direct ones (#327). If none is that near, the nearest within `search`.
 /// The flag says the walk met [`REACH_NODE_LIMIT`] nodes and stopped
@@ -562,23 +585,33 @@ fn walk_tests(
 ) -> Option<(Vec<ReachingTest>, bool)> {
     let limit = search;
     let mut truncated = false;
-    // Each test at its fewest hops, and of those the first via by name.
+    // Each test at its fewest hops, and of those the first via by name,
+    // with the value use on that path.
     let mut met: HashMap<String, ReachingTest> = HashMap::new();
-    let meet =
-        |met: &mut HashMap<String, ReachingTest>, hops: usize, test: &GraphNode, via: &str| {
-            let entry = met
-                .entry(test.qualified_name.clone())
-                .or_insert_with(|| ReachingTest {
-                    hops,
-                    test: test.qualified_name.clone(),
-                    via: via.to_string(),
-                    is_test: test.kind == "Test",
-                });
-            if (hops, via) < (entry.hops, entry.via.as_str()) {
-                entry.hops = hops;
-                entry.via = via.to_string();
-            }
-        };
+    let meet = |met: &mut HashMap<String, ReachingTest>,
+                hops: usize,
+                test: &GraphNode,
+                via: &str,
+                value_use: Option<(String, String)>| {
+        let entry = met
+            .entry(test.qualified_name.clone())
+            .or_insert_with(|| ReachingTest {
+                hops,
+                test: test.qualified_name.clone(),
+                via: via.to_string(),
+                is_test: test.kind == "Test",
+                value_use: value_use.clone(),
+                rank: test_rank(test),
+            });
+        if (hops, via) < (entry.hops, entry.via.as_str()) {
+            entry.hops = hops;
+            entry.via = via.to_string();
+            entry.value_use = value_use;
+        }
+    };
+    // The first value use on the path from each node the walk goes through
+    // to the target: the node that uses one as a value, and the value.
+    let mut value_uses: HashMap<String, (String, String)> = HashMap::new();
     let relative = |file_path: &str| {
         Path::new(file_path)
             .strip_prefix(root)
@@ -609,7 +642,13 @@ fn walk_tests(
         for current in &frontier {
             for test in direct_tests(store, current)? {
                 if built(&test.file_path) {
-                    meet(&mut met, depth, &test, current);
+                    meet(
+                        &mut met,
+                        depth,
+                        &test,
+                        current,
+                        value_uses.get(current).cloned(),
+                    );
                 }
             }
         }
@@ -631,6 +670,9 @@ fn walk_tests(
             {
                 if is_python_module(&class) {
                     imported.insert(class.clone());
+                }
+                if let Some(value_use) = value_uses.get(current).cloned() {
+                    value_uses.entry(class.clone()).or_insert(value_use);
                 }
                 classes.push(class);
             }
@@ -655,9 +697,18 @@ fn walk_tests(
                     if !built(&caller.file_path) {
                         continue;
                     }
+                    // A function passed or stored as a value (not a type
+                    // reference to a class whose implicit methods run).
+                    let value_use = value_uses.get(target).cloned().or_else(|| {
+                        (edge.kind == "REFERENCES" && !of_class)
+                            .then(|| (caller.qualified_name.clone(), target.clone()))
+                    });
                     if is_test_node(&caller, &relative(&caller.file_path)) {
-                        meet(&mut met, depth + 1, &caller, target);
+                        meet(&mut met, depth + 1, &caller, target, value_use);
                         continue;
+                    }
+                    if let Some(value_use) = value_use {
+                        value_uses.insert(caller.qualified_name.clone(), value_use);
                     }
                     // A class built at a module's top level (`SPEC =
                     // GrammarSpec(..)`), or a module imported for one.
@@ -686,7 +737,7 @@ fn walk_tests(
         frontier = next;
     }
     let mut tests: Vec<ReachingTest> = met.into_values().collect();
-    tests.sort_by(|a, b| (a.hops, &a.test).cmp(&(b.hops, &b.test)));
+    tests.sort_by(|a, b| (a.hops, a.rank, &a.test).cmp(&(b.hops, b.rank, &b.test)));
     Some((tests, truncated))
 }
 
