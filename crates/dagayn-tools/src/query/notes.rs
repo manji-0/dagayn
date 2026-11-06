@@ -355,7 +355,8 @@ fn go_interface(
 /// that module's and is not one of them (#286), and a call on a value of a
 /// known type is a method call, so it is not one for a function. An
 /// unexported name is callable from its own package (its directory) only.
-/// Calls from `node`'s package come first.
+/// Calls from `node`'s package come first, then by file and line, so the
+/// summary does not follow the order the files were parsed in.
 fn go_unbound_calls(store: &GraphStore, node: &GraphNode) -> Option<Vec<(GraphEdge, GoUnbound)>> {
     let package = Path::new(&node.file_path).parent();
     let exported = node.name.starts_with(char::is_uppercase);
@@ -371,7 +372,10 @@ fn go_unbound_calls(store: &GraphStore, node: &GraphNode) -> Option<Vec<(GraphEd
         edges.extend(store.search_external_calls_by_method(&node.name).ok()?);
     }
     edges.retain(|edge| edge.file_path.ends_with(".go"));
-    edges.sort_by_key(|edge| Path::new(&edge.file_path).parent() != package);
+    edges.sort_by(|a, b| {
+        let other = |edge: &GraphEdge| Path::new(&edge.file_path).parent() != package;
+        (other(a), &a.file_path, a.line).cmp(&(other(b), &b.file_path, b.line))
+    });
     Some(
         edges
             .into_iter()
