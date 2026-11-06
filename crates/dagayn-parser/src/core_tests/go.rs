@@ -313,6 +313,71 @@ func run(items []string) {
     assert_eq!(import("myapp/internal/fmtutil").get("stdlib"), None);
 }
 
+/// A method call on a standard-library value written through a pointer
+/// (`t *testing.T`, `new(T)`) or as a composite literal (`&bytes.Buffer{}`)
+/// is on a type that is no interface (#329): a pointer to an interface has
+/// no methods, and no composite literal is of an interface type. A value of
+/// a type written bare (`w io.Writer`, `var buf bytes.Buffer`) may be an
+/// interface's.
+#[test]
+fn go_standard_library_receivers_record_when_their_type_is_no_interface() {
+    let source = br#"package app
+
+import (
+	"bytes"
+	"io"
+	"strings"
+	"testing"
+)
+
+func TestRun(t *testing.T) {
+	t.Run("a", func(sub *testing.T) { sub.Skip() })
+	ts := []*testing.T{t}
+	ts[0].Fail()
+}
+
+func Write(w io.Writer, p []byte) {
+	w.Write(p)
+	b := &bytes.Buffer{}
+	b.Reset()
+	var buf bytes.Buffer
+	buf.Grow(1)
+	sb := new(strings.Builder)
+	sb.Len()
+	var r io.Reader = b
+	r.(*bytes.Buffer).Truncate(0)
+	r.(io.ReadCloser).Close()
+}
+"#;
+    let (_, edges) = parse_go("app/app_test.go", source);
+    let concrete = |symbol: &str| {
+        edges
+            .iter()
+            .find(|edge| edge.kind == "CALLS" && edge.extra["external_symbol"] == symbol)
+            .unwrap_or_else(|| panic!("no call {symbol}"))
+            .extra
+            .get("receiver_concrete")
+            .cloned()
+    };
+    for symbol in [
+        "testing.T.Run",
+        "testing.T.Skip",
+        "testing.T.Fail",
+        "bytes.Buffer.Reset",
+        "strings.Builder.Len",
+        "bytes.Buffer.Truncate",
+    ] {
+        assert_eq!(concrete(symbol), Some(json!(true)), "{symbol}");
+    }
+    for symbol in [
+        "io.Writer.Write",
+        "bytes.Buffer.Grow",
+        "io.ReadCloser.Close",
+    ] {
+        assert_eq!(concrete(symbol), None, "{symbol}");
+    }
+}
+
 #[test]
 fn go_packages_of_the_own_module_are_not_the_standard_library() {
     // A module named like a standard package root (`crypto/...` has no dot)

@@ -1118,11 +1118,17 @@ fn go_emit_call(
         .and_then(|function| function.child_by_field_name("operand"))
     {
         match go_receiver(operand, &call_name, context) {
-            GoReceiver::Typed(GoType::Std(path, type_name)) => {
+            GoReceiver::Typed(GoType::Std(path, type_name, concrete)) => {
                 // `req.Header.Get` on `req *http.Request`: the standard
                 // library's `net/http.Request.Get`.
                 call_name = format!("{path}.{type_name}.{call_name}");
                 mark_stdlib_edge(&mut call_name, &mut extra, &path, StdlibEvidence::Certain);
+                if concrete {
+                    // A pointer to an interface has no methods, and no
+                    // composite literal is of an interface type: the call
+                    // is the type's own method and dispatches nowhere else.
+                    extra["receiver_concrete"] = json!(true);
+                }
             }
             GoReceiver::Typed(GoType::Named(type_name)) => {
                 extra[GO_TYPED_RECEIVER_KEY] = json!(type_name);
@@ -1199,8 +1205,12 @@ enum GoType {
     /// A type of the file's package (`Store`, `*Store`, `Store[T]`).
     Named(String),
     /// A type of the standard library: import path, name (`net/http`,
-    /// `Request` for `*http.Request`).
-    Std(String, String),
+    /// `Request` for `*http.Request`), and whether the value is written so
+    /// that the type cannot be an interface: through a pointer
+    /// (`*http.Request`, `new(T)`), whose method set is empty for an
+    /// interface, or as a composite literal (`bytes.Buffer{}`), which no
+    /// interface type has.
+    Std(String, String, bool),
     /// A type of another package of the repository or of a module the
     /// file imports: import path, name (`example.com/m/zstd`, `Decoder` for
     /// `*zstd.Decoder`).
@@ -1219,6 +1229,16 @@ enum GoType {
 }
 
 impl GoType {
+    /// The type of a value written through a pointer to it or as a
+    /// composite literal of it: a standard-library type that is then no
+    /// interface (see [`GoType::Std`]).
+    fn concrete(self) -> GoType {
+        match self {
+            GoType::Std(path, name, _) => GoType::Std(path, name, true),
+            other => other,
+        }
+    }
+
     /// What an index (`x[i]`) or a `range` gives of a value of this type.
     fn element(self) -> Option<GoType> {
         match self {
@@ -1233,13 +1253,15 @@ impl GoType {
 
     /// How [`MemberCallBindings`] remembers a variable of this type: `Name`,
     /// `path:Name` for the standard library (no Go import path or identifier
-    /// has a `:`), `%path Name` for another package's, `[]T` for elements,
+    /// has a `:`), `*path:Name` for one that is no interface,
+    /// `%path Name` for another package's, `[]T` for elements,
     /// `<-T` for a channel, `@Owner.path` for a field of another file's
     /// struct.
     fn key(&self) -> String {
         match self {
             GoType::Named(name) => name.clone(),
-            GoType::Std(path, name) => format!("{path}:{name}"),
+            GoType::Std(path, name, false) => format!("{path}:{name}"),
+            GoType::Std(path, name, true) => format!("*{path}:{name}"),
             GoType::Package(path, name) => format!("%{path} {name}"),
             GoType::Elements(inner) => format!("[]{}", inner.key()),
             GoType::Channel(inner) => format!("<-{}", inner.key()),
@@ -1265,7 +1287,10 @@ impl GoType {
             };
         }
         match key.split_once(':') {
-            Some((path, name)) => GoType::Std(path.to_string(), name.to_string()),
+            Some((path, name)) => match path.strip_prefix('*') {
+                Some(path) => GoType::Std(path.to_string(), name.to_string(), true),
+                None => GoType::Std(path.to_string(), name.to_string(), false),
+            },
             None => GoType::Named(key.to_string()),
         }
     }
@@ -1517,7 +1542,12 @@ fn go_collect_locals(
 /// methods resolution could find.
 fn go_type_of(ty: tree_sitter::Node<'_>, source: &[u8], stdlib: &GoStdlibScope) -> Option<GoType> {
     match ty.kind() {
-        "pointer_type" | "parenthesized_type" => {
+        "pointer_type" => {
+            let mut cursor = ty.walk();
+            let inner = ty.named_children(&mut cursor).next()?;
+            go_type_of(inner, source, stdlib).map(GoType::concrete)
+        }
+        "parenthesized_type" => {
             let mut cursor = ty.walk();
             let inner = ty.named_children(&mut cursor).next()?;
             go_type_of(inner, source, stdlib)
@@ -1546,7 +1576,7 @@ fn go_type_of(ty: tree_sitter::Node<'_>, source: &[u8], stdlib: &GoStdlibScope) 
             let package = node_text(ty.child_by_field_name("package")?, source);
             let name = node_text(ty.child_by_field_name("name")?, source);
             if let Some(path) = stdlib.imports.get(&package) {
-                return Some(GoType::Std(path.clone(), name));
+                return Some(GoType::Std(path.clone(), name, false));
             }
             let path = stdlib.packages.get(&package)?;
             Some(if stdlib.own_package.as_ref() == Some(path) {
@@ -1718,11 +1748,13 @@ fn go_bind_declaration(node: tree_sitter::Node<'_>, context: &GoContext<'_>, in_
 /// value of one.
 fn go_value_type(value: tree_sitter::Node<'_>, context: &GoContext<'_>) -> Option<GoType> {
     match value.kind() {
+        // No composite literal is of an interface type.
         "composite_literal" => go_type_of(
             value.child_by_field_name("type")?,
             context.source,
             context.stdlib,
-        ),
+        )
+        .map(GoType::concrete),
         "unary_expression" => {
             let operator = node_text(value.child_by_field_name("operator")?, context.source);
             let operand = go_value_type(value.child_by_field_name("operand")?, context);
@@ -1785,7 +1817,8 @@ fn go_value_type(value: tree_sitter::Node<'_>, context: &GoContext<'_>) -> Optio
             {
                 let mut cursor = arguments.walk();
                 let ty = arguments.named_children(&mut cursor).next()?;
-                return go_type_of(ty, context.source, context.stdlib);
+                // `new(T)` is a `*T`, and `make` takes no interface type.
+                return go_type_of(ty, context.source, context.stdlib).map(GoType::concrete);
             }
             (function.kind() == "identifier"
                 && context.bindings.borrow().constructor_type(&name).is_some())

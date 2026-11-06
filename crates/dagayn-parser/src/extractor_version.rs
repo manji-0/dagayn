@@ -326,8 +326,12 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 19: the File node records the directory of its module's `go.mod`
         // (`go_module_dir`, `""` at the root), so the tools can tell rows in
         // the target's module from rows in a nested one (#325).
+        // 20: a method call on a standard-library value written through a
+        // pointer or as a composite literal (`t *testing.T`,
+        // `&bytes.Buffer{}`) records `receiver_concrete`: its type is no
+        // interface (#329).
         extractor: "go",
-        version: 19,
+        version: 20,
         languages: &["go"],
     },
     ExtractorVersion {

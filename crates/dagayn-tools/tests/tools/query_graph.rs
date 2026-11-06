@@ -1716,6 +1716,82 @@ fn go_callers_of_counts_calls_through_a_standard_library_interface() {
     );
 }
 
+/// A call on a standard-library value the code writes so that its type is
+/// no interface (`t.Run` on `t *testing.T`, `b.Write` on `b :=
+/// &bytes.Buffer{}`) is that type's method and cannot reach the
+/// repository's (#329): `callers_of` says so and does not count it among the
+/// calls that may be callers. A call on a value of an interface type
+/// (`w.Write` on `w io.Writer`) still may be one.
+#[test]
+fn go_callers_of_leaves_out_calls_on_concrete_standard_library_types() {
+    // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph
+    let repo = Repo::new("go-concrete-library-receivers", false);
+    repo.write("go.mod", "module example.com/demo\n\ngo 1.22\n");
+    repo.write(
+        "app/app.go",
+        "package app\n\nimport (\n\t\"bytes\"\n\t\"io\"\n)\n\n\
+         type Context struct{ n int }\n\n\
+         func (c *Context) Run() {\n\tc.n++\n}\n\n\
+         func Start(c *Context) {\n\tc.Run()\n}\n\n\
+         type Writer struct{ n int }\n\n\
+         func (z *Writer) Write(p []byte) (int, error) {\n\tz.n += len(p)\n\treturn len(p), nil\n}\n\n\
+         func Direct(z *Writer) {\n\tz.Write(nil)\n}\n\n\
+         func Copy(w io.Writer, p []byte) {\n\tw.Write(p)\n}\n\n\
+         func Buffer(p []byte) {\n\tb := &bytes.Buffer{}\n\tb.Write(p)\n}\n",
+    );
+    repo.write(
+        "app/app_test.go",
+        "package app\n\nimport \"testing\"\n\n\
+         func TestRun(t *testing.T) {\n\tt.Run(\"a\", func(t *testing.T) {\n\t\tStart(&Context{})\n\t})\n}\n\n\
+         func BenchmarkRun(b *testing.B) {\n\tb.Run(\"a\", func(b *testing.B) {})\n}\n",
+    );
+    repo.build();
+    let context = repo.context();
+    let reply = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "app/app.go::Context.Run"}),
+    );
+    let summary = reply["summary"].as_str().expect("summary");
+    assert!(reply["results"].to_string().contains("Start"), "{reply}");
+    assert!(
+        summary.contains(
+            "No direct caller the graph records is missing; every other call named Run in the \
+             repository, _test.go files included, is bound to a definition, a method call by its \
+             receiver's static type; the 2 that go to no definition are on concrete library \
+             types (testing.T and testing.B), which cannot reach Context.Run"
+        ),
+        "{summary}"
+    );
+    assert!(!summary.contains("may be missing"), "{summary}");
+    assert!(
+        !summary.contains("if that type is an interface"),
+        "{summary}"
+    );
+    let next = reply["next"].to_string();
+    assert!(!next.contains("TestRun"), "{next}");
+    assert!(!next.contains("BenchmarkRun"), "{next}");
+
+    // The call through `io.Writer` keeps its account; the one on the
+    // `bytes.Buffer` is counted apart.
+    let write = answer(
+        &context,
+        "query_graph_tool",
+        json!({"pattern": "callers_of", "target": "app/app.go::Writer.Write"}),
+    );
+    let summary = write["summary"].as_str().expect("summary");
+    assert!(
+        summary.contains(
+            "the 1 that goes to no definition is at app/app.go:30 in Copy, on the \
+             standard-library type io.Writer; a call on a library type, if that type is an \
+             interface, reaches Writer.Write only where the value's dynamic type is Writer or \
+             embeds it; another 1 goes to no definition on the concrete standard-library type \
+             bytes.Buffer, which cannot reach Writer.Write"
+        ),
+        "{summary}"
+    );
+}
+
 /// A call on what a standard-library function returned (`zw :=
 /// gzip.NewWriter(&buf); zw.Reset(&buf)` in an external test package) is the
 /// standard library's (#286): it is not counted among the calls that go to

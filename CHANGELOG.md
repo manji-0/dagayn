@@ -100,6 +100,22 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- Go `callers_of` no longer says callers may be missing because of calls
+  on a concrete standard-library type (#329). A method call on a value
+  the code writes through a pointer (`t *testing.T`, `new(T)`, `x.(*T)`)
+  or as a composite literal (`&bytes.Buffer{}`) is that type's own
+  method: a pointer to an interface has no methods, and no composite
+  literal is of an interface type. Such calls are counted apart ("the 41
+  that go to no definition are on concrete library types (testing.T and
+  testing.B), which cannot reach Context.Run"), are not named to read,
+  and do not send `next` there. When no other call is unbound, the
+  summary says no direct caller is missing. A call on a library value
+  written bare (`w io.Writer`, `var buf bytes.Buffer`) may be through an
+  interface and keeps today's account. In G10's K6, `callers_of` on
+  kong's `Context.Run` listed all 10 callers and still named 22
+  functions to read, and every run searched again. Go extractor 20: the
+  call records `receiver_concrete`, so Go graphs re-parse on the next
+  update. Other languages are unchanged.
 - `tests_for` without rows lists the tests that reach the target through
   its callers, and its `next` returns them (#326). In G10's H2,
   `tests_for(prettyStack.parse)` on chi named `TestRecoverer` (4 hops)
