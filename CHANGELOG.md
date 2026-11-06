@@ -102,6 +102,11 @@ All notable changes to `dagayn` are documented here.
 
 ### Fixed
 
+- A Go `callers_of` summary lists the calls that go to no definition by
+  package, file, and line. Before, their order within the target's package
+  followed the order the files were parsed in, so the same graph could
+  name one call's line before or after another's from one build to the
+  next (CI on Linux saw the other order from macOS).
 - Go `callers_of` no longer says callers may be missing because of calls
   on a concrete standard-library type (#329). A method call on a value
   the code writes through a pointer (`t *testing.T`, `new(T)`, `x.(*T)`)
