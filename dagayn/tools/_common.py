@@ -200,13 +200,13 @@ def _validate_repo_root(path: Path) -> Path:
 # instance is force-closed and a fresh one is created so that any mutation
 # done by another connection (e.g. a write tool, the watch daemon,
 # ``dagayn build``) is reflected -- including the derived caches
-# (``_nxg_cache``, hub/bridge scores) that only a new instance resets.
+# (hub/bridge scores) that only a new instance resets.
 #
 # ``st_mtime`` alone was the original check and is not sufficient: the
 # journal_mode is WAL, so another process's commit lands in ``graph.db-wal``
 # and leaves the main file's mtime untouched until a checkpoint.  A long-lived
 # ``dagayn serve`` therefore answered impact/topology questions from a
-# NetworkX snapshot taken before the write, indefinitely.
+# snapshot taken before the write, indefinitely.
 #
 # The last ``close()`` (leases → 0) closes the SQLite connection and drops the
 # shared flock. Idle MCP must not keep a reader handle open: that is what
