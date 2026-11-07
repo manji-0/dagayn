@@ -64,8 +64,6 @@ judgments:
         grade: 2
   prose-dead-code:
     relevant:
-      - target: dagayn/refactor/dead_code.py::find_dead_code
-        grade: 3
       - target: crates/dagayn-tools/src/dead_code.rs::find_dead_code
         grade: 3
       - target: crates/dagayn-tools/src/dead_code.rs::dead_code_report
@@ -114,8 +112,6 @@ judgments:
         grade: 3
   ja-dead-code:
     relevant:
-      - target: dagayn/refactor/dead_code.py::find_dead_code
-        grade: 3
       - target: crates/dagayn-tools/src/dead_code.rs::find_dead_code
         grade: 3
       - target: crates/dagayn-tools/src/dead_code.rs::dead_code_report
