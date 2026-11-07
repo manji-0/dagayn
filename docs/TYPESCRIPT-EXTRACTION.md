@@ -11,7 +11,7 @@ references are resolved. It is the contract for `crates/dagayn-parser`
 `js_resolve.rs`, `js_members.rs`, `js_types.rs`, `member_calls.rs`,
 `js_sfc.rs`) and for the
 analysis code that reads the resulting metadata (`dagayn/sap.py`,
-`dagayn/refactor/dead_code.py`, `dagayn/entry_point_heuristics.py`,
+`crates/dagayn-tools/src/dead_code.rs`, `crates/dagayn-graph/src/flow_trace.rs`,
 `crates/dagayn-graph` post-processing).
 
 The coverage matrix at the end records, per construct, whether the behavior is
@@ -187,7 +187,8 @@ Nodes that are **not** created:
   - a directory on its path is `__tests__`, `e2e`, `e2e-tests` /
     `e2e_tests`, or `cypress`
   The flow-tracing and dead-code test-file patterns
-  (`crates/dagayn-graph/src/flow_trace.rs`, `dagayn/refactor/dead_code.py`)
+  (`crates/dagayn-graph/src/flow_trace.rs`,
+  `crates/dagayn-tools/src/dead_code.rs`)
   accept the same suffixes.
 - **Test declarations.** Only inside test files, a call whose callee chain
   starts with a runner name is a synthetic `Test` node:
@@ -757,9 +758,8 @@ format Python uses), which enables framework entry-point detection and
 dead-code exclusion for NestJS and Angular. The decorator itself becomes
 `REFERENCES decorated -> decorator` (`relationship_role: "decorator"`) instead
 of a `CALLS` edge from the File. The entry-point decorator patterns live in
-both `dagayn/entry_point_heuristics.py` and
-`crates/dagayn-graph/src/flow_trace.rs`; `tests/test_flows.py` checks that
-the two lists are identical. Implemented (#16).
+`crates/dagayn-graph/src/flow_trace.rs`, and `tests/test_flows.py` checks
+them through the store. Implemented (#16).
 
 ### 7.8 Wrapped functions and function-valued fields are functions
 

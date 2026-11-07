@@ -25,7 +25,7 @@ The target use case is architectural review for mixed-language repositories, not
 The default analysis unit is `scope_kind="package"`.
 
 `package` is the **parent directory** of each node's file, repo-root-relative,
-for every language (`file_to_package` in `dagayn/_scope.py`). Files at the
+for every language (`file_to_package` in `crates/dagayn-tools/src/architecture.rs`). Files at the
 repository root map to the scope key `<root>`. No language-native package or
 namespace is read: a Python package root, a Java `package` declaration, a C#
 namespace, and a workspace marker such as `Cargo.toml` or `package.json` all

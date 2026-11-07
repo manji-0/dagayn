@@ -64,7 +64,7 @@ a fact.
 
 <!-- constrained-by ./RUST-CORE-MIGRATION-WIP.md#phase-4-python-compatibility-shell -->
 
-The public Python modules (`dagayn.graph`, `dagayn.flows`, `dagayn.communities`,
+The public Python modules (`dagayn.graph`, `dagayn.communities`,
 `dagayn.search`, `dagayn.postprocessing`) are thin facades over `dagayn._core`.
 They keep the stable import paths. The graph engine is Rust-only:
 `from dagayn.graph import GraphStore` is `dagayn._core.GraphStore`.

@@ -714,12 +714,13 @@ run. After the fix, two Rust updates and a Rust and a Python update of the
 same edit leave identical nodes, edges, flows, memberships, communities,
 and scores.
 
-5.4, first item (done): ADP cycle enumeration. `find_adp_violations` keeps
-`networkx` only to project the dependency graph; its cycles come from
+5.4, first item (done): ADP cycle enumeration. `find_adp_violations` kept
+`networkx` only to project the dependency graph; its cycles came from
 `dagayn_graph::bounded_simple_cycles` (through `_core`), the walk the native
 `adp_violations` mode now shares, in node-name order with the same 5000-cycle
 limit and a step budget. A truncated list is the same prefix on every run
 (#179), and the front end answers it instead of leaving it to Python.
+`dagayn/architecture.py` and the `networkx` dependency are deleted.
 
 Acceptance criterion 1, for the front end (done): `tests/test_mcp_snapshots.py`
 runs the tool and protocol snapshots against fastmcp's server and against
@@ -734,6 +735,8 @@ mode's stable-component policy, call the `dagayn-tools` analyses through the
 store (`find_dead_code_json`, `suggest_refactorings_json`,
 `ranked_suggestions_json`); `suggestions.py`'s 785 lines, `concerns.py`, and
 the Python policy are gone, and the concern-profile tests moved to Rust.
+The `dagayn/refactor/` wrappers over those calls are deleted too; tests call
+the store's JSON methods and `_core.pending_refactor_*` directly.
 JSON in between also removed a Python-only quirk: its policy relied on a
 suggestion and its evidence sharing one `reason_codes` list.
 
@@ -816,7 +819,6 @@ package would shrink the wheel; revisit if wheel size becomes a problem.
 | Python | Rust |
 |---|---|
 | `daemon.py`, `incremental_update_pipeline.py` (watchdog) | `notify` |
-| `analysis.py`, `architecture.py` (networkx betweenness, `simple_cycles`) | `petgraph` or in-crate code |
 | `embeddings_store.py` | `ndarray` or plain slices |
 | `embeddings_providers.py` | `reqwest` |
 | `local_embeddings.py` | unchanged design: it already runs `llama-server` as a sidecar |
