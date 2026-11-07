@@ -19,6 +19,17 @@ All notable changes to `dagayn` are documented here.
   project under its 10 GiB limit for longer. The 11.1.0 upload hit that
   limit.
 
+### Removed
+
+- The Python embedding search is gone: the numpy matmul path and the
+  pure-Python cosine loop. Semantic search always uses the Rust native
+  search, as the default `rust` backend did, and native errors reach the
+  caller. `DAGAYN_EMBEDDING_SEARCH_BACKEND` is no longer read, so `auto`
+  and `python` have no effect. The `numpy` extra is removed, and
+  `dagayn[all]` and `dagayn[dev]` no longer install numpy.
+  `tools/embedding_search_benchmark.py` now times only the native search;
+  its `--compare-numpy` and `--compare-python` options are removed.
+
 ## 11.1.0 — 2026-11-07
 
 ### Added

@@ -1436,7 +1436,7 @@ class TestIntentReranking:
 
 
 class TestCachedEmbeddingStore:
-    def test_get_cached_emb_store_reuses_instance(self, tmp_path, monkeypatch):
+    def test_get_cached_emb_store_reuses_instance(self, tmp_path):
         from dagayn.embeddings import EmbeddingStore
 
         db = tmp_path / "graph.db"
@@ -1458,7 +1458,6 @@ class TestCachedEmbeddingStore:
                 return 2
 
         _emb_cache.clear()
-        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
 
         with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             first = _get_cached_emb_store(db, provider=None, model=None)

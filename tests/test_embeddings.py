@@ -15,7 +15,6 @@ from dagayn.embeddings import (
     EmbeddingStore,
     MiniMaxEmbeddingProvider,
     OpenAIEmbeddingProvider,
-    _cosine_similarity,
     _decode_vector,
     _encode_vector,
     _is_localhost_url,
@@ -253,32 +252,6 @@ class TestEmbeddingStatus:
         )
 
         assert resolved == "openai:new#dim=1024"
-
-
-class TestCosineSimilarity:
-    def test_identical_vectors(self):
-        v = [1.0, 2.0, 3.0]
-        assert abs(_cosine_similarity(v, v) - 1.0) < 1e-6
-
-    def test_orthogonal_vectors(self):
-        a = [1.0, 0.0]
-        b = [0.0, 1.0]
-        assert abs(_cosine_similarity(a, b)) < 1e-6
-
-    def test_opposite_vectors(self):
-        a = [1.0, 0.0]
-        b = [-1.0, 0.0]
-        assert abs(_cosine_similarity(a, b) - (-1.0)) < 1e-6
-
-    def test_zero_vector(self):
-        a = [0.0, 0.0]
-        b = [1.0, 2.0]
-        assert _cosine_similarity(a, b) == 0.0
-
-    def test_dimension_mismatch(self):
-        a = [1.0, 2.0, 3.0]
-        b = [1.0, 2.0]
-        assert _cosine_similarity(a, b) == 0.0
 
 
 class TestNodeToText:
@@ -1154,7 +1127,7 @@ class TestEmbeddingStore:
             assert store.count() == 0
             store.close()
 
-    def test_search_uses_native_backend_when_configured(self, tmp_path, monkeypatch):
+    def test_search_uses_native_search(self, tmp_path, monkeypatch):
         import dagayn.embeddings_store as emb_store
 
         db = tmp_path / "embeddings.db"
@@ -1179,7 +1152,6 @@ class TestEmbeddingStore:
             calls.append((db_path, provider_name, query_vec, limit))
             return [("file.py::best", 1.0)]
 
-        monkeypatch.delenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", raising=False)
         monkeypatch.setattr(emb_store, "_native_embedding_search", fake_native_search)
 
         with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
@@ -1225,7 +1197,7 @@ class TestEmbeddingStore:
         assert len(calls) == 1
         assert calls[0][1] == "fake#text=material"
 
-    def test_search_auto_falls_back_when_native_unavailable(self, tmp_path, monkeypatch):
+    def test_search_propagates_native_search_errors(self, tmp_path, monkeypatch):
         import dagayn.embeddings_store as emb_store
 
         db = tmp_path / "embeddings.db"
@@ -1245,169 +1217,21 @@ class TestEmbeddingStore:
                 return 2
 
         def failing_native_search(*args, **kwargs):
-            raise AttributeError("old extension")
+            raise RuntimeError("native search failed")
 
-        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "auto")
         monkeypatch.setattr(emb_store, "_native_embedding_search", failing_native_search)
 
         with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
             store = EmbeddingStore(db)
-            store_conn(store).executemany(
-                """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
-                   VALUES (?, ?, ?, ?)""",
-                [
-                    ("file.py::best", _encode_vector([1.0, 0.0]), "h1", "fake"),
-                    ("file.py::other", _encode_vector([0.0, 1.0]), "h2", "fake"),
-                ],
-            )
-            store_conn(store).commit()
-
-            assert store.search("query", limit=1)[0][0] == "file.py::best"
+            with pytest.raises(RuntimeError, match="native search failed"):
+                store.search("query", limit=1)
             store.close()
 
-    def test_search_python_backend_uses_pure_python_without_numpy(self, tmp_path, monkeypatch):
-        import dagayn.embeddings_store as emb_store
-
-        db = tmp_path / "embeddings.db"
-
-        class FakeProvider:
-            name = "fake"
-            preferred_batch_size = 1
-
-            def embed(self, texts):
-                return [[1.0, 0.0] for _ in texts]
-
-            def embed_query(self, text):
-                return [1.0, 0.0]
-
-            @property
-            def dimension(self):
-                return 2
-
-        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
-        monkeypatch.setattr(emb_store, "_NUMPY_AVAILABLE", False)
-        monkeypatch.setattr(emb_store, "_NUMPY_AVAILABLE", False)
-
-        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
-            store = EmbeddingStore(db)
-            store_conn(store).executemany(
-                """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
-                   VALUES (?, ?, ?, ?)""",
-                [
-                    ("file.py::best", _encode_vector([1.0, 0.0]), "h1", "fake"),
-                    ("file.py::other", _encode_vector([0.0, 1.0]), "h2", "fake"),
-                ],
-            )
-            store_conn(store).commit()
-            results = store.search("query", limit=2)
-            store.close()
-
-        assert results[0][0] == "file.py::best"
-        assert results[0][1] == pytest.approx(1.0, abs=1e-5)
-        assert results[1][0] == "file.py::other"
-        assert results[1][1] == pytest.approx(0.0, abs=1e-5)
-
-    def test_search_numpy_matmul_parity_with_python_loop(self, tmp_path, monkeypatch):
-        import dagayn.embeddings_store as emb_store
-
-        if not emb_store._NUMPY_AVAILABLE:
-            pytest.skip("numpy fast path is optional")
-
-        db = tmp_path / "embeddings.db"
-        vectors = [
-            ("n::a", [1.0, 0.0, 0.0]),
-            ("n::b", [0.8, 0.6, 0.0]),
-            ("n::c", [0.0, 1.0, 0.0]),
-            ("n::d", [-1.0, 0.0, 0.0]),
-            ("n::e", [0.1, 0.2, 0.3]),
-        ]
-        query = [0.9, 0.1, 0.0]
-
-        class FakeProvider:
-            name = "fake"
-            preferred_batch_size = 1
-
-            def embed(self, texts):
-                return [[1.0, 0.0, 0.0] for _ in texts]
-
-            def embed_query(self, text):
-                return list(query)
-
-            @property
-            def dimension(self):
-                return 3
-
-        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
-
-        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
-            store = EmbeddingStore(db)
-            store_conn(store).executemany(
-                """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
-                   VALUES (?, ?, ?, ?)""",
-                [(qn, _encode_vector(vec), f"h{i}", "fake") for i, (qn, vec) in enumerate(vectors)],
-            )
-            store_conn(store).commit()
-
-            emb_store._np_vec_cache.clear()
-            numpy_results = store.search("query", limit=5)
-            # Also exercise argpartition (limit < n); limit == n takes the argsort path.
-            numpy_top2 = store.search("query", limit=2)
-
-            monkeypatch.setattr(emb_store, "_NUMPY_AVAILABLE", False)
-            monkeypatch.setattr(emb_store, "_NUMPY_AVAILABLE", False)
-            python_results = store.search("query", limit=5)
-            python_top2 = store.search("query", limit=2)
-            store.close()
-
-        assert [qn for qn, _ in numpy_results] == [qn for qn, _ in python_results]
-        for (_, numpy_score), (_, python_score) in zip(numpy_results, python_results):
-            assert numpy_score == pytest.approx(python_score, abs=1e-5)
-        assert [qn for qn, _ in numpy_top2] == [qn for qn, _ in python_top2]
-        for (_, numpy_score), (_, python_score) in zip(numpy_top2, python_top2):
-            assert numpy_score == pytest.approx(python_score, abs=1e-5)
-
-    def test_numpy_argpartition_topk_zero_based_kth(self):
-        """argpartition kth is 0-based; kth=k can drop a true top-k member."""
-        np = pytest.importorskip("numpy")
-
-        # Distinct scores: true top-3 are indices 1, 3, 5. Index 7 (0.50) is the
-        # (k+1)-th neighbor that an off-by-one kth must not let displace 0.90.
-        sims = np.array([0.10, 0.99, 0.20, 0.95, 0.30, 0.90, 0.40, 0.50], dtype=np.float32)
-        k = 3
-        expected = set(np.argsort(-sims)[:k].tolist())
-        assert expected == {1, 3, 5}
-
-        def select(kth: int) -> set[int]:
-            top_idx = np.argpartition(-sims, kth)[:k]
-            top_idx = top_idx[np.argsort(-sims[top_idx])]
-            return {int(i) for i in top_idx}
-
-        # Production form: 0-based kth=k-1 with [:k] keeps exactly the true top-k.
-        assert select(k - 1) == expected
-
-        # Old kth=k bounds on the (k+1)-th largest. The pivot-inclusive window
-        # [:k+1] admits that worse neighbor; truncating back to k without a
-        # score re-rank can keep the pivot and drop a true top-k member.
-        part = np.argpartition(-sims, k)
-        pivot = int(part[k])
-        assert float(sims[pivot]) == pytest.approx(float(sorted(sims, reverse=True)[k]))
-        assert pivot not in expected
-        old_window = {int(i) for i in part[: k + 1]}
-        assert expected < old_window
-        left = [int(i) for i in part[:k]]
-        buggy = set(left[: k - 1] + [pivot])
-        assert expected - buggy, "old kth=k truncation must omit a true top-k index"
-        assert buggy != expected
-        assert float(min(sims[i] for i in select(k - 1))) > float(sims[pivot])
-
-    def test_numpy_matmul_topk_keeps_boundary_member(self, tmp_path):
-        """Numpy path with limit < n must not drop the true k-th match."""
+    def test_native_search_topk_keeps_boundary_member(self, tmp_path):
+        """Native search with limit < n must not drop the true k-th match."""
         import sqlite3
 
         import dagayn.embeddings_store as emb_store
-
-        if not emb_store._NUMPY_AVAILABLE:
-            pytest.skip("numpy fast path is optional")
 
         # Query [1,0]; cosine equals the first component for these rows.
         # Ranked: best, second, third, fourth(near-miss). limit=3 must keep third.
@@ -1441,131 +1265,11 @@ class TestEmbeddingStore:
         )
         conn.commit()
 
-        emb_store._np_vec_cache.clear()
-        numpy_hits = emb_store._numpy_matmul_search(db, conn, provider, query, limit=3)
-        python_hits = emb_store._python_loop_search(conn, provider, query, limit=3)
         conn.close()
+        hits = emb_store._native_embedding_search(db, provider, query, limit=3)
 
-        assert [qn for qn, _ in numpy_hits] == ["n::best", "n::second", "n::third"]
-        assert [qn for qn, _ in numpy_hits] == [qn for qn, _ in python_hits]
-        assert "n::fourth" not in {qn for qn, _ in numpy_hits}
-
-    def test_search_reuses_numpy_matrix_cache(self, tmp_path, monkeypatch):
-        import dagayn.embeddings_store as emb_store
-
-        if not emb_store._NUMPY_AVAILABLE:
-            pytest.skip("numpy fast path is optional")
-
-        db = tmp_path / "embeddings.db"
-
-        class FakeProvider:
-            name = "fake"
-            preferred_batch_size = 1
-
-            def embed(self, texts):
-                return [[1.0, 0.0] for _ in texts]
-
-            def embed_query(self, text):
-                return [1.0, 0.0]
-
-            @property
-            def dimension(self):
-                return 2
-
-        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
-
-        with patch("dagayn.embeddings_store.get_provider", return_value=FakeProvider()):
-            store = EmbeddingStore(db)
-            store_conn(store).executemany(
-                """INSERT INTO embeddings (qualified_name, vector, text_hash, provider)
-                   VALUES (?, ?, ?, ?)""",
-                [
-                    ("file.py::best", _encode_vector([1.0, 0.0]), "h1", "fake"),
-                    ("file.py::other", _encode_vector([0.0, 1.0]), "h2", "fake"),
-                ],
-            )
-            store_conn(store).commit()
-
-            emb_store._np_vec_cache.clear()
-            load_calls = 0
-            original_load = emb_store._load_vec_matrix
-
-            def counting_load(*args, **kwargs):
-                nonlocal load_calls
-                load_calls += 1
-                return original_load(*args, **kwargs)
-
-            monkeypatch.setattr(emb_store, "_load_vec_matrix", counting_load)
-
-            assert store.search("query", limit=1)[0][0] == "file.py::best"
-            assert store.search("query", limit=1)[0][0] == "file.py::best"
-            assert load_calls == 1
-            store.close()
-
-    def test_numpy_matmul_microbenchmark_beats_python_loop(self, tmp_path):
-        """Document that the numpy matmul path is faster than the pure-Python loop."""
-        import sqlite3
-        import time
-
-        import dagayn.embeddings_store as emb_store
-
-        if not emb_store._NUMPY_AVAILABLE:
-            pytest.skip("numpy fast path is optional")
-
-        rows = 4000
-        dim = 96
-        db = tmp_path / "bench.db"
-        provider = "bench"
-        query = [1.0] + [0.0] * (dim - 1)
-
-        conn = sqlite3.connect(str(db))
-        conn.row_factory = sqlite3.Row
-        conn.executescript(
-            """
-            CREATE TABLE embeddings (
-                qualified_name TEXT NOT NULL,
-                vector BLOB NOT NULL,
-                text_hash TEXT NOT NULL,
-                provider TEXT NOT NULL,
-                PRIMARY KEY (qualified_name, provider)
-            );
-            """
-        )
-        records = []
-        for i in range(rows):
-            vec = [0.0] * dim
-            vec[i % dim] = 1.0
-            records.append((f"node::{i}", _encode_vector(vec), "h", provider))
-        conn.executemany(
-            "INSERT INTO embeddings (qualified_name, vector, text_hash, provider) "
-            "VALUES (?, ?, ?, ?)",
-            records,
-        )
-        conn.commit()
-
-        emb_store._np_vec_cache.clear()
-        # Warm caches / decode once for a fair comparison of the scan itself.
-        _ = emb_store._python_loop_search(conn, provider, query, limit=10)
-        _ = emb_store._numpy_matmul_search(db, conn, provider, query, limit=10)
-
-        iterations = 8
-        start = time.perf_counter()
-        for _ in range(iterations):
-            emb_store._python_loop_search(conn, provider, query, limit=10)
-        python_ms = (time.perf_counter() - start) * 1000 / iterations
-
-        start = time.perf_counter()
-        for _ in range(iterations):
-            emb_store._numpy_matmul_search(db, conn, provider, query, limit=10)
-        numpy_ms = (time.perf_counter() - start) * 1000 / iterations
-        conn.close()
-
-        # Soft assertion: matmul should win on this synthetic size; if the
-        # environment is too noisy, still record timings in the assertion message.
-        assert numpy_ms < python_ms, (
-            f"expected numpy matmul ({numpy_ms:.3f}ms) faster than "
-            f"pure-Python ({python_ms:.3f}ms) for {rows}x{dim}"
-        )
+        assert [qn for qn, _ in hits] == ["n::best", "n::second", "n::third"]
+        assert "n::fourth" not in {qn for qn, _ in hits}
 
 
 class TestGetProviderModel:
@@ -2778,7 +2482,7 @@ class TestVectorDimensionIdentity:
         assert conn.execute("SELECT COUNT(*) FROM embeddings").fetchone()[0] == 2
         conn.close()
 
-    def test_dimension_mismatch_reported_in_embedding_health(self, tmp_path, monkeypatch):
+    def test_dimension_mismatch_reported_in_embedding_health(self, tmp_path):
         from dagayn.graph import GraphStore
         from dagayn.parser import NodeInfo
         from dagayn.search import _embedding_search_with_health
@@ -2832,7 +2536,6 @@ class TestVectorDimensionIdentity:
             def embed_query(self, text):
                 return [1.0] * 8
 
-        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
         with patch("dagayn.embeddings_store.get_provider", return_value=Dim8Provider()):
             results, health = _embedding_search_with_health(store, "alpha", limit=5)
             store.close()
@@ -2891,7 +2594,6 @@ class TestVectorDimensionIdentity:
             api_key="dagayn-local", base_url="http://127.0.0.1:9/v1", model="m"
         )
         monkeypatch.setattr(provider, "_call_api", lambda texts: [[1.0, 0.0, 0.0, 0.0]])
-        monkeypatch.setenv("DAGAYN_EMBEDDING_SEARCH_BACKEND", "python")
         with patch("dagayn.embeddings_store.get_provider", return_value=provider):
             first = _embedding_search_with_health(
                 store, "alpha", limit=5, provider="openai", model="m", text_mode="material"
@@ -2908,7 +2610,7 @@ class TestVectorDimensionIdentity:
         assert health["query_dimension"] == 4
         assert "dimension_source" not in health
 
-    def test_search_backends_agree_on_mixed_dimensions(self, tmp_path, monkeypatch):
+    def test_native_search_skips_other_dimensions(self, tmp_path):
         import dagayn.embeddings_store as emb_store
 
         rows = [
@@ -2938,35 +2640,21 @@ class TestVectorDimensionIdentity:
         )
         conn.commit()
 
-        python_hits = emb_store._python_loop_search(conn, provider, query, limit=5)
-        if emb_store._NUMPY_AVAILABLE:
-            emb_store._np_vec_cache.clear()
-            numpy_hits = emb_store._numpy_matmul_search(db, conn, provider, query, limit=5)
-            assert [qn for qn, _ in numpy_hits] == [qn for qn, _ in python_hits]
-        try:
-            from dagayn import _core
-
-            rust_hits = [
-                (name, score) for name, score in _core.embedding_search(db, provider, query, 5)
-            ]
-            assert [qn for qn, _ in rust_hits] == [qn for qn, _ in python_hits]
-        except (ImportError, AttributeError):
-            pytest.skip("native embedding search extension unavailable")  # ty: ignore[too-many-positional-arguments]
         conn.close()
+        hits = emb_store._native_embedding_search(db, provider, query, limit=5)
 
-        assert python_hits == [("file.py::a", pytest.approx(1.0))]
-        assert "file.py::b" not in {qn for qn, _ in python_hits}
+        assert hits == [("file.py::a", pytest.approx(1.0))]
 
-    def test_search_backends_agree_on_scores(self, tmp_path):
-        """Rust, numpy, and pure-Python cosine scores match, not just rankings."""
+    def test_native_search_scores_are_cosine_similarity(self, tmp_path):
+        """Native search scores match a reference cosine, not just its ranking."""
+        import math
         import random
 
         import dagayn.embeddings_store as emb_store
 
-        try:
-            from dagayn import _core
-        except ImportError:
-            pytest.skip("native embedding search extension unavailable")
+        def cosine(a: list[float], b: list[float]) -> float:
+            dot = sum(x * y for x, y in zip(a, b))
+            return dot / (math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b)))
 
         rng = random.Random(20260926)
         dim = 64
@@ -2997,40 +2685,20 @@ class TestVectorDimensionIdentity:
         )
         conn.commit()
 
-        try:
-            python_full = dict(emb_store._python_loop_search(conn, provider, query, limit=count))
-            rust_full = dict(_core.embedding_search(db, provider, query, count))
-            assert len(python_full) == len(rust_full) == count
-            for qn, score in python_full.items():
-                assert rust_full[qn] == pytest.approx(score, abs=1e-5), qn
+        conn.close()
 
-            # Top-k (limit < n) keeps the same score profile. Compare sorted
-            # scores rather than names so near-ties cannot flake the test.
-            k = 25
-            python_top = [
-                score for _, score in emb_store._python_loop_search(conn, provider, query, limit=k)
-            ]
-            rust_top = [score for _, score in _core.embedding_search(db, provider, query, k)]
-            assert rust_top == pytest.approx(python_top, abs=1e-5)
+        expected = {qn: cosine(query, vec) for qn, vec in rows}
+        full = dict(emb_store._native_embedding_search(db, provider, query, count))
+        assert len(full) == count
+        for qn, score in expected.items():
+            assert full[qn] == pytest.approx(score, abs=1e-5), qn
 
-            pytest.importorskip("numpy")
-            if not emb_store._NUMPY_AVAILABLE:
-                pytest.skip("numpy fast path is optional")
-            emb_store._np_vec_cache.clear()
-            numpy_full = dict(
-                emb_store._numpy_matmul_search(db, conn, provider, query, limit=count)
-            )
-            assert len(numpy_full) == count
-            for qn, score in python_full.items():
-                assert numpy_full[qn] == pytest.approx(score, abs=1e-5), qn
-                assert numpy_full[qn] == pytest.approx(rust_full[qn], abs=1e-5), qn
-            numpy_top = [
-                score
-                for _, score in emb_store._numpy_matmul_search(db, conn, provider, query, limit=k)
-            ]
-            assert numpy_top == pytest.approx(python_top, abs=1e-5)
-        finally:
-            conn.close()
+        # Top-k (limit < n) keeps the same score profile. Compare sorted
+        # scores rather than names so near-ties cannot flake the test.
+        k = 25
+        expected_top = sorted(expected.values(), reverse=True)[:k]
+        top = [score for _, score in emb_store._native_embedding_search(db, provider, query, k)]
+        assert top == pytest.approx(expected_top, abs=1e-5)
 
     def test_openai_dimension_change_partitions_provider_name(self):
         p4 = OpenAIEmbeddingProvider(

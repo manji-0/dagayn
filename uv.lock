@@ -455,11 +455,9 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
-    { name = "numpy" },
     { name = "pyyaml" },
 ]
 dev = [
-    { name = "numpy" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-xdist" },
@@ -470,9 +468,6 @@ eval = [
 ]
 google-embeddings = [
     { name = "google-genai" },
-]
-numpy = [
-    { name = "numpy" },
 ]
 
 [package.dev-dependencies]
@@ -485,12 +480,9 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "dagayn", extras = ["eval"], marker = "extra == 'all'" },
-    { name = "dagayn", extras = ["numpy"], marker = "extra == 'all'" },
     { name = "fastmcp", specifier = ">=3.2.4,<5" },
     { name = "google-genai", marker = "extra == 'google-embeddings'", specifier = ">=1.0.0,<3" },
     { name = "networkx", specifier = ">=3.2,<4" },
-    { name = "numpy", marker = "extra == 'dev'", specifier = ">=1.26,<3" },
-    { name = "numpy", marker = "extra == 'numpy'", specifier = ">=1.26,<3" },
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.2,<9" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.1,<8" },
@@ -499,7 +491,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0,<1" },
     { name = "watchdog", specifier = ">=4.0.0,<8" },
 ]
-provides-extras = ["numpy", "google-embeddings", "eval", "all", "dev"]
+provides-extras = ["google-embeddings", "eval", "all", "dev"]
 
 [package.metadata.requires-dev]
 dev = [

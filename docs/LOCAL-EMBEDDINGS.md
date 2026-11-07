@@ -28,41 +28,20 @@ see the README's "Choosing an install mode" section.
 ## Search Backend
 
 Embedding generation stays in the configured provider or managed sidecar, but
-similarity search over stored vectors uses dagayn's Rust native backend by
-default. The native path reads the provider-partitioned `embeddings` rows,
-caches a normalized row-major matrix by database/provider/mtime, and computes
+similarity search over stored vectors always uses dagayn's Rust native
+search. It reads the provider-partitioned `embeddings` rows, caches a normalized row-major matrix by database/provider/mtime, and computes
 cosine similarity with architecture-specific SIMD intrinsics directly in Rust
 (NEON on aarch64, AVX with SSE fallback on x86_64, and a scalar fallback
 elsewhere) — with no dependency on macOS Accelerate, Linux system BLAS, or any
 external linear-algebra library. For large matrices the scan parallelizes row
 chunks with rayon.
 
-When the native extension is unavailable (`DAGAYN_EMBEDDING_SEARCH_BACKEND=auto`)
-or the Python path is forced (`=python`), dagayn falls back to an in-process
-Python scan:
-
-1. **Optional numpy matmul** — if numpy is installed
-   (`pip install "dagayn[numpy]"`; also pulled in by the `dev` extra), vectors
-   are cached as a `float32` `(N, D)` matrix keyed on a WAL-aware DB stamp and
-   scored with a single BLAS `matrix @ q / norms` product. Ranking matches the
-   pure-Python cosine within float tolerance.
-2. **Pure-Python loop** — otherwise each row is decoded and scored with
-   `_cosine_similarity`. No hard numpy dependency is required for base installs.
-
-Use `DAGAYN_EMBEDDING_SEARCH_BACKEND` for local A/B checks:
-
-| Value | Behavior |
-| --- | --- |
-| `rust` | Require Rust native search and surface native errors (default) |
-| `auto` | Rust native search, then Python path (numpy if present, else pure Python) |
-| `python` | Force the Python path (numpy if present, else pure Python) |
-
-Latency comparison (synthetic vectors, no provider calls):
+Search latency (synthetic vectors, no provider calls):
 
 ```bash
-uv run python tools/embedding_search_benchmark.py \
-  --rows 10000 --dim 384 --compare-numpy --compare-python
+uv run python tools/embedding_search_benchmark.py --rows 10000 --dim 384
 ```
+
 ## BGE-M3 Sidecar Preset
 
 | Preset | Runtime | Default platform | Model | Quantization | Dimension |

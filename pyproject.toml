@@ -50,9 +50,6 @@ Upstream = "https://github.com/tirth8205/code-review-graph"
 dagayn = "dagayn._cli_launcher:main"
 
 [project.optional-dependencies]
-numpy = [
-    "numpy>=1.26,<3",
-]
 google-embeddings = [
     "google-genai>=1.0.0,<3",
 ]
@@ -61,10 +58,8 @@ eval = [
 ]
 all = [
     "dagayn[eval]",
-    "dagayn[numpy]",
 ]
 dev = [
-    "numpy>=1.26,<3",
     "pytest>=8.4.2,<9",
     "pytest-cov>=7.1,<8",
     "pytest-xdist>=3.6,<4",

@@ -413,16 +413,10 @@ count and under 20 DB calls total.
 
 **Status:** Shipped.
 
-#### Pure-Python cosine loop → optional numpy matmul / Rust native
-- Default search uses the Rust native SIMD path (`DAGAYN_EMBEDDING_SEARCH_BACKEND=rust`).
-- The Python fallback path (`python` / `auto` after native failure) caches a
-  `numpy.ndarray (N, D)` keyed on a WAL-aware DB stamp and computes cosine via
-  a single BLAS matmul (`vectors @ q / norms`) when numpy is installed
-  (`pip install dagayn[numpy]` or the `dev` extra). Without numpy, the pure-Python
-  cosine loop remains correct.
-- Ranking parity between numpy and pure-Python is covered by unit tests;
-  `tools/embedding_search_benchmark.py --compare-numpy --compare-python`
-  documents latency.
+#### Pure-Python cosine loop → Rust native
+- Search always uses the Rust native SIMD path; the Python cosine loop and the
+  numpy matmul path that once backed it have been removed.
+- `tools/embedding_search_benchmark.py` measures native search latency.
 
 #### `EmbeddingStore` re-instantiated per search ✅
 - `search.py` pins `EmbeddingStore` across `hybrid_search` calls via

@@ -432,11 +432,6 @@ pub(crate) fn search(
     counts: &HashMap<String, i64>,
     request: &Request,
 ) -> Option<(Vec<(i64, f64)>, Value)> {
-    if std::env::var("DAGAYN_EMBEDDING_SEARCH_BACKEND")
-        .is_ok_and(|backend| backend.trim().eq_ignore_ascii_case("python"))
-    {
-        return None;
-    }
     let (hint, mut provider, requested_provider, requested_model) = match request {
         Request::Persisted => {
             let preferred = store.get_metadata("embedding_provider").ok()?;

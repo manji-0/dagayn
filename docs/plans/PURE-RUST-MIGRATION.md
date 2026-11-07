@@ -35,7 +35,7 @@ What a pure Rust build buys:
 - **Git status**: `gix` replaces `git` subprocesses on the freshness path.
 - **Distribution**: 4 static binaries instead of 3 Python ABIs × 4 targets.
   Windows, deferred by the core spec, becomes a build-matrix entry.
-- **Supply chain**: fastmcp, pydantic, networkx, watchdog, and numpy leave
+- **Supply chain**: fastmcp, pydantic, networkx, and watchdog leave
   the dependency set.
 - **One toolchain**: no PyO3 boundary, no ruff/pyrefly beside clippy.
 
@@ -817,7 +817,7 @@ package would shrink the wheel; revisit if wheel size becomes a problem.
 |---|---|
 | `daemon.py`, `incremental_update_pipeline.py` (watchdog) | `notify` |
 | `analysis.py`, `architecture.py` (networkx betweenness, `simple_cycles`) | `petgraph` or in-crate code |
-| `embeddings_store.py` (numpy) | `ndarray` or plain slices |
+| `embeddings_store.py` | `ndarray` or plain slices |
 | `embeddings_providers.py` | `reqwest` |
 | `local_embeddings.py` | unchanged design: it already runs `llama-server` as a sidecar |
 | `refactor/` | `dagayn-graph` |
