@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import re
 import sqlite3
 import struct
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
 
 from .contracts.state_types import EmbeddingStatusRecord, seal_embedding_status
 from .embeddings_providers import (
@@ -70,21 +68,6 @@ def _failure_could_be_one_bad_input(error: Exception) -> bool:
     # that a single bad input would have explained.
     return True
 
-
-_EMBEDDING_SEARCH_BACKENDS = {"auto", "rust", "python"}
-
-if TYPE_CHECKING:
-    import numpy as np
-
-    _NUMPY_AVAILABLE = True
-else:
-    try:
-        import numpy as np
-
-        _NUMPY_AVAILABLE = True
-    except ImportError:
-        np = None  # type: ignore[assignment]
-        _NUMPY_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -483,176 +466,6 @@ def _vector_byte_length(dim: int) -> int:
     return dim * 4
 
 
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Compute cosine similarity between two vectors."""
-    if len(a) != len(b):
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = sum(x * x for x in a) ** 0.5
-    norm_b = sum(x * x for x in b) ** 0.5
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
-
-
-# ---------------------------------------------------------------------------
-# Optional numpy vector cache (used when numpy is installed).
-# key: (db_path_str, provider_name, stamp_ns, vector_bytes)
-# value: (matrix float32 (N, D), names list[str], row_norms float32 (N,))
-# stamp_ns mirrors the Rust backend: max(mtime of db, -wal, -shm).
-# ---------------------------------------------------------------------------
-
-_np_vec_cache: dict[tuple[str, str, int, int], tuple[Any, list[str], Any]] = {}
-
-
-def _file_mtime_ns(path: Path) -> int:
-    try:
-        return path.stat().st_mtime_ns
-    except OSError:
-        return 0
-
-
-def _db_stamp_ns(db_path: Path) -> int:
-    """Return a WAL-aware DB stamp matching the Rust embedding-search cache."""
-    stamp = _file_mtime_ns(db_path)
-    for sibling in (Path(f"{db_path}-wal"), Path(f"{db_path}-shm")):
-        stamp = max(stamp, _file_mtime_ns(sibling))
-    return stamp
-
-
-def _load_vec_matrix(
-    conn: sqlite3.Connection, provider_name: str, *, vector_bytes: int | None = None
-) -> tuple[Any, list[str], Any]:
-    """Load embedding rows for *provider_name* into a numpy matrix."""
-    assert np is not None
-    if vector_bytes is None:
-        sql = "SELECT qualified_name, vector FROM embeddings WHERE provider = ?"
-        params: tuple[Any, ...] = (provider_name,)
-    else:
-        sql = (
-            "SELECT qualified_name, vector FROM embeddings "
-            "WHERE provider = ? AND length(vector) = ?"
-        )
-        params = (provider_name, vector_bytes)
-    rows = conn.execute(sql, params).fetchall()
-    if not rows:
-        empty = np.empty((0, 0), dtype=np.float32)
-        return empty, [], np.empty((0,), dtype=np.float32)
-    names = [r["qualified_name"] for r in rows]
-    vecs = [np.frombuffer(r["vector"], dtype=np.float32).copy() for r in rows]
-    matrix = np.stack(vecs)
-    row_norms = np.linalg.norm(matrix, axis=1).astype(np.float32)
-    return matrix, names, row_norms
-
-
-def _invalidate_np_vec_cache(db_path: Path, provider_name: str | None = None) -> None:
-    """Drop cached numpy matrices for a database (optionally one provider)."""
-    path_key = str(db_path)
-    for key in list(_np_vec_cache):
-        if key[0] != path_key:
-            continue
-        if provider_name is None or key[1] == provider_name:
-            del _np_vec_cache[key]
-
-
-def _python_loop_search(
-    conn: sqlite3.Connection,
-    provider_name: str,
-    query_vec: list[float],
-    limit: int,
-) -> list[tuple[str, float]]:
-    """Pure-Python cosine scan over provider-partitioned embedding rows."""
-    vector_bytes = _vector_byte_length(len(query_vec))
-    scored: list[tuple[str, float]] = []
-    cursor = conn.execute(
-        "SELECT qualified_name, vector FROM embeddings WHERE provider = ? AND length(vector) = ?",
-        (provider_name, vector_bytes),
-    )
-    while True:
-        rows = cursor.fetchmany(500)
-        if not rows:
-            break
-        for row in rows:
-            vec = _decode_vector(row["vector"])
-            sim = _cosine_similarity(query_vec, vec)
-            scored.append((row["qualified_name"], sim))
-    scored.sort(key=lambda x: x[1], reverse=True)
-    return scored[:limit]
-
-
-def _numpy_matmul_search(
-    db_path: Path,
-    conn: sqlite3.Connection,
-    provider_name: str,
-    query_vec: list[float],
-    limit: int,
-) -> list[tuple[str, float]]:
-    """BLAS matmul cosine search over a process-level cached float32 matrix."""
-    assert np is not None
-    vector_bytes = _vector_byte_length(len(query_vec))
-    stamp_ns = _db_stamp_ns(db_path)
-    cache_key = (str(db_path), provider_name, stamp_ns, vector_bytes)
-    vec_cache = _np_vec_cache
-    if cache_key not in vec_cache:
-        vec_cache[cache_key] = _load_vec_matrix(conn, provider_name, vector_bytes=vector_bytes)
-        # Evict stale entries for the same (path, provider) to bound memory
-        for key in list(vec_cache):
-            if (
-                key != cache_key
-                and key[0] == cache_key[0]
-                and key[1] == cache_key[1]
-                and key[3] == cache_key[3]
-            ):
-                del vec_cache[key]
-
-    matrix, names, row_norms = vec_cache[cache_key]
-    if not names:
-        return []
-
-    q = np.array(query_vec, dtype=np.float32)
-    q_norm = float(np.linalg.norm(q))
-    if q_norm == 0.0:
-        return []
-    q = q / q_norm
-
-    # Single BLAS call: (N, D) @ (D,) → (N,)
-    dots = matrix @ q
-    safe_norms = np.where(row_norms > 0, row_norms, 1.0)
-    sims = (dots / safe_norms).astype(np.float32)
-
-    n = len(names)
-    k = min(limit, n)
-    if k <= 0:
-        return []
-    if k == n:
-        top_idx = np.argsort(-sims)
-    else:
-        # argpartition kth is 0-based: k-1 places the k-th largest on the boundary.
-        top_idx = np.argpartition(-sims, k - 1)[:k]
-        top_idx = top_idx[np.argsort(-sims[top_idx])]
-
-    return [(names[int(i)], float(sims[i])) for i in top_idx]
-
-
-def _python_embedding_search(
-    db_path: Path,
-    conn: sqlite3.Connection,
-    provider_name: str,
-    query_vec: list[float],
-    limit: int,
-) -> list[tuple[str, float]]:
-    """Python search path: optional numpy matmul, else pure-Python cosine loop."""
-    if _NUMPY_AVAILABLE:
-        return _numpy_matmul_search(db_path, conn, provider_name, query_vec, limit)
-    return _python_loop_search(conn, provider_name, query_vec, limit)
-
-
-def _embedding_search_backend() -> str:
-    """Return the configured embedding search backend."""
-    backend = os.environ.get("DAGAYN_EMBEDDING_SEARCH_BACKEND", "rust").strip().lower()
-    return backend if backend in _EMBEDDING_SEARCH_BACKENDS else "rust"
-
-
 def _native_embedding_search(
     db_path: str | Path,
     provider_name: str,
@@ -914,7 +727,9 @@ class EmbeddingStore:
         if not self.provider or not to_embed:
             return 0
 
-        provider_name = self._provider_key_for_lookup() or self.provider.name
+        # Seeds an unpinned provider's dimension from the store, so the rows
+        # written below land under the same provider key that lookups use.
+        self._provider_key_for_lookup()
 
         # Encode and persist in provider-sized batches. Persisting each batch
         # makes long local embedding runs resumable if a later request stalls.
@@ -944,7 +759,6 @@ class EmbeddingStore:
                 if len(batch) > 1 and _failure_could_be_one_bad_input(e):
                     embedded += self._embed_nodes_individually_after_batch_failure(
                         batch,
-                        provider_name=provider_name,
                         batch_number=batch_number,
                         batch_total=batch_total,
                         original_error=e,
@@ -983,8 +797,7 @@ class EmbeddingStore:
                     batch[0][0],
                     batch[-1][0],
                 )
-            provider_name = self.provider_key or self.provider.name
-            self._store_vectors(batch, vectors, provider_name)
+            self._store_vectors(batch, vectors)
             embedded += len(batch)
             if use_progress:
                 done = min(i + api_batch, total)
@@ -995,10 +808,8 @@ class EmbeddingStore:
 
         return embedded
 
-    def _store_vectors(
-        self, items: list[EmbedWorkItem], vectors: list[list[float]], cache_provider: str
-    ) -> None:
-        """Upsert one vector per item, commit, and drop *cache_provider*'s matrix cache."""
+    def _store_vectors(self, items: list[EmbedWorkItem], vectors: list[list[float]]) -> None:
+        """Upsert one vector per item and commit."""
         provider = self.provider
         self._conn.executemany(
             """INSERT OR REPLACE INTO embeddings (qualified_name, vector, text_hash, provider)
@@ -1014,13 +825,11 @@ class EmbeddingStore:
             ],
         )
         self._conn.commit()
-        _invalidate_np_vec_cache(self.db_path, cache_provider)
 
     def _embed_nodes_individually_after_batch_failure(
         self,
         batch: list[EmbedWorkItem],
         *,
-        provider_name: str,
         batch_number: int,
         batch_total: int,
         original_error: Exception,
@@ -1047,7 +856,7 @@ class EmbeddingStore:
                 # Concrete providers learn their length from the first response;
                 # the abstract base does not declare the field.
                 setattr(provider, "_dimension", len(vectors[0]))  # noqa: B010
-            self._store_vectors([(qualified_name, text, text_hash)], vectors, provider_name)
+            self._store_vectors([(qualified_name, text, text_hash)], vectors)
             embedded += 1
 
         if failures:
@@ -1071,16 +880,9 @@ class EmbeddingStore:
         return embedded
 
     def search(self, query: str, limit: int = 20) -> list[tuple[str, float]]:
-        """Search for nodes by semantic similarity.
+        """Search for nodes by semantic similarity with the Rust native search.
 
-        The default ``rust`` backend uses the Rust native search path. Set
-        ``DAGAYN_EMBEDDING_SEARCH_BACKEND=auto`` to fall back to the Python
-        path when native search is unavailable, or ``python`` to force the
-        Python path for A/B testing.
-
-        On the Python path, an optional numpy BLAS matmul is used when numpy is
-        installed (``pip install dagayn[numpy]``); otherwise a pure-Python
-        cosine loop runs. Ranking matches within float tolerance across both.
+        Errors from the native search propagate to the caller.
         """
         if not self.provider:
             return []
@@ -1089,29 +891,7 @@ class EmbeddingStore:
         if provider_name is None:
             return []
         query_vec = _embed_query_cached(self.provider, query)
-        backend = _embedding_search_backend()
-
-        if backend in {"auto", "rust"}:
-            try:
-                return _native_embedding_search(
-                    self.db_path,
-                    provider_name,
-                    query_vec,
-                    limit,
-                )
-            except (ImportError, AttributeError, RuntimeError, ValueError, TypeError):
-                if backend == "rust":
-                    raise
-                logger.debug("Native embedding search unavailable; falling back", exc_info=True)
-
-        # Python path: optional numpy matmul, else pure-Python cosine loop
-        return _python_embedding_search(
-            self.db_path,
-            self._conn,
-            provider_name,
-            query_vec,
-            limit,
-        )
+        return _native_embedding_search(self.db_path, provider_name, query_vec, limit)
 
     def prewarm_search(self) -> int:
         """Preload the configured provider's native search matrix cache."""
@@ -1125,7 +905,6 @@ class EmbeddingStore:
     def remove_node(self, qualified_name: str) -> None:
         self._conn.execute("DELETE FROM embeddings WHERE qualified_name = ?", (qualified_name,))
         self._conn.commit()
-        _invalidate_np_vec_cache(self.db_path)
 
     def remove_orphans(
         self,
@@ -1184,8 +963,6 @@ class EmbeddingStore:
                 )
                 deleted += cursor.rowcount if cursor.rowcount is not None else len(chunk)
         self._conn.commit()
-        if deleted:
-            _invalidate_np_vec_cache(self.db_path)
         return deleted
 
     def remove_inactive_provider_partitions(self) -> int:
@@ -1211,7 +988,6 @@ class EmbeddingStore:
             deleted += cursor.rowcount if cursor.rowcount is not None else 0
         if deleted:
             self._conn.commit()
-            _invalidate_np_vec_cache(self.db_path)
         return deleted
 
     def persist_active_provider_metadata(self) -> None:

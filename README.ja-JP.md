@@ -313,7 +313,7 @@ FTS 索引、RRF マージ、リランキング、テキストモード、プロ
 
 `openai` プロバイダは標準の `/v1/embeddings` スキーマを話すため、本物の OpenAI、Azure OpenAI、LiteLLM、vLLM、LocalAI、Ollama（OpenAI モード）などと同様のゲートウェイで動きます。`CRG_OPENAI_BASE_URL` が localhost を指すときはクラウド送信警告は自動で抑制されます。
 
-ベクトル検索はデフォルトで Rust ネイティブのコサイン類似度バックエンドを使います。アーキテクチャ固有の SIMD（aarch64 では NEON、x86_64 では AVX と SSE フォールバック、それ以外はスカラー）でドット積を計算するため、外部 BLAS や Accelerate は不要です。ネイティブ検索が使えないときの Python 経路へのフォールバックは `DAGAYN_EMBEDDING_SEARCH_BACKEND=auto`、A/B テストには `DAGAYN_EMBEDDING_SEARCH_BACKEND=python` を設定します。Python 経路は numpy が入っていれば BLAS matmul（`pip install "dagayn[numpy]"`）、なければ純粋 Python のコサインループです。numpy は必須のハード依存ではありません。
+ベクトル検索は Rust ネイティブのコサイン類似度検索を使います。アーキテクチャ固有の SIMD（aarch64 では NEON、x86_64 では AVX と SSE フォールバック、それ以外はスカラー）でドット積を計算するため、外部 BLAS や Accelerate は不要です。
 `dagayn serve --local-embedding` は管理された llama.cpp GGUF サイドカーで BGE-M3 を動かし、加速を Python プロセスの外に置きます。古い sentence-transformers/PyTorch の `provider="local"` モードは削除済みです。ローカル埋め込みは管理された llama-server サイドカー、または別の localhost 上の OpenAI 互換エンドポイントを指します。
 
 ### 埋め込みの実行

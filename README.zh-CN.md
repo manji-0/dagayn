@@ -313,7 +313,7 @@ FTS 索引、RRF 合并、重排序、文本模式和提供方设置等实现细
 
 `openai` 提供方使用标准 `/v1/embeddings` 模式，因此可用于真正的 OpenAI、Azure OpenAI、LiteLLM、vLLM、LocalAI、Ollama（OpenAI 模式）等类似网关。当 `CRG_OPENAI_BASE_URL` 指向 localhost 时，会自动抑制云出口警告。
 
-向量搜索默认使用 Rust 原生余弦相似度后端。它在 Rust 中用架构特定 SIMD 计算点积（aarch64 上为 NEON，x86_64 上为 AVX 与 SSE 回退，其他为标量），因此不需要外部 BLAS 或 Accelerate。当原生搜索不可用时设置 `DAGAYN_EMBEDDING_SEARCH_BACKEND=auto` 回退到 Python 路径，或用 `DAGAYN_EMBEDDING_SEARCH_BACKEND=python` 做 A/B 测试。Python 路径在安装 numpy 时使用可选 BLAS matmul（`pip install "dagayn[numpy]"`），否则使用纯 Python 余弦循环 — numpy 从来不是必需的硬依赖。
+向量搜索使用 Rust 原生余弦相似度搜索。它在 Rust 中用架构特定 SIMD 计算点积（aarch64 上为 NEON，x86_64 上为 AVX 与 SSE 回退，其他为标量），因此不需要外部 BLAS 或 Accelerate。
 `dagayn serve --local-embedding` 通过托管的 llama.cpp GGUF sidecar 运行 BGE-M3，使加速留在 Python 进程之外。旧的 sentence-transformers/PyTorch `provider="local"` 模式已移除；本地嵌入现在指托管的 llama-server sidecar 或另一个 localhost 上的 OpenAI 兼容端点。
 
 ### 运行嵌入

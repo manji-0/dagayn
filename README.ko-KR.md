@@ -313,7 +313,7 @@ FTS 색인, RRF 병합, 리랭킹, 텍스트 모드, 제공자 설정 등 구현
 
 `openai` 제공자는 표준 `/v1/embeddings` 스키마를 쓰므로 실제 OpenAI, Azure OpenAI, LiteLLM, vLLM, LocalAI, Ollama(OpenAI 모드) 등 유사 게이트웨이에서 동작합니다. `CRG_OPENAI_BASE_URL`이 localhost를 가리키면 클라우드 송신 경고는 자동으로 억제됩니다.
 
-벡터 검색은 기본적으로 Rust 네이티브 코사인 유사도 백엔드를 사용합니다. 아키텍처별 SIMD(aarch64는 NEON, x86_64는 AVX와 SSE 폴백, 그 외는 스칼라)로 내적을 계산하므로 외부 BLAS나 Accelerate가 필요 없습니다. 네이티브 검색을 쓸 수 없을 때 Python 경로로 폴백하려면 `DAGAYN_EMBEDDING_SEARCH_BACKEND=auto`, A/B 테스트에는 `DAGAYN_EMBEDDING_SEARCH_BACKEND=python`을 설정하세요. Python 경로는 numpy가 있으면 선택적 BLAS matmul(`pip install "dagayn[numpy]"`), 없으면 순수 Python 코사인 루프입니다. numpy는 필수 하드 의존이 아닙니다.
+벡터 검색은 Rust 네이티브 코사인 유사도 검색을 사용합니다. 아키텍처별 SIMD(aarch64는 NEON, x86_64는 AVX와 SSE 폴백, 그 외는 스칼라)로 내적을 계산하므로 외부 BLAS나 Accelerate가 필요 없습니다.
 `dagayn serve --local-embedding`은 관리되는 llama.cpp GGUF 사이드카로 BGE-M3를 돌려 가속을 Python 프로세스 밖에 둡니다. 옛 sentence-transformers/PyTorch `provider="local"` 모드는 삭제되었습니다. 로컬 임베딩은 이제 관리되는 llama-server 사이드카 또는 다른 localhost OpenAI 호환 엔드포인트를 뜻합니다.
 
 ### 임베딩 실행

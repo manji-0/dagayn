@@ -204,7 +204,7 @@ regression が現れない限り、これらを新しい improvement candidate �
 - `parse_diff_ranges` LRU cache
 - normalized `edges.target_name` と index-backed lookup
 - `mtime_ns` incremental skip と migration support
-- numpy が利用可能な場合の embedding search matrix cache と BLAS fast path
+- Rust native embedding search の matrix cache と SIMD path
 - process-level `EmbeddingStore` cache
 - local per-MCP-tool latency benchmark machinery
 - docs-scope ADP / SDP cleanup
@@ -341,7 +341,7 @@ regression が現れない限り、これらを新しい improvement candidate �
 
 - docs-scope ADP/SDP の作り直し: 現在の count は 0/0。
 - bridge centrality の persisted scores 化: 実装済み。
-- embedding search cosine loop の vectorized cache 置換: numpy 向けには実装済み。
+- embedding search cosine loop の vectorized cache 置換: Rust native search で実装済み。
 - `parse_diff_ranges` cache の追加: 実装済み。
 - suffix lookup 用の `target_name` column 追加: 実装済み。
 - `mtime_ns` incremental skip の追加: 実装済み。

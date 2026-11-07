@@ -313,7 +313,7 @@ FTS indexing, RRF merge, reranking, text modes, और provider setup जैस�
 
 `openai` provider standard `/v1/embeddings` schema बोलता है, इसलिए real OpenAI, Azure OpenAI, LiteLLM, vLLM, LocalAI, Ollama (OpenAI mode), और similar gateways पर काम करता है। जब `CRG_OPENAI_BASE_URL` localhost point करता है तो cloud egress warning automatically suppress होती है।
 
-Vector search default में Rust native cosine-similarity backend इस्तेमाल करता है। यह architecture-specific SIMD (aarch64 पर NEON, x86_64 पर AVX with SSE fallback, अन्यत्र scalar) से Rust में ही dot products compute करता है, इसलिए external BLAS या Accelerate नहीं चाहिए। Native search unavailable होने पर Python path के लिए `DAGAYN_EMBEDDING_SEARCH_BACKEND=auto`, A/B testing के लिए `DAGAYN_EMBEDDING_SEARCH_BACKEND=python` सेट करें। Python path numpy install होने पर optional BLAS matmul (`pip install "dagayn[numpy]"`) और वरना pure-Python cosine loop इस्तेमाल करता है — numpy required hard dependency नहीं है।
+Vector search Rust native cosine-similarity search इस्तेमाल करता है। यह architecture-specific SIMD (aarch64 पर NEON, x86_64 पर AVX with SSE fallback, अन्यत्र scalar) से Rust में ही dot products compute करता है, इसलिए external BLAS या Accelerate नहीं चाहिए।
 `dagayn serve --local-embedding` BGE-M3 को managed llama.cpp GGUF sidecar से चलाता है ताकि acceleration Python process के बाहर रहे। पुराना sentence-transformers/PyTorch `provider="local"` mode हटा दिया गया है; local embedding अब managed llama-server sidecar या दूसरा localhost OpenAI-compatible endpoint है।
 
 ### Running embedding
