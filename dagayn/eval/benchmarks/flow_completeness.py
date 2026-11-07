@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -16,9 +17,9 @@ type BenchmarkPayload = dict[str, BenchmarkValue]
 
 def run(repo_path: Path, store: Any, config: BenchmarkPayload) -> list[BenchmarkPayload]:
     """Run flow completeness benchmark."""
-    from dagayn.flows import detect_entry_points
-
-    detected_entries = [node.qualified_name for node in detect_entry_points(store)]
+    detected_entries = [
+        row["qualified_name"] for row in json.loads(store.detect_entry_points_json(False))
+    ]
 
     known_entries = config.get("entry_points", [])
     matcher = IdentifierMatcher.from_config(config)
