@@ -780,8 +780,7 @@ impl PyGraphStore {
         impact_radius_to_py(py, radius)
     }
 
-    /// The SQL engine is the only implementation here; Python keeps a NetworkX
-    /// variant behind `CRG_BFS_ENGINE=networkx` for the same result.
+    /// The SQL engine is the only implementation.
     #[pyo3(signature = (changed_files, max_depth = 2, max_nodes = 500))]
     fn get_impact_radius_sql(
         &self,

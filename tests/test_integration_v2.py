@@ -16,10 +16,10 @@ from dagayn.communities import (
 from dagayn.graph import GraphStore
 from dagayn.parser import EdgeInfo, NodeInfo
 from dagayn.prompts import review_changes_prompt
-from dagayn.refactor import find_dead_code
 from dagayn.registry import Registry
 from dagayn.search import hybrid_search, rebuild_fts_index
 from tests.dead_code_candidates import graph_dead_code_candidates
+from tests.native_json import find_dead_code
 
 
 class TestV2Integration:

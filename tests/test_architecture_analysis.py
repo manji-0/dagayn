@@ -7,7 +7,7 @@ import inspect
 import subprocess
 import sys
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 import pytest
 
@@ -74,3 +74,81 @@ def test_architecture_analysis_routes_every_mode(repo: Path) -> None:
         assert result["mode"] == mode
         assert result["called_subtool"] == subtool
         assert result["status"] == "ok", (mode, result.get("summary"))
+
+
+def _build_repo(root: Path, files: dict[str, str]) -> Path:
+    (root / ".git").mkdir(parents=True)
+    for name, text in files.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text)
+    subprocess.run([DAGAYN, "build", "--repo", root], check=True, capture_output=True)
+    return root
+
+
+def _cycles(
+    root: Path,
+    scope_kind: Literal["file", "package", "directory"] = "package",
+    artifact_scope: Literal["code", "docs", "all"] = "code",
+) -> list[list[str]]:
+    result = architecture_analysis.architecture_analysis_func(
+        mode="import_cycles",
+        repo_root=str(root),
+        scope_kind=scope_kind,
+        artifact_scope=artifact_scope,
+    )
+    assert result["status"] == "ok", result
+    assert result["results_complete"] is True, result
+    assert result["cycle_count"] == len(result["cycles"]), result
+    return result["cycles"]
+
+
+def test_import_cycles_are_empty_without_a_cycle(tmp_path: Path) -> None:
+    root = _build_repo(
+        tmp_path / "linear",
+        {
+            "a.py": "from b import g\n\n\ndef f():\n    return g()\n",
+            "b.py": "from c import h\n\n\ndef g():\n    return h()\n",
+            "c.py": "def h():\n    return 1\n",
+        },
+    )
+    assert _cycles(root, scope_kind="file") == []
+
+
+def test_import_cycles_are_empty_for_an_empty_repository(tmp_path: Path) -> None:
+    assert _cycles(_build_repo(tmp_path / "empty", {})) == []
+
+
+def test_import_cycles_name_a_two_file_cycle(tmp_path: Path) -> None:
+    root = _build_repo(
+        tmp_path / "two",
+        {
+            "a.py": "from b import g\n\n\ndef f():\n    return g()\n",
+            "b.py": "from a import f\n\n\ndef g():\n    return f()\n",
+        },
+    )
+    assert _cycles(root, scope_kind="file") == [["a.py", "b.py"]]
+
+
+def test_mutual_imports_inside_one_directory_are_no_directory_cycle(tmp_path: Path) -> None:
+    root = _build_repo(
+        tmp_path / "samedir",
+        {
+            "pkg/a.py": "from pkg.b import g\n\n\ndef f():\n    return g()\n",
+            "pkg/b.py": "from pkg.a import f\n\n\ndef g():\n    return f()\n",
+        },
+    )
+    assert _cycles(root, scope_kind="directory") == []
+    assert _cycles(root, scope_kind="file") == [["pkg/a.py", "pkg/b.py"]]
+
+
+def test_import_cycles_between_documents_need_the_docs_scope(tmp_path: Path) -> None:
+    root = _build_repo(
+        tmp_path / "docs",
+        {
+            "docs/a.md": "# A\n\nSee [b](b.md).\n",
+            "docs/b.md": "# B\n\nSee [a](a.md).\n",
+            "src/x.py": "def f():\n    return 1\n",
+        },
+    )
+    assert _cycles(root, scope_kind="file") == []
+    assert _cycles(root, scope_kind="file", artifact_scope="docs") == [["docs/a.md", "docs/b.md"]]

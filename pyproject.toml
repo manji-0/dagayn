@@ -34,7 +34,6 @@ dependencies = [
     # while CI only exercises the locked one.
     "fastmcp>=3.2.4,<5",
     "pydantic>=2.10,<3",
-    "networkx>=3.2,<4",
     "watchdog>=4.0.0,<8",
 ]
 
@@ -162,6 +161,5 @@ missing-import = false
 # Type-checking tools; test tools are in the `dev` extra.
 dev = [
     "pyrefly>=0.33.0",
-    "types-networkx>=3.6,<4",
     "types-PyYAML>=6.0.12,<7",
 ]

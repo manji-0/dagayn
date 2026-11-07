@@ -15,6 +15,7 @@ from dagayn.tools.flow_dispatcher import flow_func
 from dagayn.tools.query import list_graph_stats
 from dagayn.tools.refactor_tools import apply_refactor_func, refactor_func
 from dagayn.tools.review_dispatcher import review_func
+from tests.native_json import drop_pending_refactor, pending_refactor
 
 DAGAYN = Path(sys.executable).with_name("dagayn")
 
@@ -160,8 +161,6 @@ def rename_repo(repo: Path) -> Path:
 
 
 def test_refactor_rename_previews_through_rust(rename_repo: Path) -> None:
-    from dagayn.refactor import _pending_refactors
-
     result = refactor_func(
         mode="rename", old_name="helper", new_name="assist", repo_root=str(rename_repo)
     )
@@ -190,8 +189,10 @@ def test_refactor_rename_previews_through_rust(rename_repo: Path) -> None:
     ]
     assert result["_repo"]["repo_root"] == str(rename_repo.resolve())
     # The preview waits in the store apply_refactor_tool reads.
-    assert _pending_refactors[refactor_id]["edits"] == result["edits"]
-    del _pending_refactors[refactor_id]
+    pending = pending_refactor(refactor_id)
+    assert pending is not None
+    assert pending["edits"] == result["edits"]
+    drop_pending_refactor(refactor_id)
 
     missing = refactor_func(
         mode="rename", old_name="no_such_symbol_zz", new_name="x", repo_root=str(rename_repo)

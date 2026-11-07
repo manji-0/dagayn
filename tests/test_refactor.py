@@ -10,15 +10,18 @@ import pytest
 from dagayn.communities import store_communities
 from dagayn.graph import GraphStore
 from dagayn.parser import CodeParser, EdgeInfo, NodeInfo
-from dagayn.refactor import (
-    REFACTOR_EXPIRY_SECONDS,
-    _pending_refactors,
-    _refactor_lock,
-    suggest_refactorings,
-)
-from dagayn.refactor.dead_code import _source_line
 from dagayn.tools.refactor_tools import apply_refactor_func
 from tests.dead_code_candidates import graph_dead_code_candidates
+from tests.native_json import (
+    REFACTOR_EXPIRY_SECONDS,
+    clear_pending_refactors,
+    dead_code_report,
+    drop_pending_refactor,
+    pending_refactor,
+    pending_refactor_ids,
+    put_pending_refactor,
+    suggest_refactorings,
+)
 
 
 def apply_refactor(refactor_id: str, root: Path, dry_run: bool = False) -> dict:
@@ -28,15 +31,6 @@ def apply_refactor(refactor_id: str, root: Path, dry_run: bool = False) -> dict:
 
 class TestFindDeadCode:
     """Tests for find_dead_code."""
-
-    def test_source_line_bounds(self):
-        """Source lookup returns stripped lines and treats invalid locations as missing."""
-        lines = ["def kept():", "    return 1"]
-        assert _source_line(lines, 1) == "def kept():"
-        assert _source_line(lines, 2) == "return 1"
-        assert _source_line(lines, 0) == ""
-        assert _source_line(lines, 3) == ""
-        assert _source_line(lines, None) == ""
 
     def setup_method(self):
         self.tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -1785,12 +1779,10 @@ class TestApplyRefactor:
     """Tests for apply_refactor."""
 
     def setup_method(self):
-        with _refactor_lock:
-            _pending_refactors.clear()
+        clear_pending_refactors()
 
     def teardown_method(self):
-        with _refactor_lock:
-            _pending_refactors.clear()
+        clear_pending_refactors()
 
     def test_apply_refactor_validates_id(self):
         """apply_refactor rejects nonexistent refactor_id."""
@@ -1812,8 +1804,9 @@ class TestApplyRefactor:
         try:
             # Insert a preview that is already expired.
             rid = "expired1"
-            with _refactor_lock:
-                _pending_refactors[rid] = {
+            put_pending_refactor(
+                rid,
+                {
                     "refactor_id": rid,
                     "type": "rename",
                     "old_name": "old",
@@ -1821,7 +1814,8 @@ class TestApplyRefactor:
                     "edits": [],
                     "stats": {"high": 0, "medium": 0, "low": 0},
                     "created_at": time.time() - REFACTOR_EXPIRY_SECONDS - 10,
-                }
+                },
+            )
             result = apply_refactor(rid, tmp_dir)
             assert result["status"] == "error"
             assert "expired" in result["error"].lower()
@@ -1835,8 +1829,9 @@ class TestApplyRefactor:
         (tmp_dir / ".git").mkdir()
         try:
             rid = "traversal"
-            with _refactor_lock:
-                _pending_refactors[rid] = {
+            put_pending_refactor(
+                rid,
+                {
                     "refactor_id": rid,
                     "type": "rename",
                     "old_name": "old",
@@ -1852,7 +1847,8 @@ class TestApplyRefactor:
                     ],
                     "stats": {"high": 1, "medium": 0, "low": 0},
                     "created_at": time.time(),
-                }
+                },
+            )
             result = apply_refactor(rid, tmp_dir)
             assert result["status"] == "error"
             assert "outside repo root" in result["error"].lower()
@@ -1868,8 +1864,9 @@ class TestApplyRefactor:
         target_file.write_text("def old_func():\n    pass\n", encoding="utf-8")
         try:
             rid = "success1"
-            with _refactor_lock:
-                _pending_refactors[rid] = {
+            put_pending_refactor(
+                rid,
+                {
                     "refactor_id": rid,
                     "type": "rename",
                     "old_name": "old_func",
@@ -1885,7 +1882,8 @@ class TestApplyRefactor:
                     ],
                     "stats": {"high": 1, "medium": 0, "low": 0},
                     "created_at": time.time(),
-                }
+                },
+            )
             result = apply_refactor(rid, tmp_dir)
             assert result["status"] == "ok"
             assert result["edits_applied"] == 1
@@ -1908,8 +1906,9 @@ class TestApplyRefactor:
         target_file.write_text("def old_func():\n    pass\n", encoding="utf-8")
         try:
             rid = "relative1"
-            with _refactor_lock:
-                _pending_refactors[rid] = {
+            put_pending_refactor(
+                rid,
+                {
                     "refactor_id": rid,
                     "type": "rename",
                     "old_name": "old_func",
@@ -1925,7 +1924,8 @@ class TestApplyRefactor:
                     ],
                     "stats": {"high": 1, "medium": 0, "low": 0},
                     "created_at": time.time(),
-                }
+                },
+            )
             result = apply_refactor(rid, tmp_dir)
             assert result["status"] == "ok"
             assert result["edits_applied"] == 1
@@ -1949,8 +1949,9 @@ class TestApplyRefactor:
         target_file.write_text(original, encoding="utf-8")
         try:
             rid = "dryrun1"
-            with _refactor_lock:
-                _pending_refactors[rid] = {
+            put_pending_refactor(
+                rid,
+                {
                     "refactor_id": rid,
                     "type": "rename",
                     "old_name": "old_func",
@@ -1966,7 +1967,8 @@ class TestApplyRefactor:
                     ],
                     "stats": {"high": 1, "medium": 0, "low": 0},
                     "created_at": time.time(),
-                }
+                },
+            )
 
             # Step 1: dry_run — no writes, returns diff
             result = apply_refactor(rid, tmp_dir, dry_run=True)
@@ -1984,8 +1986,7 @@ class TestApplyRefactor:
             assert target_file.read_text(encoding="utf-8") == original
 
             # Step 2: refactor_id should still be valid — dry_run doesn't consume it
-            with _refactor_lock:
-                assert rid in _pending_refactors
+            assert pending_refactor(rid) is not None
 
             # Step 3: real apply — uses same refactor_id
             real_result = apply_refactor(rid, tmp_dir, dry_run=False)
@@ -1999,8 +2000,7 @@ class TestApplyRefactor:
             assert "old_func" not in new_content
 
             # refactor_id consumed after real apply
-            with _refactor_lock:
-                assert rid not in _pending_refactors
+            assert pending_refactor(rid) is None
         finally:
             target_file.unlink(missing_ok=True)
             (tmp_dir / ".git").rmdir()
@@ -2012,8 +2012,9 @@ class TestApplyRefactor:
         (tmp_dir / ".git").mkdir()
         try:
             rid = "dryrun-empty"
-            with _refactor_lock:
-                _pending_refactors[rid] = {
+            put_pending_refactor(
+                rid,
+                {
                     "refactor_id": rid,
                     "type": "rename",
                     "old_name": "x",
@@ -2021,49 +2022,37 @@ class TestApplyRefactor:
                     "edits": [],
                     "stats": {"high": 0, "medium": 0, "low": 0},
                     "created_at": time.time(),
-                }
+                },
+            )
             result = apply_refactor(rid, tmp_dir, dry_run=True)
             assert result["status"] == "ok"
             assert result["dry_run"] is True
             assert result["would_modify"] == []
             assert result["diffs"] == {}
         finally:
-            with _refactor_lock:
-                _pending_refactors.pop("dryrun-empty", None)
+            drop_pending_refactor("dryrun-empty")
             (tmp_dir / ".git").rmdir()
             tmp_dir.rmdir()
 
 
 class TestPendingRefactorsThreadSafe:
-    """Tests for thread-safety of the pending refactors storage."""
+    """The native pending store takes concurrent writers."""
 
-    def test_pending_refactors_thread_safe(self):
-        """The _refactor_lock is a threading.Lock instance."""
-        assert isinstance(_refactor_lock, type(threading.Lock()))
+    def teardown_method(self):
+        clear_pending_refactors()
 
     def test_concurrent_access(self):
-        """Multiple threads can safely access _pending_refactors."""
-        results = []
-
         def writer(rid: str):
-            with _refactor_lock:
-                _pending_refactors[rid] = {
-                    "refactor_id": rid,
-                    "created_at": time.time(),
-                }
-                results.append(rid)
+            put_pending_refactor(rid, {"refactor_id": rid, "created_at": time.time()})
 
+        clear_pending_refactors()
         threads = [threading.Thread(target=writer, args=(f"t{i}",)) for i in range(10)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
 
-        with _refactor_lock:
-            assert len(results) == 10
-            assert len(_pending_refactors) >= 10
-            # Clean up
-            _pending_refactors.clear()
+        assert set(pending_refactor_ids()) == {f"t{i}" for i in range(10)}
 
 
 class TestFindDeadCodeWithReferences:
@@ -2348,8 +2337,9 @@ class TestApplyRefactorIdentifierBoundaries:
     """Edits must land on the recorded identifier, or be reported as skipped."""
 
     def _pending(self, rid: str, target_file: Path, line: int, old: str, new: str) -> None:
-        with _refactor_lock:
-            _pending_refactors[rid] = {
+        put_pending_refactor(
+            rid,
+            {
                 "refactor_id": rid,
                 "type": "rename",
                 "old_name": old,
@@ -2365,7 +2355,8 @@ class TestApplyRefactorIdentifierBoundaries:
                 ],
                 "stats": {"high": 1, "medium": 0, "low": 0},
                 "created_at": time.time(),
-            }
+            },
+        )
 
     def test_longer_identifier_on_the_same_line_is_left_alone(self):
         """Substring replacement renamed a different function and missed the call."""
@@ -2568,8 +2559,6 @@ class TestDeadCodeVerification:
         )
 
     def test_only_names_used_nowhere_are_claimed(self, tmp_path):
-        from dagayn.refactor import dead_code_report
-
         store = self._store(
             tmp_path,
             {
@@ -2596,8 +2585,6 @@ class TestDeadCodeVerification:
         assert report["verification"]["status"] == "complete"
 
     def test_registration_and_overrides_are_not_claimed(self, tmp_path):
-        from dagayn.refactor import dead_code_report
-
         store = self._store(
             tmp_path,
             {
@@ -2640,8 +2627,6 @@ class TestDeadCodeVerification:
         }
 
     def test_nothing_is_claimed_without_the_sources(self, tmp_path):
-        from dagayn.refactor import dead_code_report
-
         store = GraphStore(tmp_path / "graph.db")
         self._function(store, "gone", "missing.py", 1)
         store.commit()
@@ -2665,7 +2650,6 @@ class TestDeadCodeAcrossLanguages:
         import shutil
 
         from dagayn.incremental_build import full_build
-        from dagayn.refactor import dead_code_report
 
         repo = tmp_path / "repo"
         shutil.copytree(self.FIXTURE, repo)

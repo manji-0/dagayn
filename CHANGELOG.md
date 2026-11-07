@@ -29,6 +29,16 @@ All notable changes to `dagayn` are documented here.
   `dagayn[all]` and `dagayn[dev]` no longer install numpy.
   `tools/embedding_search_benchmark.py` now times only the native search;
   its `--compare-numpy` and `--compare-python` options are removed.
+- The Python wrappers over analyses that Rust already answers are gone:
+  `dagayn.architecture` (the networkx dependency-graph projection and its
+  `find_adp_violations`), `dagayn.flows`, `dagayn.entry_point_heuristics`,
+  `dagayn._scope`, `dagayn.contracts.dependency_profiles`, and the
+  `dagayn.refactor` package. `architecture_analysis_tool`, `flow_tool`, and
+  `refactor_tool` return the same answers as before, because Rust computed
+  them already. The `networkx` requirement is dropped, and with it the
+  `types-networkx` type stubs and their `numpy` dependency. Code that
+  imported those modules must call the Rust tools or the `GraphStore` JSON
+  methods instead.
 
 ## 11.1.0 — 2026-11-07
 
