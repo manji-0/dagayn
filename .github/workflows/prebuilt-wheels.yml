@@ -14,34 +14,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # One abi3 wheel per platform covers CPython 3.12 and later (#341);
+        # it is built with 3.12, the oldest supported, and checked on each.
         include:
           - os: ubuntu-latest
             platform: linux-amd64
-            python-version: "3.12"
-          - os: ubuntu-latest
-            platform: linux-amd64
-            python-version: "3.13"
-          - os: ubuntu-latest
-            platform: linux-amd64
-            python-version: "3.14"
           - os: macos-15
             platform: macos-arm64
-            python-version: "3.12"
-          - os: macos-15
-            platform: macos-arm64
-            python-version: "3.13"
-          - os: macos-15
-            platform: macos-arm64
-            python-version: "3.14"
     runs-on: ${{ matrix.os }}
-    name: ${{ matrix.platform }} py${{ matrix.python-version }}
+    name: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v6
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8.2.0
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
           enable-cache: true
 
       - name: Install Rust
@@ -76,16 +64,21 @@ jobs:
         run: |
           export PATH="${HOME}/.cargo/bin:$PATH"
           uvx maturin build --release --out dist -i python
+          # One stable-ABI wheel, not one per Python version.
+          ls dist/*-cp312-abi3-*.whl
 
       - name: Smoke-test the installed dagayn command
         # The console script runs build/update/status in the Rust CLI inside
         # ``_core`` and everything else in Python; check both from a fresh
         # install of the wheel, and that the two agree on ``status``. ``-P``
         # keeps the checkout's source ``dagayn`` (no ``_core``) off sys.path.
+        # The one abi3 wheel runs on every supported CPython; the later steps
+        # use the 3.12 install.
         shell: bash
         run: |
-          venv="${RUNNER_TEMP}/wheel-smoke"
-          uv venv "$venv" --python "${{ matrix.python-version }}"
+          for py in 3.12 3.13 3.14 3.15; do
+          venv="${RUNNER_TEMP}/wheel-smoke-$py"
+          uv venv "$venv" --python "$py"
           uv pip install --python "$venv/bin/python" dist/*.whl
           repo="$(mktemp -d)"
           cp -R tests/fixtures/parity/python_only/. "$repo"
@@ -124,6 +117,8 @@ jobs:
           assert reply["result"]["isError"] is True, reply
           assert boots == 1
           PY
+          done
+          ln -s "${RUNNER_TEMP}/wheel-smoke-3.12" "${RUNNER_TEMP}/wheel-smoke"
 
       - name: Smoke-test the bundled TypeScript indexer
         shell: bash
@@ -154,7 +149,7 @@ jobs:
       - name: Upload wheel artifact
         uses: actions/upload-artifact@v7
         with:
-          name: wheels-${{ matrix.platform }}-py${{ matrix.python-version }}
+          name: wheels-${{ matrix.platform }}
           path: dist/*.whl
           if-no-files-found: error
           retention-days: 14
