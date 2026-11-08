@@ -265,8 +265,14 @@ pub const EXTRACTOR_VERSIONS: &[ExtractorVersion] = &[
         // 28: a function under a `tests/` or `test/` directory is a test only
         // by a test attribute; the helpers and test doubles there are
         // `is_test` Functions.
+        // 29: a bare call of a name a `use` brought in records that module's
+        // file (`module_file`); a call in a `let` closure of the closure's own
+        // name is the function the name meant before it; a function in a
+        // tuple, an array, or a struct field's value is a reference, and a
+        // struct pattern's shorthand field (`let S { ranges } = s`) is a
+        // local that shadows a same-named function.
         extractor: "rust",
-        version: 28,
+        version: 29,
         languages: &["rust"],
     },
     ExtractorVersion {

@@ -3,7 +3,9 @@ use crate::postprocess::external_calls::{
     mark_deref_calls, mark_glob_imported_external_calls, mark_observed_method_calls,
     mark_stdlib_method_calls, resolve_enum_variant_calls,
 };
-use crate::postprocess::reexports::resolve_reexported_targets;
+use crate::postprocess::reexports::{
+    ModuleImports, imported_declaration, load_module_imports, resolve_reexported_targets,
+};
 use crate::postprocess::returned::{
     COMMON_MEMBERS, ResolveContext, go_directory, resolve_member_shapes, resolve_pyo3_methods,
     resolve_returned_receivers,
@@ -430,6 +432,7 @@ fn bind_bare_call_targets(
     tx: &Transaction<'_>,
     index: &HashMap<String, Vec<String>>,
     import_targets: &HashMap<String, HashSet<String>>,
+    module_imports: &HashMap<String, ModuleImports>,
     visibility: &SymbolVisibility,
     on_returned_values: bool,
 ) -> Result<i64> {
@@ -580,9 +583,13 @@ fn bind_bare_call_targets(
                     visibility,
                 )
             }
-            (None, Some(module_file)) => {
-                resolve_in_module(&candidates, module_file, import_targets)
-            }
+            (None, Some(module_file)) => resolve_in_module(
+                &candidates,
+                &target_qualified,
+                module_file,
+                import_targets,
+                module_imports,
+            ),
             (None, None) => resolve_via_imports(&candidates, &src_file, import_targets, visibility),
         };
         let Some((qualified, confidence, tier)) = resolution else {
@@ -734,12 +741,15 @@ pub(crate) fn resolve_via_imports(
 }
 
 /// A call through a module path (Rust `crate::util::f()`, `module_file` on
-/// the edge): a top-level symbol of that module's file, else of a file the
-/// module re-exports or imports.
+/// the edge): a top-level symbol of that module's file, else the one the
+/// module's imports bind the name to, else of a file the module re-exports
+/// or imports.
 fn resolve_in_module(
     candidates: &[String],
+    name: &str,
     module_file: &str,
     import_targets: &HashMap<String, HashSet<String>>,
+    module_imports: &HashMap<String, ModuleImports>,
 ) -> Option<(String, f64, ConfidenceTier)> {
     let top_level = |qn: &&String| {
         !qn.split_once("::")
@@ -758,6 +768,11 @@ fn resolve_in_module(
             DIRECT_IMPORT_CONFIDENCE,
             ConfidenceTier::High,
         ));
+    }
+    let declarations: HashSet<String> = candidates.iter().filter(top_level).cloned().collect();
+    if let Some(qualified) = imported_declaration(module_file, name, module_imports, &declarations)
+    {
+        return Some((qualified, DIRECT_IMPORT_CONFIDENCE, ConfidenceTier::High));
     }
     let reachable: Vec<&String> = candidates
         .iter()
@@ -946,8 +961,16 @@ impl GraphStore {
         let import_targets = context.import_targets();
         let visibility = symbol_visibility(&tx)?;
         let index = load_bare_name_index(&tx, &["Function", "Test", "Class"])?;
+        let module_imports = load_module_imports(&tx)?;
         let mut resolved = resolve_member_shapes(&tx, &context)?;
-        resolved += bind_bare_call_targets(&tx, &index, import_targets, &visibility, false)?;
+        resolved += bind_bare_call_targets(
+            &tx,
+            &index,
+            import_targets,
+            &module_imports,
+            &visibility,
+            false,
+        )?;
         resolved += resolve_enum_variant_calls(&tx)?;
         // Twice: a call these passes type (`repo_root.join(x)` as `std`) is
         // the origin a call on its result (`.exists()`) waits for.
@@ -958,7 +981,14 @@ impl GraphStore {
             mark_deref_calls(&tx)?;
             mark_stdlib_method_calls(&tx, &context)?;
         }
-        resolved += bind_bare_call_targets(&tx, &index, import_targets, &visibility, true)?;
+        resolved += bind_bare_call_targets(
+            &tx,
+            &index,
+            import_targets,
+            &module_imports,
+            &visibility,
+            true,
+        )?;
         // Last: what every other pass typed is what it learns from.
         mark_observed_method_calls(&tx, &context)?;
         // A call it typed (`conn.prepare(..)` as `rusqlite`'s) is the origin
