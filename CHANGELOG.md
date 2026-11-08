@@ -4,6 +4,8 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+## 11.2.0 — 2026-11-09
+
 ### Added
 
 - CI gates Go test reach (#293). The `rust-backend` job runs testify
@@ -16,7 +18,6 @@ All notable changes to `dagayn` are documented here.
   floors 0.81, 0.43, and 0.73, against 0.842, 0.468, and 0.765. Tested
   precision is under the 0.90 bar, so this floor only stops regressions
   (#295 tracks the gap).
-
 - Python 3.15 is supported: CI runs the tests on it and the prebuilt
   wheel is checked on it. The `watchdog` requirement is now
   `>=4.0.0,<8`, since only watchdog 7 has 3.15 wheels.
