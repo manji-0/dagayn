@@ -6,6 +6,12 @@ All notable changes to `dagayn` are documented here.
 
 ### Added
 
+- CI gates Go test reach (#293). The `rust-backend` job runs testify
+  v1.12.1's tests with coverage (`eval/go_test_reach_corpus.sh`), builds
+  its graph, and fails when untested precision, recall, or tested
+  precision falls below `eval/test_reach_go_thresholds.yaml`: 0.93, 0.96,
+  and 0.96, against 0.965, 0.993, and 0.991 measured at go extractor 19.
+
 - Python 3.15 is supported: CI runs the tests on it and the prebuilt
   wheel is checked on it. The `watchdog` requirement is now
   `>=4.0.0,<8`, since only watchdog 7 has 3.15 wheels.

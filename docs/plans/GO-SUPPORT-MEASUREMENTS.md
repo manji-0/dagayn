@@ -58,8 +58,31 @@ repository with git history.
 
 testify matches the plan exactly (735, 720, 277 = 111 + 166). compress is
 the second repository: 1,150 of the 1,155 functions its listing names match
-a node. Met. No floor is set: Go has no CI coverage run, and these numbers
-only show that almost everything is called untested.
+a node. Met. No floor was set then: Go had no CI coverage run, and these
+numbers only showed that almost everything was called untested.
+
+### The CI floor
+
+<!-- derived-from #m2-test-reach-against-go-coverage -->
+
+CI now gates Go test reach on testify v1.12.1 (#293).
+`eval/go_test_reach_corpus.sh` takes testify from the module proxy, runs
+the tests of `assert`, `require`, `internal`, and `mock` with
+`-coverpkg` over the same packages, and builds a plain graph. `suite`'s
+own tests panic under Go 1.24, `http` has no tests, and
+`TestDirExists` and `TestNoDirExists` are skipped, because they stat paths
+of the source tree. The `rust-backend` job then runs
+`run_test_reach_eval.py --gate` against
+`eval/test_reach_go_thresholds.yaml`.
+
+| Repository (go extractor 19) | Functions | Called untested | Ran, called untested | `no_callers` / `no_test_path` / `beyond_limit` (ran) | Untested precision | Recall | Tested precision |
+|---|---|---|---|---|---|---|---|
+| testify | 796 | 455 | 16 | 14 / 2 / 0 | 0.965 | 0.993 | 0.991 |
+
+The floors are 0.93, 0.96, and 0.96, about 0.03 under these values, as
+Rust's are. A floor raised above its measured value fails the gate. The
+gate covers testify only. compress, whose untested precision was 0.381 at
+go 12, has no floor yet.
 
 ## G1: Go tests in the graph
 
@@ -196,9 +219,10 @@ declaration of its receiver (in parentheses).
 
 testify's 39 remaining `no_callers` are `assert`'s functions that `require`
 calls through the `assert.` qualifier (`assertion_format.go::Errorf`):
-calls into another package, which the next item binds. No floor is set:
-untested precision is 0.913 on testify but 0.304 on compress, and Go has
-no coverage run in CI.
+calls into another package, which the next item binds. No floor was set
+then: untested precision was 0.913 on testify but 0.304 on compress, and
+Go had no coverage run in CI. testify's floor came later
+([the CI floor](#the-ci-floor)).
 
 ### Why the no-caller bar is not met
 
