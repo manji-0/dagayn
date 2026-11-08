@@ -914,6 +914,9 @@ class TestBudgetOverrun:
     def test_repeated_overruns_park_the_update_and_suspend_hook_updates(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        # The worker calls it through its `_TASK_EXECUTORS` table, which the
+        # graph does not follow (docs/plans/TEST-REACH-TARGET.md#callers-but-no-test-path).
+        # dagayn: tests dagayn/tools/queue_worker.py::_execute_update
         queue = TaskQueue(queue_db_path(tmp_path))
         queue.enqueue("update")
         queue.close()
