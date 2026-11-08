@@ -30,6 +30,22 @@ All notable changes to `dagayn` are documented here.
   project under its 10 GiB limit for longer. The 11.1.0 upload hit that
   limit.
 
+### Fixed
+
+- Rust test reach no longer calls nine tested functions untested on
+  dagayn itself. The graph now follows three rules the language sets.
+  A bare call of a name a `use` brought in (`use crate::query::f; f()`)
+  reaches the function through the module's own re-export
+  (`pub(crate) use rows::f`), even when another `f` is visible. A
+  closure bound by `let f = |..| f(..)` calls the `f` that was in scope
+  before the `let`, not itself. A function in a tuple, an array, or a
+  struct field's value (`Some((is_builtin, "k"))`) is a reference. A
+  struct pattern's shorthand field (`let S { ranges } = s`) is now a
+  local, so it no longer counts as a reference to a same-named function.
+  Rust extractor 28 -> 29. On dagayn the Rust gate goes from untested
+  precision 0.437, recall 0.282, tested precision 0.952 (135 untested
+  claims) to 0.464, 0.278, and 0.952 (125 claims).
+
 ### Removed
 
 - The Python embedding search is gone: the numpy matmul path and the

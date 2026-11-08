@@ -18,9 +18,30 @@ const MAX_HOPS: usize = 8;
 /// there), and the modules it star-imports (`from .x import *`, Rust `use
 /// x::*`).
 #[derive(Default)]
-struct ModuleImports {
+pub(crate) struct ModuleImports {
     names: HashMap<String, (String, String)>,
     stars: Vec<String>,
+}
+
+/// What each module file's imports bring in, by the module's file.
+pub(crate) fn load_module_imports(tx: &Transaction<'_>) -> Result<HashMap<String, ModuleImports>> {
+    let mut stmt = tx.prepare("SELECT qualified_name FROM nodes WHERE kind = 'File'")?;
+    let files = stmt
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<std::result::Result<HashSet<_>, _>>()?;
+    module_imports(tx, &files)
+}
+
+/// The declaration among `declarations` that `name` stands for in
+/// `module_file` through the module's imports (`pub(crate) use
+/// rows::cross_artifact_role` in `query/mod.rs`).
+pub(crate) fn imported_declaration(
+    module_file: &str,
+    name: &str,
+    imports: &HashMap<String, ModuleImports>,
+    declarations: &HashSet<String>,
+) -> Option<String> {
+    follow(module_file, name, imports, declarations, 0)
 }
 
 fn module_imports(

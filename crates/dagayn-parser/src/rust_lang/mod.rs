@@ -547,7 +547,7 @@ fn rust_walk_children(
                 }
             }
 
-            "arguments" => {
+            "arguments" | "tuple_expression" | "array_expression" | "field_initializer" => {
                 rust_emit_argument_references(
                     child,
                     context,
@@ -1328,6 +1328,18 @@ fn rust_keep_bare_calls_in_scope(
         })
         .map(path_of)
         .collect();
+    let closures: HashSet<String> = nodes
+        .iter()
+        .filter(|node| node.extra["rust_kind"] == "closure")
+        .map(path_of)
+        .collect();
+    let free_functions: HashSet<&str> = nodes
+        .iter()
+        .filter(|node| {
+            node.kind == crate::core::types::NodeKind::Function && node.parent_name.is_none()
+        })
+        .map(|node| node.name.as_str())
+        .collect();
     for (edge, was_bare) in edges.iter_mut().zip(bare) {
         if !*was_bare {
             continue;
@@ -1339,6 +1351,18 @@ fn rust_keep_bare_calls_in_scope(
             continue;
         };
         let caller = edge.source.strip_prefix(&prefix).unwrap_or("");
+        // `let f = |..| f(..);`: the binding is not in scope in its own
+        // initializer, so the inner `f` is what the name meant before it.
+        if closures.contains(symbol)
+            && (caller == symbol || caller.starts_with(&format!("{symbol}.")))
+        {
+            edge.target = if free_functions.contains(name) {
+                format!("{prefix}{name}")
+            } else {
+                name.to_string()
+            };
+            continue;
+        }
         let in_scope = reachable.contains(parent)
             && (caller == parent || caller.starts_with(&format!("{parent}.")));
         if !in_scope {
@@ -1354,7 +1378,8 @@ fn rust_keep_bare_calls_in_scope(
 ///   declared elsewhere) -> `method` with `receiver_type: "Type"`;
 /// - `module::f` / `crate::a::f` / `super::f` -> `f` with `module_file`, the
 ///   file of the module, when it is in this repository;
-/// - a name imported under an alias (`use a::f as g; g()`) -> `f`.
+/// - a name a `use` brought in (`use crate::a::f; f()`) -> `f` with that
+///   `module_file`, and under an alias (`use a::f as g; g()`) -> `f`.
 fn rust_finish_call_targets(
     edges: &mut [ParsedEdge],
     file_path: &FilePath,
@@ -1371,8 +1396,15 @@ fn rust_finish_call_targets(
         }
         let mut segments: Vec<String> = edge.target.split("::").map(str::to_string).collect();
         if segments.len() == 1 {
-            if let Some(path) = uses.get(&segments[0])
-                && let Some(original) = path.last()
+            let Some(path) = uses.get(&segments[0]) else {
+                continue;
+            };
+            if let Some(resolved) = scope.and_then(|scope| scope.resolve(path))
+                && resolved.rest.len() == 1
+            {
+                edge.extra["module_file"] = json!(resolved.file);
+            }
+            if let Some(original) = path.last()
                 && original != &segments[0]
             {
                 edge.extra["alias"] = json!(segments[0]);
@@ -2630,9 +2662,10 @@ pub(super) fn rust_rightmost_identifier(
     None
 }
 
-/// A function passed as a value (`rows.map(edge_from_row)`): REFERENCES to
-/// it. Only a free function counts (a method is `Type::m`), and a name a
-/// local binding shadows (`node_to_value(node)`) is the local. A function a
+/// A function passed as a value (`rows.map(edge_from_row)`, also as a tuple
+/// or array element or a struct field's value): REFERENCES to it. Only a
+/// free function counts (a method is `Type::m`), and a name a local binding
+/// shadows (`node_to_value(node)`) is the local. A function a
 /// `use` brought in is left for resolution across files (`value_reference`,
 /// with the module's file when known).
 fn rust_emit_argument_references(
@@ -2788,7 +2821,8 @@ fn rust_method_reference(
 /// own scope.
 fn rust_local_bindings(function: tree_sitter::Node<'_>, source: &[u8]) -> HashSet<String> {
     fn pattern_names(node: tree_sitter::Node<'_>, source: &[u8], names: &mut HashSet<String>) {
-        if node.kind() == "identifier" {
+        // `S { ranges, .. }` binds `ranges`.
+        if matches!(node.kind(), "identifier" | "shorthand_field_identifier") {
             names.insert(node_text(node, source));
             return;
         }

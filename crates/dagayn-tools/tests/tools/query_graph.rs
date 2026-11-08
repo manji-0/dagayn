@@ -1211,6 +1211,138 @@ fn closures_over_returned_elements_and_method_values_reach_their_targets() {
     );
 }
 
+/// Incoming CALLS / REFERENCES of `target` in the built graph, as (kind, source).
+fn incoming(repo: &Repo, target: &str) -> Vec<(String, String)> {
+    let store = GraphStore::open(db_path_for_build(&repo.0).expect("db")).expect("store");
+    let (_, incoming) = store
+        .get_edges_by_endpoints(&[target.to_string()])
+        .expect("edges");
+    let mut found: Vec<(String, String)> = incoming
+        .get(target)
+        .into_iter()
+        .flatten()
+        .filter(|edge| edge.kind != "CONTAINS")
+        .map(|edge| (edge.kind.clone(), edge.source_qualified.clone()))
+        .collect();
+    found.sort();
+    found
+}
+
+#[test]
+fn rust_calls_through_a_reexport_reach_the_declaration() {
+    // dagayn: tests crates/dagayn-graph/src/postprocess/bare_names.rs::resolve_in_module
+    // dagayn: tests crates/dagayn-parser/src/rust_lang/mod.rs::rust_finish_call_targets
+    let repo = Repo::new("rust-reexports", false);
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write(
+        "src/lib.rs",
+        "pub mod engine;\npub mod findings;\npub mod other;\npub mod py;\npub mod query;\n",
+    );
+    // `py` re-exports `parse` from a submodule and imports from `engine`,
+    // which declares a `parse` of its own.
+    repo.write(
+        "src/engine.rs",
+        "pub fn parse() {\n    crate::py::parse();\n}\n\npub fn helper() {}\n",
+    );
+    repo.write(
+        "src/py/mod.rs",
+        "mod notebook;\n\npub(crate) use notebook::parse;\nuse crate::engine::helper;\n\npub fn run() {\n    helper();\n}\n",
+    );
+    repo.write("src/py/notebook.rs", "pub fn parse() {}\n");
+    // `findings` imports `role` through `query`'s re-export, and also sees
+    // `other`, which declares a `role` of its own.
+    repo.write(
+        "src/query/mod.rs",
+        "mod rows;\n\npub(crate) use rows::role;\n",
+    );
+    repo.write("src/query/rows.rs", "pub fn role() {}\n");
+    repo.write("src/other.rs", "pub fn role() {}\n\npub fn thing() {}\n");
+    repo.write(
+        "src/findings.rs",
+        "use crate::other::thing;\nuse crate::query::role;\n\npub fn report() {\n    role();\n    thing();\n}\n",
+    );
+    repo.build();
+    assert_eq!(
+        incoming(&repo, "src/py/notebook.rs::parse"),
+        [("CALLS".to_string(), "src/engine.rs::parse".to_string())]
+    );
+    assert_eq!(
+        incoming(&repo, "src/query/rows.rs::role"),
+        [("CALLS".to_string(), "src/findings.rs::report".to_string())]
+    );
+    assert!(incoming(&repo, "src/other.rs::role").is_empty());
+}
+
+#[test]
+fn rust_a_let_closure_calls_the_function_its_name_shadows() {
+    // dagayn: tests crates/dagayn-parser/src/rust_lang/mod.rs::rust_keep_bare_calls_in_scope
+    let repo = Repo::new("rust-closure-shadow", false);
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("src/lib.rs", "pub mod answer;\npub mod resolve;\n");
+    repo.write(
+        "src/resolve.rs",
+        "pub fn ambiguous(x: u8) -> u8 {\n    x\n}\n",
+    );
+    // A `let` binding is not in scope in its own initializer: the
+    // closure's `ambiguous(x)` is the imported function.
+    repo.write(
+        "src/answer.rs",
+        "use crate::resolve::ambiguous;\n\npub fn answer() -> u8 {\n    let ambiguous = |x: u8| ambiguous(x);\n    ambiguous(1)\n}\n",
+    );
+    repo.build();
+    assert_eq!(
+        incoming(&repo, "src/resolve.rs::ambiguous"),
+        [(
+            "CALLS".to_string(),
+            "src/answer.rs::answer.ambiguous".to_string()
+        )]
+    );
+    assert_eq!(
+        incoming(&repo, "src/answer.rs::answer.ambiguous"),
+        [("CALLS".to_string(), "src/answer.rs::answer".to_string())]
+    );
+}
+
+#[test]
+fn rust_functions_in_tuples_and_struct_fields_are_references() {
+    // dagayn: tests crates/dagayn-parser/src/rust_lang/mod.rs::rust_emit_argument_references
+    let repo = Repo::new("rust-function-values", false);
+    repo.write(
+        "Cargo.toml",
+        "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    );
+    repo.write("src/lib.rs", "pub mod builtins;\npub mod scope;\n");
+    repo.write(
+        "src/builtins.rs",
+        "pub fn is_builtin(_: &str) -> bool {\n    true\n}\n",
+    );
+    repo.write(
+        "src/scope.rs",
+        "use crate::builtins::is_builtin;\n\npub struct Scope {\n    pub implicit: Option<(fn(&str) -> bool, &'static str)>,\n    pub check: fn(&str) -> bool,\n    pub all: [fn(&str) -> bool; 1],\n}\n\nfn local_check(_: &str) -> bool {\n    false\n}\n\nfn listed(_: &str) -> bool {\n    false\n}\n\nfn flag(_: &str) -> bool {\n    false\n}\n\npub struct Opts {\n    pub flag: u8,\n}\n\npub fn scope(name: &str, opts: Opts) -> Scope {\n    let check = name.len();\n    let Opts { flag } = opts;\n    let _ = (name, check, flag);\n    Scope {\n        implicit: Some((is_builtin, \"k\")),\n        check: local_check,\n        all: [listed],\n    }\n}\n",
+    );
+    repo.build();
+    assert_eq!(
+        incoming(&repo, "src/builtins.rs::is_builtin"),
+        [("REFERENCES".to_string(), "src/scope.rs::scope".to_string())]
+    );
+    assert_eq!(
+        incoming(&repo, "src/scope.rs::local_check"),
+        [("REFERENCES".to_string(), "src/scope.rs::scope".to_string())]
+    );
+    assert_eq!(
+        incoming(&repo, "src/scope.rs::listed"),
+        [("REFERENCES".to_string(), "src/scope.rs::scope".to_string())]
+    );
+    // `flag` in the tuple is the field `let Opts { flag }` bound.
+    assert!(incoming(&repo, "src/scope.rs::flag").is_empty());
+}
+
 #[test]
 fn go_packages_are_imported_through_their_files() {
     // dagayn: tests crates/dagayn-tools/src/query/mod.rs::query_graph

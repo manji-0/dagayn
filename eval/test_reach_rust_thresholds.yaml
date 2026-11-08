@@ -5,6 +5,10 @@
 # precision 0.464, recall 0.267, tested precision 0.944. llvm-cov counts
 # what binaries the tests spawn ran, which the call graph does not cross, so
 # the floors sit a little further under the current values than Python's.
+# Measured 2026-11-08 at rust extractor 29 on 3,256 functions, with calls
+# through re-exports, `let` closures that shadow a function, and functions
+# in tuples or struct fields reached: 0.464, 0.278, 0.952 (was 0.437, 0.282,
+# 0.952 on 3,254).
 floors:
   untested_precision: 0.43
   untested_recall: 0.23
