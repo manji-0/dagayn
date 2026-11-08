@@ -163,6 +163,33 @@ jobs:
           uv run python -m dagayn.vendor_grammars
           uv run dagayn build
           uv run python eval/run_test_reach_eval.py --coverage rust-coverage.json --gate --thresholds eval/test_reach_rust_thresholds.yaml
+      - name: Install Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.24.x"
+          cache: false
+      - name: Gate untested_change on Go against testify's coverage
+        # Runs testify v1.12.1's tests with coverage, builds its graph, and
+        # asks tests_for's test_reach of every Go function the listing names
+        # (docs/plans/GO-SUPPORT-MEASUREMENTS.md#m2-test-reach-against-go-coverage).
+        run: |
+          eval/go_test_reach_corpus.sh "$RUNNER_TEMP"
+          uv run python eval/run_test_reach_eval.py --coverage "$RUNNER_TEMP/testify/cover.func" --repo "$RUNNER_TEMP/testify" --gate --thresholds eval/test_reach_go_thresholds.yaml
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 12.3.4
+      - name: Install Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - name: Gate untested_change on TypeScript against web-ui's coverage
+        # Runs cfwdon web-ui's vitest tests with v8 coverage, builds its
+        # graph, and asks tests_for's test_reach of every function the report
+        # names (docs/plans/TYPESCRIPT-SUPPORT-MEASUREMENTS.md#the-ci-floor).
+        run: |
+          eval/ts_test_reach_corpus.sh "$RUNNER_TEMP"
+          uv run python eval/run_test_reach_eval.py --coverage "$RUNNER_TEMP/web-ui/coverage/coverage-final.json" --repo "$RUNNER_TEMP/web-ui" --gate --thresholds eval/test_reach_ts_thresholds.yaml
       - name: Standalone Rust CLI against the Python one
         # The Rust `dagayn build` and `update` must write the graph the Python
         # CLI writes; the server under test stays the Python one.

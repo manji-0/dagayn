@@ -354,9 +354,8 @@ so any difference anywhere fails the step.
 - The eval gates that plain pytest skips: `DAGAYN_REVIEW_EVAL=1`,
   `DAGAYN_ARCHITECTURE_EVAL=1`, `DAGAYN_REFACTOR_EVAL=1`,
   `DAGAYN_FLOW_EVAL=1`, and `DAGAYN_TEST_REACH_EVAL=1`. Steps 3 and 7
-  change graph code. No Go test-reach thresholds file exists (#293), so
-  for Go, rerun the M2 harness (`run_test_reach_eval.py` on a
-  `go tool cover -func` listing) on testify before and after.
+  change graph code. For Go, `eval/go_test_reach_corpus.sh` and
+  `eval/test_reach_go_thresholds.yaml` run the CI gate on testify.
 - Steps 3 and 7: `tools/parity_export.py` before and after on every parity
   fixture, and on this repository's own graph, built in a fresh clone. The
   PostToolUse hook rewrites a local graph with the installed dagayn, so

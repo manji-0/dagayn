@@ -139,8 +139,34 @@ Durable Object stub and settles `.publish(envelope)` on it. On web-ui it
 changes none.
 
 The plan asks for a floor file if tested precision is at least 0.90.
-tstodon's is 0.996 and web-ui's 0.765. No floor is set: M1 is report
-only, and neither repository has a coverage run in dagayn's CI.
+tstodon's is 0.996 and web-ui's 0.765. No floor was set then: M1 was
+report only, and neither repository had a coverage run in dagayn's CI.
+
+### The CI floor
+
+<!-- derived-from #m1-test-reach-against-coverage -->
+<!-- derived-from ./FIRST-CLASS-LANGUAGES-TARGET.md#decisions-2026-11-08 -->
+
+CI now gates TypeScript test reach on cfwdon's web-ui at `9432966` (#293).
+`eval/ts_test_reach_corpus.sh` fetches that commit from GitHub, copies
+`web-ui` into a repository of its own, installs it with
+`pnpm install --frozen-lockfile`, adds `@vitest/coverage-v8` at the
+installed vitest's version, runs the tests with v8 coverage over
+`src/**`, and builds a plain graph. The `rust-backend` job then runs
+`run_test_reach_eval.py --gate` against
+`eval/test_reach_ts_thresholds.yaml`.
+
+| Repository (javascript extractor 16) | Functions | Called untested | Ran, called untested | `no_callers` / `no_test_path` / `beyond_limit` (ran) | Untested precision | Recall | Tested precision |
+|---|---|---|---|---|---|---|---|
+| web-ui, alone | 483 | 95 | 15 | 3 / 12 / 0 | 0.842 | 0.468 | 0.765 |
+
+The copy alone gives M1's numbers on the whole repository. The floors are
+0.81, 0.43, and 0.73, about 0.03 under. A floor raised above its measured
+value fails the gate. Tested precision is under M1's 0.90 bar, so this
+floor guards against regressions and says nothing about quality
+([decision](./FIRST-CLASS-LANGUAGES-TARGET.md#decisions-2026-11-08)).
+tstodon has no floor: the commit M1 measured is not on GitHub, and its
+workerd project would also have to run in CI.
 
 ### tstodon: why the functions that ran are called untested
 
