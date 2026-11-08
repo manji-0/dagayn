@@ -18,6 +18,10 @@
 # argument builders in a top-level table, GuidanceEvidence.normalize_type),
 # and 2 never-run functions now called tested (one is
 # scip_overlay._python_arguments).
+# By 2026-11-08: 0.913, 0.644, 0.948 on 1,099 (the queue budget work added
+# `_execute_update`, which the worker calls through its `_TASK_EXECUTORS`
+# table, and `_suspended_by_overruns` under it). A `dagayn: tests`
+# declaration on the test that runs it: 0.931, 0.644, 0.948.
 # The floors sit just under the
 # current values; raise them as the call graph improves.
 floors:
