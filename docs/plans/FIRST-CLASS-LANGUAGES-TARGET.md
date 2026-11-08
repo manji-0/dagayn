@@ -145,7 +145,7 @@ these calls with no import at all.
 | C4 | partial | `member_shape` and heritage edges; on tstodon, 1,235 unresolved method calls name a repository method. On Hono, method-call precision 0.95 and recall 0.70 ([E14 and E15](./AGENT-WORKFLOW-TARGET.md#order-of-work)). Lazy `await import()` routes and anonymous route arrows are not resolved ([open measurements](./OPEN-MEASUREMENTS.md#flow-entry-points), #294) |
 | C5 | present | npm `dependencies` / `peerDependencies` (`units.rs:209-221`) |
 | C6 | present | authoritative; 73 of 89 node edges agree, 13 where SCIP shows dagayn wrong |
-| C7 | partial | the harness reads vitest's istanbul JSON (M1): 0.091 / 0.964 / 0.995 on tstodon, 0.842 / 0.468 / 0.765 on web-ui (#295); no gate (#293) |
+| C7 | partial | the harness reads vitest's istanbul JSON (M1): 0.091 / 0.964 / 0.995 on tstodon, 0.842 / 0.468 / 0.765 on web-ui (#295); web-ui gated in CI since 2026-11-08 as a regression floor under the 0.90 bar ([the CI floor](./TYPESCRIPT-SUPPORT-MEASUREMENTS.md#the-ci-floor)) |
 | C8 | partial | review 4, architecture 2, flow 1, refactor 0 |
 | C9 | present | export markers (`dead_code.rs:285-306`); tstodon 4 of 5 right |
 | C10 | partial | E15: time 0.65x at equal accuracy, tokens not different |
@@ -177,7 +177,7 @@ these calls with no import at all.
 | C4 | partial | method calls on a receiver of a declared type (`go.rs:588`); interfaces are satisfied implicitly and no edge records it (0 `IMPLEMENTS`) |
 | C5 | present | a Go package is a `go_package` unit ([G4](./GO-SUPPORT-MEASUREMENTS.md#g4-units-by-package)): scip-go's overview goes from 1 unit to 15, with 33 edge pairs. An import of another module's package is a declared dependency when the importing `go.mod` requires that module; a `require` alone draws no edge |
 | C6 | present | authoritative under `build --scip`; [G6](./GO-SUPPORT-MEASUREMENTS.md#g6-the-scip-go-comparison) measured it: node edges agree with scip-go on 7,003 of 7,017 (compress) and 287 of 287 (scip-go), and the 234 edges authoritative mode changes on compress are all right ([authoritative Go](./GO-SUPPORT-MEASUREMENTS.md#authoritative-go)) |
-| C7 | partial | the harness reads `go tool cover -func` ([M2](./GO-SUPPORT-MEASUREMENTS.md#m2-test-reach-against-go-coverage)): 0.954 / 0.991 / 0.985 on testify and 0.381 / 0.849 / 0.966 on compress at go 12 ([G3](./GO-SUPPORT-MEASUREMENTS.md#test-reach-and-the-no-caller-share)); gated in CI on testify since 2026-11-08, measured 0.965 / 0.993 / 0.991 at go 19 ([the CI floor](./GO-SUPPORT-MEASUREMENTS.md#the-ci-floor)); compress has no floor |
+| C7 | partial | the harness reads `go tool cover -func` ([M2](./GO-SUPPORT-MEASUREMENTS.md#m2-test-reach-against-go-coverage)): 0.954 / 0.991 / 0.985 on testify and 0.381 / 0.849 / 0.966 on compress at go 12 ([G3](./GO-SUPPORT-MEASUREMENTS.md#test-reach-and-the-no-caller-share)); gated in CI on testify since 2026-11-08, measured 0.965 / 0.993 / 0.991 at go 20 ([the CI floor](./GO-SUPPORT-MEASUREMENTS.md#the-ci-floor)); compress has no floor |
 | C8 | partial | review 7, architecture 3, flow 0, refactor 5; no flow case yet (#291) |
 | C9 | present | `init` and protocol methods (`dead_code_verify.rs:319-330`); exported names of importable packages (`go_exported_api`, G5); `Benchmark` / `Fuzz` / `Example` functions are `Test` nodes (G1) |
 | C10 | **failed** | G7, on questions a script cannot answer: tokens 1.00x, time 0.91x, neither significant ([results](../../eval/g7_go/RESULTS.md)). G8, on eight new questions on 11.0.0: tokens 1.20x (more, Holm p = 0.0003), time 0.97x, 73 against 79 of 80 exact ([results](../../eval/g8_go/RESULTS.md)). G9, under the revised bar, on go extractor 17: LONG time 0.79x (Holm p = 0.0003) at tokens 0.95x and 77 against 75 exact, but SHORT tokens 1.17x, above the 1.10 guard ([results](../../eval/g9_go/RESULTS.md)). G10, through the CLI on twelve new questions (six on the untuned chi), on go extractor 18: LONG tokens 1.03x and time 0.98x (Holm p = 1.0), 75 against 76 exact; SHORT tokens 0.92x, within the 1.25 guard, but 39 against 40 exact ([results](../../eval/g10_go/RESULTS.md)) |
@@ -777,3 +777,21 @@ Taken by the owner after G9, before G10's questions are drawn (#292).
   T10, and T11 (5 runs per arm, not registered) answered 5 of the 6
   first calls that would have been a retry; K3 stayed at 1.30x because
   every run grepped the name after the answer.
+
+## Decisions (2026-11-08)
+
+<!-- derived-from ./TYPESCRIPT-SUPPORT-MEASUREMENTS.md#m1-test-reach-against-coverage -->
+<!-- derived-from #decisions-2026-11-03 -->
+
+Taken by the owner when CI gained a TypeScript coverage run (#293).
+
+- **web-ui gets a regression floor below M1's bar.** M1 asked for a floor
+  file only at tested precision 0.90 or above, and web-ui measures 0.765.
+  The floor (0.81 / 0.43 / 0.73) only stops the numbers from falling. The
+  0.90 bar still decides when TypeScript test reach counts as good, and
+  the floor rises when #295 raises web-ui's tested precision.
+- **Why web-ui.** It is public, runs its 216 tests in about two seconds
+  under Node alone, and reproduces M1's numbers. tstodon passes the bar
+  (0.995), but the commit M1 measured is not on GitHub, and its workerd
+  project would make the CI job slower and more fragile. Its untested
+  precision is 0.09, so only tested precision would gate anything there.

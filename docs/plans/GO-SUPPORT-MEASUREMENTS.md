@@ -75,7 +75,7 @@ of the source tree. The `rust-backend` job then runs
 `run_test_reach_eval.py --gate` against
 `eval/test_reach_go_thresholds.yaml`.
 
-| Repository (go extractor 19) | Functions | Called untested | Ran, called untested | `no_callers` / `no_test_path` / `beyond_limit` (ran) | Untested precision | Recall | Tested precision |
+| Repository (go extractor 20) | Functions | Called untested | Ran, called untested | `no_callers` / `no_test_path` / `beyond_limit` (ran) | Untested precision | Recall | Tested precision |
 |---|---|---|---|---|---|---|---|
 | testify | 796 | 455 | 16 | 14 / 2 / 0 | 0.965 | 0.993 | 0.991 |
 
