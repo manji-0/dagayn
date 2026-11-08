@@ -444,7 +444,7 @@ wheels = [
 
 [[package]]
 name = "dagayn"
-version = "11.1.0"
+version = "11.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastmcp" },
