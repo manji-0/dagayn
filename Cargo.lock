@@ -779,7 +779,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2432,7 +2432,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2678,10 +2678,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
-name = "smallvec"
-version = "1.15.2"
+name = "smallbitvec"
+version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ed6a63f02c8539c91a8685a86f4099661ba3da017932f6ebbea6de3f0fa7c90"
+checksum = "9b0e903ee191d8f7a8fbf0d712c3a1699d19e04ceba5ad1eb673053c7d938a09"
+
+[[package]]
+name = "smallvec"
+version = "1.16.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
 
 [[package]]
 name = "stable_deref_trait"
@@ -2806,7 +2812,7 @@ dependencies = [
  "getrandom 0.3.4",
  "once_cell",
  "rustix",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -3015,8 +3021,8 @@ checksum = "ca0d1bf6fdd806e43ae5198f82f527056d359def39e54e67a0f478ac09dac081"
 
 [[package]]
 name = "tsrs_ast"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "bitflags",
  "hashbrown 0.17.1",
@@ -3029,8 +3035,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_astnav"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "tsrs_ast",
  "tsrs_core",
@@ -3039,8 +3045,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_binder"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "bitflags",
  "rustc-hash",
@@ -3052,12 +3058,14 @@ dependencies = [
 
 [[package]]
 name = "tsrs_checker"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "bitflags",
  "hashbrown 0.17.1",
  "rustc-hash",
+ "smallbitvec",
+ "smallvec",
  "tsrs_ast",
  "tsrs_astnav",
  "tsrs_binder",
@@ -3075,8 +3083,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_compiler"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "rayon",
  "rustc-hash",
@@ -3101,8 +3109,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_contentmapper"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "rustc-hash",
  "tsrs_ast",
@@ -3117,8 +3125,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_core"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "dragonbox_ecma",
  "hashbrown 0.17.1",
@@ -3135,8 +3143,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_declarations"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "rustc-hash",
  "tsrs_ast",
@@ -3152,16 +3160,16 @@ dependencies = [
 
 [[package]]
 name = "tsrs_diagnostics"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "rustc-hash",
 ]
 
 [[package]]
 name = "tsrs_ipc"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "rustc-hash",
  "tsrs_core",
@@ -3169,8 +3177,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_module"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "bitflags",
  "hashbrown 0.17.1",
@@ -3183,8 +3191,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_modulespecifiers"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "regex",
  "rustc-hash",
@@ -3196,8 +3204,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_parser"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "bitflags",
  "rustc-hash",
@@ -3209,8 +3217,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_printer"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "bitflags",
  "rustc-hash",
@@ -3222,8 +3230,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_pseudochecker"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "tsrs_ast",
  "tsrs_core",
@@ -3231,8 +3239,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_scanner"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "bitflags",
  "memchr",
@@ -3244,8 +3252,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_sourcemap"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "rustc-hash",
  "tsrs_ast",
@@ -3255,8 +3263,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_spanmap"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "bitflags",
  "tsrs_core",
@@ -3264,8 +3272,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_transformers"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "bitflags",
  "rustc-hash",
@@ -3280,8 +3288,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_tsoptions"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "rustc-hash",
  "tsrs_ast",
@@ -3296,8 +3304,8 @@ dependencies = [
 
 [[package]]
 name = "tsrs_vfs"
-version = "0.19.0"
-source = "git+https://github.com/oxc-project/tsrs?rev=e906c9e4#e906c9e430f555ff66286ff81cbf0d23566ad742"
+version = "7.1.0-beta.tsrs2"
+source = "git+https://github.com/oxc-project/tsrs?rev=7eb504db#7eb504db5ce54d160a73399fadd30f7f695681c1"
 dependencies = [
  "bitflags",
  "rayon",
