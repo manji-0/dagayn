@@ -4,6 +4,12 @@ All notable changes to `dagayn` are documented here.
 
 ## Unreleased
 
+### Changed
+
+- tsrs, the TypeScript checker behind `dagayn-scip-typescript`, moves from
+  `e906c9e4` to `7eb504db`. That rev needs Rust 1.100, so the workspace
+  now targets 1.100.0. No source change was needed.
+
 ## 11.2.0 — 2026-11-09
 
 ### Added

@@ -29,7 +29,7 @@ use occurrences::Counts;
 use symbols::SymbolNamer;
 
 /// The tsrs commit `[workspace.dependencies]` pins; a test checks they agree.
-pub const TSRS_REV: &str = "e906c9e4";
+pub const TSRS_REV: &str = "7eb504db";
 
 /// The checker needs a deep stack; the thread that runs it gets 512 MB.
 const STACK_BYTES: usize = 512 << 20;
