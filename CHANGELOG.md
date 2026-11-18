@@ -16,6 +16,9 @@ All notable changes to `dagayn` are documented here.
   refreshed within its semver ranges.
 - Python dependencies: `uv.lock` refreshed (fastmcp 4.2.1, mcp 2.3.0,
   ruff 0.17.5, pyrefly 1.4.1), and the `dev` extra allows pytest 9.
+  fastmcp 4.2 advertises `listChanged: true` for prompts and resources
+  in `initialize`; the MCP snapshots and `mcp_surface.json` follow.
+  `server/discover` is unchanged.
 - CI uses `actions/checkout@v7` and `astral-sh/setup-uv@v10.3.3`.
 
 ## 11.2.0 — 2026-11-09
