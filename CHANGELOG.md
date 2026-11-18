@@ -9,6 +9,14 @@ All notable changes to `dagayn` are documented here.
 - tsrs, the TypeScript checker behind `dagayn-scip-typescript`, moves from
   `e906c9e4` to `7eb504db`. That rev needs Rust 1.100, so the workspace
   now targets 1.100.0. No source change was needed.
+- ruff and ty, behind the Python extractor and `dagayn-scip-python`, move
+  from `e139fbd6` to `b0015ad9`.
+- Rust dependencies: pyo3 0.30, rusqlite 0.43 (bundled SQLite from
+  libsqlite3-sys 0.40), sha2 0.11, toml 1, and the rest of `Cargo.lock`
+  refreshed within its semver ranges.
+- Python dependencies: `uv.lock` refreshed (fastmcp 4.2.1, mcp 2.3.0,
+  ruff 0.17.5, pyrefly 1.4.1), and the `dev` extra allows pytest 9.
+- CI uses `actions/checkout@v7` and `astral-sh/setup-uv@v10.3.3`.
 
 ## 11.2.0 — 2026-11-09
 
