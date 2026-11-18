@@ -37,7 +37,7 @@ strip = false
 [workspace.dependencies]
 globset = "0.4"
 memchr = "2"
-pyo3 = "0.28"
+pyo3 = "0.30"
 regex = "1"
 # Ruff's crates are internal components of Ruff with no API stability
 # promise. The Python extractor's parser and the ty checker behind
