@@ -2,9 +2,9 @@
 
 use std::path::{Path, PathBuf};
 
+use dagayn_build::parse_batch::sha256_hex;
 use dagayn_graph::GraphNode;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 use crate::coverage::splitlines;
 use crate::pypath::realpath;
@@ -156,7 +156,7 @@ pub(crate) fn source_row(
     let Ok(raw) = std::fs::read(&resolved) else {
         return Some(unread_row(node, "unreadable"));
     };
-    let live_hash = format!("{:x}", Sha256::digest(&raw));
+    let live_hash = sha256_hex(&raw);
     let stored = node.file_hash.as_deref().unwrap_or("");
     let stale = !stored.is_empty() && stored != live_hash;
     let text = String::from_utf8_lossy(&raw);

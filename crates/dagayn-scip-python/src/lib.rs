@@ -31,7 +31,7 @@ use occurrences::Counts;
 use symbols::{Project, SymbolNamer};
 
 /// The ruff commit `[workspace.dependencies]` pins; a test checks they agree.
-pub const RUFF_REV: &str = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456";
+pub const RUFF_REV: &str = "b0015ad9050983de507422da8991374acb857a83";
 
 /// What one `index` call produced.
 #[derive(Debug, Default, Serialize)]

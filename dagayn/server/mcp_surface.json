@@ -3,11 +3,11 @@
   "capabilities": {
    "logging": {},
    "prompts": {
-    "listChanged": false
+    "listChanged": true
    },
    "resources": {
     "subscribe": false,
-    "listChanged": false
+    "listChanged": true
    },
    "tools": {
     "listChanged": true

@@ -37,29 +37,29 @@ strip = false
 [workspace.dependencies]
 globset = "0.4"
 memchr = "2"
-pyo3 = "0.28"
+pyo3 = "0.30"
 regex = "1"
 # Ruff's crates are internal components of Ruff with no API stability
 # promise. The Python extractor's parser and the ty checker behind
 # `dagayn-scip-python` come from one commit, so one copy of ruff is built;
 # bump every ruff_* and ty_* line together.
-ruff_db = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456", features = ["os"] }
-ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
-ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
-ruff_source_file = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
-ruff_text_size = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
-ty_ide = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
-ty_module_resolver = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
-ty_project = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
-ty_python_core = { git = "https://github.com/astral-sh/ruff", rev = "e139fbd6e8ddd5a1653d2f2c15c1123c090a3456" }
+ruff_db = { git = "https://github.com/astral-sh/ruff", rev = "b0015ad9050983de507422da8991374acb857a83", features = ["os"] }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev = "b0015ad9050983de507422da8991374acb857a83" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev = "b0015ad9050983de507422da8991374acb857a83" }
+ruff_source_file = { git = "https://github.com/astral-sh/ruff", rev = "b0015ad9050983de507422da8991374acb857a83" }
+ruff_text_size = { git = "https://github.com/astral-sh/ruff", rev = "b0015ad9050983de507422da8991374acb857a83" }
+ty_ide = { git = "https://github.com/astral-sh/ruff", rev = "b0015ad9050983de507422da8991374acb857a83" }
+ty_module_resolver = { git = "https://github.com/astral-sh/ruff", rev = "b0015ad9050983de507422da8991374acb857a83" }
+ty_project = { git = "https://github.com/astral-sh/ruff", rev = "b0015ad9050983de507422da8991374acb857a83" }
+ty_python_core = { git = "https://github.com/astral-sh/ruff", rev = "b0015ad9050983de507422da8991374acb857a83" }
 # The collection type of ruff_python_ast bodies; tracks its version.
 thin-vec = "0.2.20"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
-sha2 = "0.10"
+sha2 = "0.11"
 thiserror = "2"
-toml = "0.8"
+toml = "1"
 tree-sitter = "0.27"
 tree-sitter-language = "0.1.8"
 # The TypeScript checker behind `dagayn-scip-typescript`. Not on crates.io and

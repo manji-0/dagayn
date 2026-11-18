@@ -92,10 +92,10 @@
         "capabilities": {
           "logging": {},
           "prompts": {
-            "listChanged": false
+            "listChanged": true
           },
           "resources": {
-            "listChanged": false,
+            "listChanged": true,
             "subscribe": false
           },
           "tools": {
@@ -1430,10 +1430,10 @@
         "capabilities": {
           "logging": {},
           "prompts": {
-            "listChanged": false
+            "listChanged": true
           },
           "resources": {
-            "listChanged": false,
+            "listChanged": true,
             "subscribe": false
           },
           "tools": {
@@ -2312,10 +2312,10 @@
         "capabilities": {
           "logging": {},
           "prompts": {
-            "listChanged": false
+            "listChanged": true
           },
           "resources": {
-            "listChanged": false,
+            "listChanged": true,
             "subscribe": false
           },
           "tools": {
@@ -2335,10 +2335,10 @@
         "capabilities": {
           "logging": {},
           "prompts": {
-            "listChanged": false
+            "listChanged": true
           },
           "resources": {
-            "listChanged": false,
+            "listChanged": true,
             "subscribe": false
           },
           "tools": {
