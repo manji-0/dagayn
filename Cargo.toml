@@ -57,9 +57,9 @@ thin-vec = "0.2.20"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
-sha2 = "0.10"
+sha2 = "0.11"
 thiserror = "2"
-toml = "0.8"
+toml = "1"
 tree-sitter = "0.27"
 tree-sitter-language = "0.1.8"
 # The TypeScript checker behind `dagayn-scip-typescript`. Not on crates.io and

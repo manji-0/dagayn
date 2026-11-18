@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
+use dagayn_build::parse_batch::sha256_hex;
 use dagayn_build::{is_safe_git_ref, jj, svn};
 use dagayn_graph::{GraphEdge, GraphNode, GraphStore};
 use serde_json::{Map, Value, json};
@@ -342,14 +343,6 @@ impl Context<'_> {
                 .is_some_and(|(hash, _)| !hash.is_empty() && *hash != current)
         }))
     }
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    use sha2::{Digest, Sha256};
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }
 
 /// `map_changes_with_attribution`: the nodes and the files whose graph line
