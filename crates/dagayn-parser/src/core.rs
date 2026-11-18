@@ -1347,16 +1347,17 @@ mod parser_core_tests {
 /// `None` when either side does not parse on its own. Both sides are
 /// dedented first, so a method span compares too.
 pub fn python_same_code(before: &str, after: &str) -> Option<bool> {
-    use ruff_python_ast::comparable::ComparableModModule;
-    let parse = |text: &str| -> Option<ruff_python_ast::ModModule> {
+    use ruff_python_ast::Mod;
+    use ruff_python_ast::comparable::ComparableMod;
+    let parse = |text: &str| -> Option<Mod> {
         let mut module = ruff_python_parser::parse_module(&dedent(text))
             .ok()?
             .into_syntax();
         strip_docstrings(&mut module.body);
-        Some(module)
+        Some(Mod::Module(module))
     };
     let (before, after) = (parse(before)?, parse(after)?);
-    Some(ComparableModModule::from(&before) == ComparableModModule::from(&after))
+    Some(ComparableMod::from(&before) == ComparableMod::from(&after))
 }
 
 /// Drops the docstring that opens `body` and every function or class body
